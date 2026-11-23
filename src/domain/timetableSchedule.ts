@@ -16,7 +16,7 @@
  * 碎塊（整塊 < 60 秒）在這裡判，門檻＝`timetableStats.ts` 的 `TINY_MS`（D-時-44；測試釘住兩邊相等）。
  */
 import { MIN, durOf, fmtDur, sliceSpans, type Span } from "./timetable.ts";
-import { isTimeOverridden } from "./scheduledTime.ts";
+import { isTimeOverridden, type SeatingSlotRef } from "./scheduledTime.ts";
 import { clockInstant, clockText, dayWindow, isClockInRange, type ClockText } from "../lib/date.ts";
 import type { ScheduleEntry, TodayRow } from "../data/nodeRepository";
 import type { NodeRow } from "./node";
@@ -76,11 +76,33 @@ export interface PlanItem {
    * 撤回要一起寫回「寫入之前」的值，不然今日頁同時有延着＋繰越兩章（D-主-33）。一般預定項＝null。
    */
   carriedFrom: string | null;
+  /** Mode A（4C）：該班次本班填空標題 */
+  customTitle?: string | null;
+  /** Mode B（4C）：若此票已入座頂替預留席，攜帶母空位參考 */
+  seatedInto?: SeatingSlotRef | null;
+  /** 4B：若來源節點為期間自由券 `[start, end]`，紀錄原始區間（排上時刻後收斂為單日，撤回可還原） */
+  rangeOrigin?: { start: string; end: string } | null;
 }
 
 /** ScheduleEntry（listCalendar 的一列）＋節點 → 預定項。節點找不到 ⇒ 沒有預計、沒有覆寫 */
-export function planItemOf(e: ScheduleEntry, node: Pick<NodeRow, "estimate_min" | "time_overrides" | "repeat_rule"> | null | undefined): PlanItem {
-  const est = node?.estimate_min ?? null;
+export function planItemOf(
+  e: ScheduleEntry,
+  node:
+    | (Pick<NodeRow, "estimate_min" | "time_overrides" | "repeat_rule"> &
+        Partial<Pick<NodeRow, "scheduled_on" | "scheduled_end">>)
+    | null
+    | undefined,
+): PlanItem {
+  const ownEst = node?.estimate_min ?? null;
+  const slotEst = e.seated_into?.slotEstimateMin ?? null;
+  const est = typeof ownEst === "number" && ownEst > 0 ? ownEst : typeof slotEst === "number" && slotEst > 0 ? slotEst : null;
+  const rangeOrigin =
+    e.kind === "single" &&
+    node?.scheduled_on &&
+    node.scheduled_end &&
+    node.scheduled_end > node.scheduled_on
+      ? { start: node.scheduled_on, end: node.scheduled_end }
+      : null;
   return {
     key: `${e.date}-${e.node_id}`,
     nodeId: e.node_id,
@@ -88,11 +110,14 @@ export function planItemOf(e: ScheduleEntry, node: Pick<NodeRow, "estimate_min" 
     kind: e.kind,
     time: e.time,
     overridden: e.kind === "repeat" && node != null ? isTimeOverridden(node, e.date) : false,
-    estimateMin: typeof est === "number" && est > 0 ? est : null,
+    estimateMin: est,
     done: e.is_done,
     skipped: e.occurrence_status === "skipped",
     lateFrom: null,
     carriedFrom: null,
+    customTitle: e.custom_title ?? null,
+    seatedInto: e.seated_into ?? null,
+    ...(rangeOrigin ? { rangeOrigin } : {}),
   };
 }
 
@@ -103,7 +128,11 @@ export function planItemOf(e: ScheduleEntry, node: Pick<NodeRow, "estimate_min" 
  * 只有締切過了、沒有執行日的列（bucket "due"）不在這裡。
  */
 export function lateItemsOf(
-  rows: readonly Pick<TodayRow, "id" | "bucket" | "status" | "repeat_rule" | "occurrence" | "scheduled_on" | "scheduled_time" | "estimate_min" | "carried_from">[],
+  rows: readonly (Pick<
+    TodayRow,
+    "id" | "bucket" | "status" | "repeat_rule" | "occurrence" | "scheduled_on" | "scheduled_time" | "estimate_min" | "carried_from"
+  > &
+    Partial<Pick<TodayRow, "scheduled_end">>)[],
   today: string,
 ): { items: PlanItem[]; repeatCount: number } {
   const items: PlanItem[] = [];
@@ -116,6 +145,8 @@ export function lateItemsOf(
     }
     if (!r.scheduled_on || r.scheduled_on >= today) continue;
     const est = r.estimate_min;
+    const rangeOrigin =
+      r.scheduled_end && r.scheduled_end > r.scheduled_on ? { start: r.scheduled_on, end: r.scheduled_end } : null;
     items.push({
       key: `${today}-${r.id}`,
       nodeId: r.id,
@@ -128,6 +159,7 @@ export function lateItemsOf(
       skipped: false,
       lateFrom: r.scheduled_on,
       carriedFrom: r.carried_from ?? null,
+      ...(rangeOrigin ? { rangeOrigin } : {}),
     });
   }
   return { items, repeatCount };
@@ -343,31 +375,57 @@ export function fmtPlanDelta(c: PlanCompare, estimateMin: number | null): string
 
 export type TimeWrite =
   /**
-   * scheduledOn（選填）＝順便把執行日改到這一天（誤點項：排＝改到今天、撤回＝改回原日；執行器一次 `updateNode`）；
+   * scheduledOn（選填）＝順便把執行日改到這一天（誤點項或期間自由券排時刻收斂為單日；執行器一次 `updateNode`）；
+   * scheduledEnd（選填）＝期間自由券收斂為單日（null）或撤回還原原訖日；
    * carriedFrom（選填，只在撤回誤點項時帶）＝連 `carried_from` 一起寫回（null＝清掉繰越）。
    */
-  | { op: "setTime"; id: string; time: ClockText | null; scheduledOn?: string; carriedFrom?: string | null }
+  | { op: "setTime"; id: string; time: ClockText | null; scheduledOn?: string; scheduledEnd?: string | null; carriedFrom?: string | null }
   | { op: "setRun"; id: string; date: string; time: ClockText | null }
   | { op: "clearRun"; id: string; date: string };
 
 /**
  * 單發票＝改 `scheduled_time`；定期券＝只改這一班（`setRunTime`；清除＝`setRun` 帶 null＝「這一班沒有時刻」，D-時-73）。
  * 誤點項（`lateFrom`）＝執行日改到 `item.date`（今天）＋排時刻（D-時-80 改題）。
+ * 期間自由券（`rangeOrigin`）＝排上具體時刻（`time !== null`）時同步收斂為 `item.date` 單日票（`scheduledEnd: null`）。
  */
 export function planTimeWrite(item: PlanItem, time: ClockText | null): TimeWrite {
   if (item.kind === "repeat") return { op: "setRun", id: item.nodeId, date: item.date, time };
-  if (item.lateFrom) return { op: "setTime", id: item.nodeId, time, scheduledOn: item.date };
+  if (item.lateFrom) {
+    return item.rangeOrigin
+      ? { op: "setTime", id: item.nodeId, time, scheduledOn: item.date, scheduledEnd: null }
+      : { op: "setTime", id: item.nodeId, time, scheduledOn: item.date };
+  }
+  if (item.rangeOrigin && time !== null) {
+    return { op: "setTime", id: item.nodeId, time, scheduledOn: item.date, scheduledEnd: null };
+  }
   return { op: "setTime", id: item.nodeId, time };
 }
 
 /**
  * 撤回（依寫入「之前」的 item）：單發票寫回舊值；定期券改之前就是覆寫 ⇒ 寫回舊覆寫（可能是 null），不是 ⇒ 清掉這一班的覆寫。
  * 誤點項＝執行日改回原日＋時刻寫回原本的＋`carried_from` 寫回原值（D-主-33；排上去時 `reschedule` 把它寫成原日，撤回要帶回）。
+ * 期間自由券＝寫回原本的 `rangeOrigin.start` 與 `rangeOrigin.end`。
  * 已知限制：`reschedule` 清掉的今日序（today_position）回不去。
  */
 export function planUndo(item: PlanItem): TimeWrite {
   if (item.kind === "single" && item.lateFrom) {
-    return { op: "setTime", id: item.nodeId, time: item.time, scheduledOn: item.lateFrom, carriedFrom: item.carriedFrom };
+    return {
+      op: "setTime",
+      id: item.nodeId,
+      time: item.time,
+      scheduledOn: item.lateFrom,
+      ...(item.rangeOrigin ? { scheduledEnd: item.rangeOrigin.end } : {}),
+      carriedFrom: item.carriedFrom,
+    };
+  }
+  if (item.kind === "single" && item.rangeOrigin) {
+    return {
+      op: "setTime",
+      id: item.nodeId,
+      time: item.time,
+      scheduledOn: item.rangeOrigin.start,
+      scheduledEnd: item.rangeOrigin.end,
+    };
   }
   if (item.kind === "repeat") {
     return item.overridden

@@ -11,8 +11,10 @@
  * 接法（手機席）：今日／路線第二層／行程表把原本的 MobileNewTicket 換成
  *   <MobileQuickAdd defaults={...} here={...} routeKind? placeholder? onCreated? />
  */
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { NodeRow, Priority } from "../../../domain";
+import { applyDurationMin, applyEndClock, applyStartClock, deriveClockSpan } from "../../../domain/clockSpan";
+import { useSelectionStore } from "../../../store/selectionStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useBackLayer } from "../../mobile/backStack";
 import { ClockInput } from "../ClockInput";
@@ -21,6 +23,7 @@ import { DurationPicker } from "../DurationPicker";
 import { MSheet, MSheetItem } from "../MSheet";
 import { MobileAttachPicker } from "../MobileAttachPicker";
 import { MobileDatePicker } from "../MobileDatePicker";
+import { Segmented } from "../Segmented";
 import { clockBounds, clockSeed, clockToMs, msToClock } from "../../panel/clockValue";
 import { QuickChips, QuickField } from "./QuickAddParts";
 import { NO_DEST, PRIORITY_TEXT, type QuickChipKey, type QuickDefaults, type QuickHere, type RouteKind } from "./quickAddModel";
@@ -30,8 +33,10 @@ import "./quickadd.css";
 export interface MobileQuickAddProps {
   defaults: QuickDefaults;
   here: QuickHere;
-  /** 掛到路線時預設建成什麼（路線第二層＝列車） */
+  /** 掛到路線時預設建成什麼（路線第二層可切「車票｜支線」） */
   routeKind?: RouteKind;
+  /** 強制隱藏「車票｜支線」切換段（如看板欄內新增車票） */
+  hideRouteKind?: boolean;
   placeholder?: string;
   onCreated?(row: NodeRow, stays: boolean): void;
   /** 加在根上（頁面自己的位置微調） */
@@ -40,14 +45,20 @@ export interface MobileQuickAddProps {
   onClose?(): void;
 }
 
-export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreated, className, onClose }: MobileQuickAddProps) {
-  const api = useQuickAdd({ defaults, here, routeKind, onCreated });
+export function MobileQuickAdd({ defaults, here, routeKind, hideRouteKind, placeholder, onCreated, className, onClose }: MobileQuickAddProps) {
+  const api = useQuickAdd({ defaults, here, routeKind, hideRouteKind, onCreated });
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState(false);
   const [open, setOpen] = useState<QuickChipKey | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
+
+  useEffect(() => {
+    if (api.target.kind === "branch" && open && open !== "dest" && open !== "station") {
+      setOpen(null);
+    }
+  }, [api.target.kind, open]);
 
   const refocus = useCallback(() => {
     window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
@@ -107,7 +118,10 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
     <div
       ref={rootRef}
       className={`m-newticket ns-qa-mnew${active || open ? " is-active" : ""}${className ? " " + className : ""}`}
-      onFocus={() => setActive(true)}
+      onFocus={() => {
+        if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
+        setActive(true);
+      }}
       onBlur={() => {
         window.setTimeout(() => {
           const a = document.activeElement;
@@ -119,6 +133,7 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
       {(active || open) && (
         <QuickChips
           api={api}
+          hideRouteKind={hideRouteKind}
           className="ns-qa-mchips"
           noDateLabel={!!defaults.noDateLabel}
           open={open}
@@ -141,7 +156,7 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
           if (!api.isSubmitKey(e)) return;
           e.preventDefault();
           const cont = e.ctrlKey || e.metaKey;
-          if (!api.text.trim()) {
+          if (!api.text.trim() && !api.canSubmit) {
             if (onClose) onClose();
             else inputRef.current?.blur();
             return;
@@ -156,7 +171,7 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
         onMouseDown={(e) => e.preventDefault()}
         onClick={tapGo}
       >
-        発券
+        {api.target.kind === "branch" ? "建立支線" : api.values.isPlaceholder ? "建預留席" : "発券"}
       </button>
 
       {open === "dest" && (
@@ -176,10 +191,40 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
           onClose={close}
         />
       )}
+      {open === "station" && (
+        <MSheet title="車站" list onClose={close}>
+          {api.stations.map((s) => (
+            <MSheetItem
+              key={s.id}
+              onClick={() => {
+                api.setStation(s.id);
+                picked();
+              }}
+              className={api.values.stationId === s.id ? "is-cur" : undefined}
+            >
+              {s.name}
+              {api.values.stationId === s.id && <span className="m-tks-aside">✓</span>}
+            </MSheetItem>
+          ))}
+          <MSheetItem
+            cut={api.stations.length > 0}
+            onClick={() => {
+              api.setStation(null);
+              picked();
+            }}
+            className={!api.values.stationId ? "is-cur" : undefined}
+          >
+            還沒排站
+            {!api.values.stationId && <span className="m-tks-aside">✓</span>}
+          </MSheetItem>
+        </MSheet>
+      )}
       {(open === "date" || open === "due") && (
         <MobileDatePicker
           title={open === "date" ? "乘車日" : "締切日"}
           value={open === "date" ? api.values.scheduledOn : api.values.dueOn}
+          endValue={open === "date" ? api.values.scheduledEnd : null}
+          allowRange={open === "date"}
           min={open === "date" ? api.today : undefined}
           today={api.today}
           quick={
@@ -194,10 +239,18 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
             else api.setDue(d);
             picked();
           }}
+          onPickRange={
+            open === "date"
+              ? (s, e) => {
+                  api.setDateRange(s, e);
+                  picked();
+                }
+              : undefined
+          }
           onClear={
             open === "date" || api.values.dueOn || api.syncDueWithScheduled
               ? () => {
-                  if (open === "date") api.setDate(null);
+                  if (open === "date") api.setDateRange(null, null);
                   else api.setDue(null);
                   picked();
                 }
@@ -257,9 +310,14 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
   );
 }
 
-/** 沒給 placeholder 時：掛到路線本身建列車＝「新增列車到「X」…」（原型 q2-A 路線第二層），其餘照建成的種類 */
+/** 沒給 placeholder 時：支線＝「新增支線…」，其餘照建成的種類 */
 function defaultPlaceholder(api: QuickAddApi): string {
-  if (api.target.kind !== "train") return "新增車票…";
+  if (api.target.kind === "branch") {
+    const d = api.values.dest;
+    const name = !d.nodeId ? api.routeName(d.routeId) : null;
+    return name ? `新增支線到「${name}」…` : "新增支線…";
+  }
+  if (api.target.kind !== "train") return "新增車票…（@路線 #荷札 =）";
   const d = api.values.dest;
   const name = !d.nodeId ? api.routeName(d.routeId) : null;
   return name ? `新增列車到「${name}」…` : "新增列車…";
@@ -280,23 +338,81 @@ function openTagPicker(api: QuickAddApi, refocus: () => void): void {
   });
 }
 
-/** 幾點＋長度（MSheet；ClockInput 手機變體＝±15＋常用時刻，長度＝DurationPicker） */
+const MOBILE_DIAL_OPTS = [
+  { value: "start" as const, label: "撥開始" },
+  { value: "end" as const, label: "撥結束" },
+];
+
+/** 幾點（開始 ⇄ 結束）＋ 持續時長（MSheet；透過 clockSpan.ts 雙向即時連動） */
 function MobileTimeSheet({ api, onDone, onClose }: { api: QuickAddApi; onDone(): void; onClose(): void }) {
   const v = api.values;
   const refDay = v.scheduledOn ?? api.today;
-  const { lo, hi } = clockBounds(refDay, api.dayStartHour);
+  const { lo, hi } = useMemo(() => clockBounds(refDay, api.dayStartHour), [refDay, api.dayStartHour]);
   const [seed] = useState(() => clockSeed(refDay, api.today, api.dayStartHour));
-  const [ms, setMs] = useState(() => (v.scheduledTime ? clockToMs(v.scheduledTime, refDay) : null) ?? seed);
+  const [startHm, setStartHm] = useState<string | null>(() => {
+    if (v.scheduledTime) return v.scheduledTime;
+    if (v.estimateMin !== null) return null;
+    return msToClock(seed, refDay);
+  });
   const [len, setLen] = useState<number | null>(v.estimateMin);
+  const [activeDial, setActiveDial] = useState<"start" | "end">("start");
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  const span = useMemo(() => deriveClockSpan(startHm, len), [startHm, len]);
+  const startShownMs = (span.startHm ? clockToMs(span.startHm, refDay) : null) ?? seed;
+  const effectiveStartHm = span.startHm ?? msToClock(startShownMs, refDay) ?? "09:00";
+  const startMsForEnd = clockToMs(effectiveStartHm, refDay) ?? lo;
+  const endCurrentMs = span.endHm ? clockToMs(span.endHm, refDay) : null;
+  const endLo = startMsForEnd + 60_000;
+  const endHi = Math.max(hi, startMsForEnd + 12 * 3_600_000, endCurrentMs ?? 0);
+  const endShownMs = endCurrentMs ?? Math.min(startMsForEnd + (span.durationMin ?? 60) * 60_000, endHi);
+
+  const onStartChange = (ms: number) => {
+    const next = msToClock(ms, refDay);
+    if (!next) return;
+    const res = applyStartClock({ startHm: span.startHm, durationMin: span.durationMin }, next, api.dayStartHour);
+    if (!res.ok) {
+      setErrMsg(res.error ?? null);
+      return;
+    }
+    setErrMsg(null);
+    setStartHm(res.startHm);
+    setLen(res.durationMin);
+  };
+
+  const onEndChange = (ms: number) => {
+    const next = msToClock(ms, refDay);
+    if (!next) return;
+    const res = applyEndClock({ startHm: effectiveStartHm, durationMin: span.durationMin }, next, api.dayStartHour);
+    if (!res.ok) {
+      setErrMsg(res.error ?? null);
+      return;
+    }
+    setErrMsg(null);
+    setStartHm(res.startHm);
+    setLen(res.durationMin);
+  };
+
+  const onLenChange = (nextMin: number | null) => {
+    const res = applyDurationMin({ startHm: span.startHm, durationMin: span.durationMin }, nextMin);
+    if (!res.ok) {
+      setErrMsg(res.error ?? null);
+      return;
+    }
+    setErrMsg(null);
+    setStartHm(res.startHm);
+    setLen(res.durationMin);
+  };
 
   const save = () => {
-    api.setTime(msToClock(ms, refDay), len);
+    api.setTime(span.startHm, span.durationMin);
     onDone();
   };
 
   return (
     <MSheet
-      title="幾點"
+      title="幾點與長度"
+      height="full"
       onClose={onClose}
       foot={
         <>
@@ -308,7 +424,7 @@ function MobileTimeSheet({ api, onDone, onClose }: { api: QuickAddApi; onDone():
               onDone();
             }}
           >
-            不排時刻
+            清除
           </button>
           <button type="button" className="ns-btn btn-seal" onClick={save}>
             好
@@ -317,9 +433,80 @@ function MobileTimeSheet({ api, onDone, onClose }: { api: QuickAddApi; onDone():
       }
     >
       <div className="ns-qa-msheet">
-        <ClockInput variant="mobile" picker="inline" quick={[]} value={ms} lo={lo} hi={hi} refDay={refDay} label="開始時刻" onChange={setMs} onEnter={save} />
-        <div className="ns-qa-cardlabel">長度</div>
-        <DurationPicker liveCommit value={len} onChange={setLen} onEnter={save} ariaLabel="長度" />
+        <div className="ns-qa-timehead">
+          <span className="ns-qa-cardlabel">開始與結束時刻</span>
+          <Segmented<"start" | "end">
+            compact
+            options={MOBILE_DIAL_OPTS}
+            value={activeDial}
+            onChange={setActiveDial}
+            aria-label="站鐘錶盤對象"
+          />
+        </div>
+
+        <div className="ns-qa-spanbox">
+          <div className="ns-qa-spanrow" onFocusCapture={() => setActiveDial("start")}>
+            <div className="ns-qa-spanlbl">
+              <span>開始時刻</span>
+              {span.startHm && (
+                <button
+                  type="button"
+                  className="ns-qa-clearlink"
+                  onClick={() => {
+                    setErrMsg(null);
+                    setStartHm(null);
+                  }}
+                >
+                  不排時刻
+                </button>
+              )}
+            </div>
+            <ClockInput
+              variant="mobile"
+              picker={activeDial === "start" ? "inline" : false}
+              quick={[]}
+              value={startShownMs}
+              lo={lo}
+              hi={hi}
+              refDay={refDay}
+              label="開始時刻"
+              dateLabel="other"
+              onChange={onStartChange}
+              onEnter={save}
+            />
+          </div>
+
+          <div className="ns-qa-spanrow" onFocusCapture={() => setActiveDial("end")}>
+            <div className="ns-qa-spanlbl">
+              <span>結束時刻</span>
+              <span className="ns-qa-spansub">
+                {span.endHm ? "改結束自動反推時長" : "點選或輸入即反推時長"}
+              </span>
+            </div>
+            <ClockInput
+              variant="mobile"
+              picker={activeDial === "end" ? "inline" : false}
+              quick={[]}
+              value={endShownMs}
+              lo={endLo}
+              hi={endHi}
+              refDay={refDay}
+              label="結束時刻"
+              dateLabel="other"
+              onChange={onEndChange}
+              onEnter={save}
+            />
+          </div>
+        </div>
+
+        {errMsg && (
+          <p className="ns-qa-timeerr" role="status">
+            {errMsg}
+          </p>
+        )}
+
+        <div className="ns-qa-cardlabel">持續時長</div>
+        <DurationPicker liveCommit value={span.durationMin} onChange={onLenChange} onEnter={save} ariaLabel="持續時長" />
       </div>
     </MSheet>
   );

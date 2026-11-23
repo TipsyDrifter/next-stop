@@ -12,7 +12,7 @@
  *
  * 狀態與動作都由 NotesView 給（選取、離場動畫、小浮層開關都要跟鍵盤表共用）。
  */
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import type { NodeRow } from "../../domain";
 import type { NoteListItem } from "../../data/noteRepository";
 import type { InboxKind, InboxRef } from "../../store/notesStore";
@@ -23,11 +23,14 @@ import { addDays, todayKey } from "../../lib/date";
 import { lineCount } from "../../domain/notes";
 import { UketsukeSeal } from "./UketsukeSeal";
 import { AttachPicker } from "../common/AttachPicker";
+import { rowContextMenu } from "../common/contextMenu";
 import { DatePicker } from "../common/DatePicker";
 import { EmptyState } from "../common/EmptyState";
 import { IconDots, IconEdit } from "../common/icons";
 import { PageHeader } from "../common/PageHeader";
 import { PopMenu } from "../common/PopMenu";
+import { runOnBlankClick } from "../common/selection/desktopSelection";
+import { InboxSelectionBar, useInboxSelectStore, usePruneInboxSelection } from "./InboxSelectionBar";
 import { Kbd, capsOf, dayOf, fmtShort, fmtTime, nextMonday } from "./notesBits";
 import { NotesFilterBar } from "./NotesFilterBar";
 
@@ -81,6 +84,12 @@ export function NotesInbox(p: NotesInboxProps) {
   const total = n + hidden;
   const clearFilters = () => useNotesStore.getState().clearInboxFilters();
 
+  const visibleIds = useMemo(() => p.items.map((it) => it.id), [p.items]);
+  usePruneInboxSelection(visibleIds);
+  const pickedIds = useInboxSelectStore((s) => s.ids);
+  const pickedSet = useMemo(() => new Set(pickedIds), [pickedIds]);
+  const multiActive = pickedIds.length > 0;
+
   const allowedIds = useMemo(
     () => new Set([...inboxNotes.map((x) => x.id), ...inboxTickets.map((x) => x.id)]),
     [inboxNotes, inboxTickets],
@@ -93,7 +102,10 @@ export function NotesInbox(p: NotesInboxProps) {
     el?.scrollIntoView({ block: "nearest" });
   }, [p.selectedId, p.listRef]);
 
-  const capture = () => useNotesStore.getState().openCapture();
+  const capture = () => {
+    useInboxSelectStore.getState().clear();
+    useNotesStore.getState().openCapture();
+  };
   const showFilterBar = total > 0 || inboxKind !== "all" || inboxTagKeys.length > 0;
 
   const kindChip = (k: InboxKind, label: string) => (
@@ -125,7 +137,16 @@ export function NotesInbox(p: NotesInboxProps) {
         stats={total > 0 ? <>待整理 <b>{total}</b> 則{hidden > 0 && <>・篩選中顯示 {n} 則</>}</> : undefined}
         add={total > 0 ? { label: "記一句", onClick: capture, title: `記一句（${capsOf("notes.capture")}）` } : undefined}
       />
-      <div className="ns-notes-body">
+      <div
+        className="ns-notes-body"
+        onClick={(e) => {
+          if (multiActive) {
+            runOnBlankClick(e, ".ns-notes-ilist > li, .ns-notes-fbar, .ns-selbar, .ns-selbar-dock, .ns-popmenu", () =>
+              useInboxSelectStore.getState().clear(),
+            );
+          }
+        }}
+      >
         <section className="ns-notes-inbox ns-notes-col techo-scroll" aria-label="收件匣">
           <div className="ns-notes-sheet">
             {showFilterBar && (
@@ -157,11 +178,21 @@ export function NotesInbox(p: NotesInboxProps) {
                   aria-activedescendant={p.selectedId ? `ns-notes-i-${p.selectedId}` : undefined}
                 >
                   {p.items.map((it) => (
-                    <InboxRow key={it.id} it={it} today={today} dayStartHour={dayStartHour} inboxSort={inboxSort} {...p} />
+                    <InboxRow
+                      key={it.id}
+                      it={it}
+                      today={today}
+                      dayStartHour={dayStartHour}
+                      inboxSort={inboxSort}
+                      picked={pickedSet.has(it.id)}
+                      multiActive={multiActive}
+                      order={visibleIds}
+                      {...p}
+                    />
                   ))}
                 </ul>
                 <p className="ns-notes-foothint">
-                  {capsOf("notes.move.up")}{capsOf("notes.move.down")}點選或按快捷鍵就能整理</p>
+                  {capsOf("notes.move.up")}{capsOf("notes.move.down")}點選或按快捷鍵就能整理・Ctrl／Shift＋點可多選</p>
               </>
             ) : p.ready && (hidden > 0 || inboxKind !== "all" || inboxTagKeys.length > 0) ? (
               // 篩選（種類或 #荷札）無結果：保留上方篩選條並提供一鍵清除
@@ -186,6 +217,7 @@ export function NotesInbox(p: NotesInboxProps) {
           </div>
         </section>
       </div>
+      <InboxSelectionBar visibleIds={visibleIds} />
     </>
   );
 }
@@ -195,6 +227,9 @@ function InboxRow({
   today,
   dayStartHour,
   inboxSort,
+  picked,
+  multiActive,
+  order,
   selectedId,
   leavingId,
   pop,
@@ -204,13 +239,67 @@ function InboxRow({
   onPickDay,
   onPickNode,
   onPickRoute,
-}: NotesInboxProps & { it: InboxItem; today: string; dayStartHour: number; inboxSort: "updated" | "created" }) {
-  const sel = selectedId === it.id;
+}: NotesInboxProps & {
+  it: InboxItem;
+  today: string;
+  dayStartHour: number;
+  inboxSort: "updated" | "created";
+  picked: boolean;
+  multiActive: boolean;
+  order: readonly string[];
+}) {
+  const sel = !multiActive && selectedId === it.id;
   const fresh = useNotesStore((s) => s.freshNoteId === it.id); // 剛從捕捉框存進來的那一則：受付章蓋下去的動畫
   const serials = useNodeStore((s) => s.serials); // 收官磨光 A3：臨時券的票號（全站一把尺）
-  const cls = `ns-notes-iitem${sel ? " is-sel" : ""}${leavingId === it.id ? " is-leaving" : ""}`;
+  const cls = `ns-notes-iitem${sel ? " is-sel" : ""}${picked ? " is-picked" : ""}${leavingId === it.id ? " is-leaving" : ""}`;
   const day = dayOf(it.at, dayStartHour);
   const myPop = pop && pop.id === it.id ? pop.kind : null;
+
+  const onRowClick = (e: MouseEvent<HTMLElement>) => {
+    if (e.shiftKey) {
+      e.preventDefault();
+      useInboxSelectStore.getState().range(it.id, order, selectedId);
+      onSelect(it);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      useInboxSelectStore.getState().toggle(it.id, order, selectedId);
+      onSelect(it);
+      return;
+    }
+    if (useInboxSelectStore.getState().ids.length > 0) {
+      useInboxSelectStore.getState().clear();
+    }
+    onSelect(it);
+  };
+
+  const rowMenu = rowContextMenu(() => ({
+    overline: { zh: "收件匣", latin: "Inbox" },
+    label: it.kind === "ticket" ? it.ticket.name : (it.note.title?.trim() || "未整理的筆記"),
+    items: [
+      {
+        key: "select",
+        label: picked ? "取消選取" : "選取",
+        onSelect: () => {
+          useInboxSelectStore.getState().toggle(it.id, order);
+          onSelect(it);
+        },
+      },
+      ...(it.kind === "ticket"
+        ? [
+            { key: "today", label: "排今天", cut: true, onSelect: () => onOp(it, "today") },
+            { key: "attach", label: "掛進列車…", onSelect: () => onOp(it, "attach") },
+            { key: "route", label: "掛上路線…", onSelect: () => onOp(it, "route") },
+          ]
+        : [
+            { key: "todo", label: "變待辦…", cut: true, onSelect: () => onOp(it, "todo") },
+            { key: "keep", label: "留作筆記", onSelect: () => onOp(it, "keep") },
+            { key: "diary", label: "記成日記", onSelect: () => onOp(it, "diary") },
+          ]),
+      { key: "del", label: "刪除", danger: true, cut: true, onSelect: () => onOp(it, "del") },
+    ],
+  }));
   /** 「挑日期」鈕：日期卡錨在它下方（丙-6 K2：挑日期＝錨定 popover，規範 §2.4） */
   const somedayRef = useRef<HTMLButtonElement>(null);
   /** 車票的 ⋯（己-2 A6）：開著與否只活在這一列；換選取就收 */
@@ -272,7 +361,12 @@ function InboxRow({
             overline={{ zh: "去處", latin: "Route to" }}
             label={`「${it.kind === "ticket" ? it.ticket.name : ""}」的其他去處`}
             items={[
-              { key: "attach", label: "掛進列車…", hotkeyId: "notes.inbox.attach", onSelect: () => onOp(it, "attach") },
+              {
+                key: "select",
+                label: picked ? "取消選取" : "選取",
+                onSelect: () => useInboxSelectStore.getState().toggle(it.id, order),
+              },
+              { key: "attach", label: "掛進列車…", cut: true, hotkeyId: "notes.inbox.attach", onSelect: () => onOp(it, "attach") },
               { key: "route", label: "掛上路線…", hotkeyId: "notes.inbox.route", onSelect: () => onOp(it, "route") },
               { key: "del", label: "刪除", hotkeyId: "notes.delete", cut: true, danger: true, onSelect: () => onOp(it, "del") },
             ]}
@@ -331,11 +425,12 @@ function InboxRow({
         className={cls}
         data-iid={it.id}
         role="option"
-        aria-selected={sel}
+        aria-selected={picked || sel}
+        onContextMenu={rowMenu}
       >
         <div className="ns-notes-slip">
           <div className="ns-notes-slip-in">
-            <div className="ns-notes-slip-body" onClick={() => onSelect(it)}>
+            <div className="ns-notes-slip-body" onClick={onRowClick}>
               <UketsukeSeal day={stampDay} fresh={fresh} />
               <p className="ns-notes-slip-text">{it.note.body.trim() || it.note.title || "（空白）"}</p>
               <div className="meta">
@@ -371,10 +466,11 @@ function InboxRow({
       className={cls}
       data-iid={it.id}
       role="option"
-      aria-selected={sel}
+      aria-selected={picked || sel}
+      onContextMenu={rowMenu}
     >
       <article className="ticket ns-notes-iticket">
-        <div className="ns-notes-trow" onClick={() => onSelect(it)}>
+        <div className="ns-notes-trow" onClick={onRowClick}>
           <div className="stub" style={{ color: "var(--route-none)" }}>
             <span aria-hidden className="badge dashed">
               臨

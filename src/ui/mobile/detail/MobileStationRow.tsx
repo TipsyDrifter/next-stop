@@ -17,7 +17,7 @@ export function MobileStationRow({ node }: { node: NodeRow }) {
     <>
       <Row label="車站">
         <button type="button" className="m-dt-pick" aria-haspopup="dialog" onClick={() => setOpen(true)}>
-          <span className={f.value ? undefined : "is-empty"}>{current?.label}</span>
+          <span className={f.value || f.inherited ? undefined : "is-empty"}>{current?.label}</span>
           <span className="m-dt-chev" aria-hidden="true">
             ›
           </span>

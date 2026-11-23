@@ -22,12 +22,16 @@ import {
   useNodeStore,
   type TreeIndex,
 } from "../../store/nodeStore";
-import { completeNodeFlow, moveRunFlow, suspendNodeFlow, toggleStopoverFlow } from "./nodeFlows";
+import { completeNodeFlow, convertKindFlow, moveRunFlow, suspendNodeFlow, toggleStopoverFlow } from "./nodeFlows";
 import { DESKTOP_GUARD_WORDS, leafKindFor, rowGuards } from "./rowGuards";
 import type { PopMenuItem } from "../common/PopMenu";
 import { requestMoveTo } from "../common/moveTo";
 import { moveTargetRule } from "../../domain/moveTo";
+import { matchesStationFilter } from "../../domain/stationTrack";
 import { PARKED_ADD_WHY } from "../../domain/depot";
+import { stationItems } from "../board/boardMenu";
+import { routeStations } from "../board/useRouteBoard";
+import { resolveActiveStationFilter, setRouteStationFilter, useRouteStationFilter } from "./StationTrackBar";
 import { useUiStore } from "../../store/uiStore";
 import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { addDays, todayKey } from "../../lib/date";
@@ -125,6 +129,7 @@ function buildRows(
   hideDone: boolean,
   draft: DraftEdit | null,
   isDone: (n: NodeRow) => boolean,
+  filterPass?: (id: string) => boolean,
 ): { rows: VisibleRow[]; doneHidden: number; doneShown: number } {
   const out: VisibleRow[] = [];
   // 摺疊列「済 N 張」的 N（UI 丙-3 修訂）：收起時＝這次被藏起來的最上層已完成節點（子孫跟著藏、不另算）；
@@ -135,6 +140,10 @@ function buildRows(
     for (const id of ids) {
       const n = tree.byId[id];
       if (!n) continue;
+      if (filterPass && !filterPass(id)) {
+        if (draft && draft.afterId === id) out.push({ type: "draft", depth });
+        continue;
+      }
       if (hideDone && isDone(n)) doneHidden++;
       else {
         if (isDone(n)) doneShown++;
@@ -165,6 +174,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   const routeId = useNodeStore((s) => s.routeId);
   const routes = useNodeStore((s) => s.routes);
   const lines = useNodeStore((s) => s.lines);
+  const stations = useNodeStore((s) => s.stations);
   const tree = useNodeStore((s) => s.tree);
   /** 全站定期券的「目前班次」表（M3 ④）——大綱的済／運休都看它，不看 nodes.status */
   const currentOccurrences = useNodeStore((s) => s.currentOccurrences);
@@ -191,6 +201,9 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   const rootChildren = zoom ? (tree.childrenOf[zoom.id] ?? NONE) : tree.roots;
   const counts = useMemo(() => computeCounts(tree), [tree]);
   const draft = edit?.mode === "draft" ? edit : null;
+  const [rawStationFilter, setStationFilter] = useRouteStationFilter(routeId);
+  const stationFilter = resolveActiveStationFilter(rawStationFilter, stations, routeId);
+  const routeStList = useMemo(() => routeStations(stations, routeId), [stations, routeId]);
   /**
    * 済了沒（M3 ④ 全站口徑，與今日列的 isDoneRow 同一把尺）：
    * 活著的定期券看「目前班次」的結局，其餘（含退役定期券，表裡恆無值）看 nodes.status。
@@ -203,8 +216,20 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     [currentOccurrences],
   );
   const built = useMemo(
-    () => (rootId ? buildRows(tree, rootId, rootChildren, collapsed, hideDone, draft, isDoneNode) : { rows: [], doneHidden: 0, doneShown: 0 }),
-    [tree, rootId, rootChildren, collapsed, hideDone, draft, isDoneNode],
+    () =>
+      rootId
+        ? buildRows(
+            tree,
+            rootId,
+            rootChildren,
+            collapsed,
+            hideDone,
+            draft,
+            isDoneNode,
+            stationFilter ? (id) => matchesStationFilter(id, stationFilter, tree, routeStList) : undefined,
+          )
+        : { rows: [], doneHidden: 0, doneShown: 0 },
+    [tree, rootId, rootChildren, collapsed, hideDone, draft, isDoneNode, stationFilter, routeStList],
   );
   const rows = built.rows;
   const today = todayKey(dayStartHour);
@@ -220,8 +245,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   }, [zoom, tree, routeId, route]);
 
   // 最新值放 ref，動作函式不吃舊 closure
-  const st = useRef({ rows, rootId, routeId, zoom, today });
-  st.current = { rows, rootId, routeId, zoom, today };
+  const st = useRef({ rows, rootId, routeId, zoom, today, stationFilter });
+  st.current = { rows, rootId, routeId, zoom, today, stationFilter };
 
   // 換路線：收掉草稿、退出 zoom（側欄／跳轉也會重設，這裡是保險）；沒人持有焦點時把焦點給大綱，鍵盤流立刻可用
   useEffect(() => {
@@ -365,7 +390,30 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       ui().showToast({ message: PARKED_ADD_WHY }, 3600);
       return;
     }
+    if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
     setEdit({ mode: "draft", ...d });
+  };
+
+  /** 頁首「＋ 新增 ▾ → 列車」或支線內「＋ 新列車」：在目前路線／支線層級新增列車草稿 */
+  const addTrainDraft = () => {
+    const { rootId: root, zoom: z, routeId: rid } = st.current;
+    if (!root) return;
+    const t = ns().tree;
+    const holdsTrain = (parentId: string) => {
+      const k = parentId === rid ? "route" : t.byId[parentId]?.kind;
+      return k === "route" || k === "branch";
+    };
+    let n = selNode();
+    while (n && !holdsTrain(parentKey(n))) n = t.byId[parentKey(n)];
+    if (n) {
+      startDraft({ parentId: parentKey(n), afterId: n.id, kind: "train", anchorId: n.id });
+      return;
+    }
+    if (z && z.kind !== "branch") {
+      toast(`${KIND_LABEL[z.kind]}裡不能再放列車——用「新增車票」`);
+      return;
+    }
+    startDraft({ parentId: root, afterId: null, kind: "train", anchorId: null });
   };
 
   /** viaKeyboard：Esc／空白 Enter 取消＝選取回錨點、焦點還給容器；blur 取消代表使用者點去別處——不動選取、不搶焦點 */
@@ -469,7 +517,9 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     try {
       const n = ns().tree.byId[r.id];
       const name = text.trim();
-      if (n && name && name !== n.name) await ns().updateNode(r.id, { name });
+      if (n && name && (name !== n.name || n.is_placeholder)) {
+        await ns().updateNode(r.id, { name, ...(n.is_placeholder ? { is_placeholder: null } : {}) });
+      }
       const after = ns().tree.byId[r.id];
       if (via === "ctrl-enter" && r.chain && after) {
         startDraft({ parentId: parentKey(after), afterId: after.id, kind: leafKindFor(parentKindOf(parentKey(after)), after.kind), anchorId: after.id });
@@ -488,7 +538,9 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     try {
       const n = ns().tree.byId[r.id];
       const name = text.trim();
-      if (n && name && name !== n.name) await ns().updateNode(r.id, { name });
+      if (n && name && (name !== n.name || n.is_placeholder)) {
+        await ns().updateNode(r.id, { name, ...(n.is_placeholder ? { is_placeholder: null } : {}) });
+      }
       await (shift ? outdentNode(r.id) : indentNode(r.id));
     } finally {
       busyRef.current = false;
@@ -665,6 +717,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     escape() {
       if (clearIfAny("outline")) return; // 回饋乙：Esc 先清多選
       if (st.current.zoom) zoomOut();
+      else if (st.current.stationFilter && st.current.routeId) setRouteStationFilter(st.current.routeId, null);
       else ui().setPanelOpen(false);
     },
     selectAll() {
@@ -698,7 +751,10 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
         return;
       }
       const n = selNode();
-      if (n) setEdit({ mode: "rename", id: n.id, chain: false });
+      if (n) {
+        if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
+        setEdit({ mode: "rename", id: n.id, chain: false });
+      }
     },
   };
 
@@ -719,6 +775,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
         toast(PARKED_ADD_WHY);
         return;
       }
+      if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
       ui().select(id);
       setEdit({ mode: "rename", id, chain: false });
     },
@@ -843,6 +900,15 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
           focusContainer();
         },
       },
+      // 第三梯 Bug 3：該路線有車站時，支線、列車、車廂、車票皆提供「車站 ▾」快選（含繼承自父層顯示）
+      ...(rid && routeStations(ns().stations, rid).length > 0
+        ? stationItems([n], rid, "車站", t.byId).map((it, idx) => ({
+            ...it,
+            cut: idx === 0,
+            disabled: parked,
+            why: parkedWhy ?? undefined,
+          }))
+        : []),
       // 排程（鏡射 T／Shift+T＝keys.scheduleSelected）：定期券＝這一班改到今天／明天（⑥ D-主-295），加運休（鏡射 U＝keys.suspendSelected）
       // 丁 D-主-247：支線是主題，沒有日期 ⇒ 不出排程
       ...(n.kind === "branch"
@@ -901,6 +967,38 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       arrange(item("outdent", "升層", "outline.outdent", parkedWhy ?? outdentWhy, keys.outdentSelected)),
       arrange(item("up", "上移", "outline.reorder.up", parkedWhy ?? g.upWhy, () => keys.reorderSelected(-1))),
       arrange(item("down", "下移", "outline.reorder.down", parkedWhy ?? g.downWhy, () => keys.reorderSelected(1))),
+      // 操作 2：掛有路線的車票可轉為支線；底下無子項的空支線可轉為車票
+      ...(n.kind === "ticket" && n.route_id !== null
+        ? [
+            arrange({
+              key: "to-branch",
+              label: "轉為支線",
+              disabled: !!(
+                parkedWhy ??
+                (n.parent_id && n.parent_id !== rid && t.byId[n.parent_id]?.kind !== "branch"
+                  ? "列車或車廂裡不能放支線——請先升層到路線或支線底下"
+                  : null)
+              ),
+              why:
+                (parkedWhy ??
+                  (n.parent_id && n.parent_id !== rid && t.byId[n.parent_id]?.kind !== "branch"
+                    ? "列車或車廂裡不能放支線——請先升層到路線或支線底下"
+                    : null)) ?? undefined,
+              onSelect: run(() => void convertKindFlow(n, "branch")),
+            }),
+          ]
+        : []),
+      ...(n.kind === "branch" && (t.childrenOf[id]?.length ?? 0) === 0
+        ? [
+            arrange({
+              key: "to-ticket",
+              label: "轉為車票",
+              disabled: !!parkedWhy,
+              why: parkedWhy ?? undefined,
+              onSelect: run(() => void convertKindFlow(n, "ticket")),
+            }),
+          ]
+        : []),
       // ⑬ 外部入口：這張票的連結。頂層已經 ≤7 滿了，放進「編排 ▾」；支線是主題，不算票（同上面不出排程）
       ...(n.kind === "branch" ? [] : [arrange({ key: "copy-link", label: "複製連結", onSelect: () => void copyTicketLink(id) })]),
       item("delete", "刪除", "outline.delete", null, keys.deleteSelected, true, true),
@@ -936,6 +1034,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     currentOccurrences,
     isDoneNode,
     zoom,
+    stationFilter,
+    setStationFilter,
     crumbs,
     rows,
     doneHidden: built.doneHidden,
@@ -957,5 +1057,6 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     menuFor,
     zoomTo,
     startFirstDraft: () => keys.addSibling(),
+    addTrainDraft,
   };
 }

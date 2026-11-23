@@ -72,6 +72,10 @@ export interface NodeRow extends SyncFields {
    * 讀寫只經 domain/scheduledTime.ts 與 repository 的 setRunTime／clearRunTime（UI 不准讀改寫 JSON）；整欄 LWW。
    */
   time_overrides: string | null;
+  /** 期間自由券訖日 'YYYY-MM-DD'（第四梯 0024）；NULL＝單日票；有值且 > scheduled_on＝閉區間 [scheduled_on, scheduled_end] */
+  scheduled_end: string | null;
+  /** 預留席車票（第四梯 0024）：1＝預留席（虛線框，支援無標題建票），NULL/0＝一般車票 */
+  is_placeholder: number | null;
 }
 
 export interface WorkLog extends SyncFields {

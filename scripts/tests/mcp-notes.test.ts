@@ -21,7 +21,7 @@ const rejects = (p: Promise<unknown>, re?: RegExp) =>
     return true;
   });
 
-/** 幹線 → 路線 → 列車 → 車廂，外加一張臨時車票（掛不上筆記） */
+/** 幹線 → 路線 → 列車 → 車廂，外加一張臨時車票（Bug 4 起亦可掛筆記） */
 async function seedTree(ctx: McpCtx) {
   const r = ctx.deps.nodeRepo;
   const line = await r.create({ kind: "line", name: "本線", parentId: null });
@@ -89,7 +89,7 @@ test("add-notes → get-note／find-notes 讀得回來；tags 補進內文並掛
   assert.equal((await call(ctx, "find-notes", { query: "沒有這個字" })).summary, "沒有符合的筆記");
 });
 
-test("掛節點：只收路線／支線／列車／車廂；掛了就不進收件匣；find-notes 依節點篩", async () => {
+test("掛節點：收路線／支線／列車／車廂／車票；掛了就不進收件匣；find-notes 依節點篩", async () => {
   const ctx = await makeCtx();
   const t = await seedTree(ctx);
   const out = await call(ctx, "add-notes", {
@@ -99,9 +99,10 @@ test("掛節點：只收路線／支線／列車／車廂；掛了就不進收�
       { body: "車廂上", nodeId: t.car.id },
       { body: "別的列車", nodeId: t.other.id },
       { body: "沒掛" },
+      { body: "車票上", nodeId: t.ticket.id },
     ],
   });
-  const [onRoute, onTrain, onCar, onOther, loose] = out.data.created.map((c: { id: string }) => c.id);
+  const [onRoute, onTrain, onCar, onOther, loose, onTicket] = out.data.created.map((c: { id: string }) => c.id);
   assert.equal(out.data.created[1].inbox, undefined); // 掛了節點 ⇒ inbox 被蓋成 false
   const g = await call(ctx, "get-note", { id: onTrain });
   assert.equal(g.data.inbox, false);
@@ -111,12 +112,12 @@ test("掛節點：只收路線／支線／列車／車廂；掛了就不進收�
   assert.deepEqual(await ids(t.route.id), [onRoute, onTrain, onCar, onOther].sort());
   assert.deepEqual(await ids(t.train.id), [onTrain, onCar].sort());
   assert.deepEqual(await ids(t.car.id), [onCar]);
+  assert.deepEqual(await ids(t.ticket.id), [onTicket]);
   assert.ok(!(await ids(t.route.id)).includes(loose));
 
-  await rejects(call(ctx, "add-notes", { notes: [{ body: "x", nodeId: t.ticket.id }] }), /路線、支線、列車或車廂/);
   await rejects(call(ctx, "add-notes", { notes: [{ body: "x", nodeId: t.line.id }] }), /幹線/);
   await rejects(call(ctx, "add-notes", { notes: [{ body: "x", nodeId: "nope" }] }), /找不到節點/);
-  await rejects(call(ctx, "find-notes", { nodeId: t.ticket.id }));
+  await rejects(call(ctx, "find-notes", { nodeId: t.line.id }));
 });
 
 test("參數錯誤回 McpUserError，而且整批不寫", async () => {

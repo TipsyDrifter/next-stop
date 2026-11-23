@@ -221,6 +221,75 @@
 .ns-bd-checkmenu .ns-popmenu-item.is-on { color: var(--sel-fg); }
 .ns-bd-checkmenu .ns-popmenu-item.is-on .caps { color: var(--accent); }
 .ns-bd-checkempty { padding: 8px 14px; font-size: var(--fs-sm); color: var(--color-ink-faint); }
+.ns-bd-checkgroup {
+  padding: 8px 14px 3px; font-size: var(--fs-micro); font-weight: 500; letter-spacing: .12em;
+  color: var(--color-ink-faint); border-top: 1px dashed var(--color-line); margin-top: 4px; cursor: default;
+}
+.ns-bd-checkgroup:first-child { border-top: 0; margin-top: 0; padding-top: 4px; }
+
+/* ───── 篩選清單：命中子樹縮排視圖（Bug 2 · D-FB-1） ───── */
+.ns-bf-outline { margin-top: 14px; display: flex; flex-direction: column; gap: var(--sp-5); }
+.ns-bf-rsec-hd {
+  display: flex; align-items: center; gap: 8px; padding: 2px 4px 6px;
+  border-bottom: 1px solid var(--color-line);
+}
+.ns-bf-rbadge { width: 20px; height: 20px; font-size: var(--fs-micro); flex: none; }
+.ns-bf-rbadge.is-temp {
+  background: transparent; color: var(--route-none); border: 1.2px dashed var(--color-dash);
+  font-family: var(--font-display); font-weight: 600;
+}
+.ns-bf-rname {
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-body);
+  letter-spacing: .12em; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ns-bf-rrule { flex: 1; min-width: 16px; border-top: 1px dashed var(--color-dash); }
+.ns-bf-rcnt {
+  flex: none; font-size: var(--fs-xs); letter-spacing: .08em;
+  color: var(--color-ink-faint); font-variant-numeric: tabular-nums;
+}
+.ns-bf-rsec .ns-bd-results.ns-bf-tree { margin-top: 6px; }
+.ns-bf-indent { position: relative; }
+.ns-bf-indent::before {
+  content: ""; position: absolute; left: 9px; top: 0; bottom: 0;
+  border-left: 1px dashed var(--color-dash); pointer-events: none;
+}
+.ns-bf-grp-li { margin-top: 4px; }
+.ns-bf-grp {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  min-height: 42px; padding: 6px 10px; border-radius: var(--radius-card);
+  border-bottom: 1px dashed var(--color-line); cursor: pointer;
+  transition: background-color var(--dur-fast);
+}
+.ns-bf-grp:hover { background: var(--hover-bg); }
+.ns-bf-grp.selected, .ns-bf-grp.is-picked { background: var(--sel-bg); border-bottom-color: var(--accent); }
+.ns-bf-grp.is-context .ns-bf-grp-title { color: var(--color-ink-soft); }
+.ns-bf-grp-badge, .ns-bf-kind-inline {
+  width: 22px; height: 22px; flex: none; border-radius: var(--radius-pill);
+  border: 1.3px dashed currentColor; display: inline-grid; place-items: center;
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-micro);
+}
+.ns-bf-kind-inline { width: 18px; height: 18px; margin-right: 5px; vertical-align: -2px; }
+.ns-bf-grp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ns-bf-grp-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ns-bf-grp-title {
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-body);
+  letter-spacing: .08em; color: var(--color-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ns-bf-grp-kind {
+  flex: none; font-size: var(--fs-micro); letter-spacing: .16em; color: var(--color-ink-faint);
+}
+.ns-bf-grp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.ns-bf-grp-late {
+  flex: none; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-xs);
+  letter-spacing: .12em; color: var(--color-late);
+}
+.ns-bf-grp .ns-ring.is-sm .trk { stroke-width: 1.4; stroke-dasharray: 2.4 2.6; }
+.ns-bf-grp .ns-ring.is-sm .val { stroke-width: 2.2; }
+.ns-bf-grp .ns-ring.is-sm .rt { font-size: var(--fs-micro); letter-spacing: 0; }
+.ns-bf-grp .ns-ring.is-sm .rt b { font-size: var(--fs-micro); }
+.ns-bf-grp .row-more { position: static; opacity: var(--dim, .55); flex: none; }
+.ns-bf-grp:hover .row-more, .ns-bf-grp.selected .row-more { opacity: 1; }
 .ns-bd-namepop { position: fixed; z-index: 60; width: 260px; padding: 12px 14px; }
 .ns-bd-namepop .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .ns-bd-namepop .techo-input { flex: 1; min-width: 0; height: 28px; }

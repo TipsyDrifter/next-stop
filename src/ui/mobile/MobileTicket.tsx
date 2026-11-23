@@ -37,6 +37,7 @@
  */
 import type { ReactNode } from "react";
 import type { NodeRow } from "../../domain";
+import { formatDateRangeBadge } from "../../domain/dateRange";
 import { isClockPast, nextDayNote } from "../../lib/date";
 import { SealCarryOver, SealDone, SealLate, SealSuspended } from "../stamps";
 import type { TicketCardModel } from "../schedule/ticketCard";
@@ -44,6 +45,8 @@ import { lineTodayRowActions } from "../../lines/runtime";
 import { SelectCheck } from "./mobileSelect";
 import { useMobileDetailStore } from "./detail/mobileDetailStore";
 import { PriorityMark } from "../common/PriorityMark";
+import { formatRunOriginText, formatSeatBadgeText, releaseSeatedFlow } from "../common/seating";
+import "../common/seating/flexible-seating.css";
 
 /** YYYY-MM-DD → M/D（票面 chip 用） */
 function mmdd(key: string): string {
@@ -84,6 +87,12 @@ export interface MobileTicketProps {
   hideFare?: boolean;
   /** 路線名後面多幾項（⑫ 篩選清單的路徑、現況） */
   metaExtra?: ReactNode[];
+  /** 4B：期間自由券抽屜附加動作（排今天／発車） */
+  rangeActions?: {
+    remDays: number;
+    onPullToday(): void;
+    onDepart?(): void;
+  };
 }
 
 /**
@@ -127,9 +136,11 @@ export function MobileTicket({
   onPick,
   hideFare = false,
   metaExtra,
+  rangeActions,
 }: MobileTicketProps) {
   const { done, suspended, paused, late, railDate, readOnly } = card;
   const settled = done || suspended;
+  const hasRange = Boolean(!card.isRepeat && card.scheduledOn && card.scheduledEnd && card.scheduledEnd > card.scheduledOn);
 
   const accent = route?.color ?? "var(--route-none)";
   const badge = route?.code ?? (route ? route.name.slice(0, 1) : "臨");
@@ -141,9 +152,26 @@ export function MobileTicket({
   meta.push(<span className="m-tk-line">{lineName}</span>);
   if (card.serial !== null) meta.push(<span className="m-tk-serial">No.{card.serial}</span>);
   if (metaExtra) meta.push(...metaExtra);
-  if (!hideFare) meta.push(<span>{card.fare}</span>);
+  if (!hideFare) meta.push(<span>{card.isRepeat && card.isPlaceholder ? "定期・預留席" : card.fare}</span>);
+  if (card.seatedInto) {
+    meta.push(<span className="ns-seat-badge">{formatSeatBadgeText(card.seatedInto)}</span>);
+  }
+  if (rangeActions && card.scheduledOn && card.scheduledEnd) {
+    meta.push(<span>期間 {formatDateRangeBadge(card.scheduledOn, card.scheduledEnd)}</span>);
+    meta.push(
+      <span className={"m-tk-chip" + (rangeActions.remDays <= 0 ? " is-late" : "")}>
+        {rangeActions.remDays <= 0 ? "今天到期" : `剩 ${rangeActions.remDays} 天`}
+      </span>,
+    );
+  } else if (hasRange && late !== "carry" && card.scheduledOn && card.scheduledEnd) {
+    meta.push(<span>期間 {formatDateRangeBadge(card.scheduledOn, card.scheduledEnd)}</span>);
+  }
   if (late === "carry" && railDate) {
-    meta.push(<span className="m-tk-chip is-late">原定 {mmdd(railDate)}</span>);
+    meta.push(
+      <span className="m-tk-chip is-late">
+        原定 {hasRange && card.scheduledOn ? formatDateRangeBadge(card.scheduledOn, card.scheduledEnd) : mmdd(railDate)}
+      </span>,
+    );
     if (!settled) meta.push(<span className="m-tk-late-note">延誤 {diffDays(today, railDate)} 天</span>);
   }
   if (late === "inday" && railDate) {
@@ -206,6 +234,7 @@ export function MobileTicket({
         }
         className={
           "m-tk" +
+          (card.isPlaceholder ? " is-placeholder" : "") +
           (selecting ? " is-selecting" : "") +
           (picked ? " is-picked" : "") +
           (late !== null && !settled ? " is-late-t" : "") +
@@ -228,7 +257,10 @@ export function MobileTicket({
           <p className="m-tk-title">
             {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
             <PriorityMark priority={card.priority} />
-            {card.name}
+            {card.customTitle || card.name}
+            {card.customTitle && (
+              <span className="m-tk-origin">（{formatRunOriginText(card.name, card.estimateMin)}）</span>
+            )}
           </p>
           <div className="m-tk-meta">
             {/* 分隔的「・」跟在**前**一項後面（不是下一項前面）：meta 在 375px 常常換行，
@@ -244,6 +276,50 @@ export function MobileTicket({
               </span>
             ))}
           </div>
+          {!settled && !selecting && (rangeActions || card.seatedInto) && (
+            <div className="ns-mrange-bar">
+              {rangeActions && (
+                <>
+                  <button
+                    type="button"
+                    className="ns-mrange-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      rangeActions.onPullToday();
+                    }}
+                  >
+                    排今天
+                  </button>
+                  {rangeActions.onDepart && (
+                    <button
+                      type="button"
+                      className="ns-mrange-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        rangeActions.onDepart?.();
+                      }}
+                    >
+                      ▶ 発車
+                    </button>
+                  )}
+                </>
+              )}
+              {card.seatedInto && (
+                <button
+                  type="button"
+                  className="ns-seat-release"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (card.seatedInto) {
+                      void releaseSeatedFlow(card.seatedInto.slotNodeId, card.seatedInto.dueOn, card.nodeId);
+                    }
+                  }}
+                >
+                  釋出預留席
+                </button>
+              )}
+            </div>
+          )}
           {/* 別線的票卡標記（插槽 todayRowActions，接縫 #66）：今日子頁與行程表串流共用，畫不畫由元件看 readOnly／railDate 自己決定；沒有線填＝不出 DOM */}
           {lineTodayRowActions("mobile").map(({ id, Mobile }) =>
             Mobile ? (

@@ -44,6 +44,12 @@ export function dateChipText(key: string): string {
   return `${m}/${d}（${WEEK_ZH[new Date(y, m - 1, d).getDay()]}）`;
 }
 
+/** 區間 chip 顯示字（有訖日且 > 起日顯示「10/8（四）–10/10（六）」，否則同 dateChipText） */
+export function dateChipRangeText(start: string, end?: string | null): string {
+  if (!end || end <= start) return dateChipText(start);
+  return `${dateChipText(start)}–${dateChipText(end)}`;
+}
+
 /** 嚴格晚於 today 的最近週一（今天就是週一 ⇒ 七天後；同 schedule/streamModel nextMonday） */
 function nextMondayOf(today: string): string {
   const [y, m, d] = today.split("-").map(Number);
@@ -71,8 +77,14 @@ export function dateQuickSet(kind: "forward" | "backward", today: string): DateQ
 export interface DateChipProps {
   /** YYYY-MM-DD；null＝無日期 */
   date: string | null;
+  /** 期間自由券訖日（有值且 > date 時顯示區間；僅 allowRange 時使用） */
+  endDate?: string | null;
   /** 挑了一天（或清除＝null） */
   onPick(date: string | null): void;
+  /** 區間選取回呼（start=null 表示清除） */
+  onPickRange?(start: string | null, end: string | null): void;
+  /** 是否允許挑選期間區間（單日｜區間 ＋ 週末／本週／下週／本月） */
+  allowRange?: boolean;
   /** 快選列：往後／往前；省略＝沒有快選列 */
   quick?: "forward" | "backward";
   /** late＝過期赭字；backfill＝旗子圖示＋「補記」 */
@@ -97,7 +109,10 @@ export interface DateChipProps {
 
 export function DateChip({
   date,
+  endDate,
   onPick,
+  onPickRange,
+  allowRange = false,
   quick,
   flag,
   allowPast,
@@ -132,12 +147,28 @@ export function DateChip({
   const pick = (d: string | null): void => {
     if (mobile) closeSheet();
     else setOpen(false);
+    if (allowRange && onPickRange) {
+      if (d !== date || (endDate ?? null) !== null) onPickRange(d, null);
+      return;
+    }
     if (d !== date) onPick(d);
   };
 
-  const text = date ? dateChipText(date) : emptyText;
+  const pickRange = (start: string, end: string | null): void => {
+    const normEnd = end && end > start ? end : null;
+    if (mobile) closeSheet();
+    else setOpen(false);
+    if (onPickRange) {
+      if (start !== date || normEnd !== (endDate ?? null)) onPickRange(start, normEnd);
+    } else if (start !== date) {
+      onPick(start);
+    }
+  };
+
+  const text = date ? (allowRange ? dateChipRangeText(date, endDate) : dateChipText(date)) : emptyText;
   const backfill = flag === "backfill";
   const quicks = quick ? dateQuickSet(quick, today) : [];
+  const hasRangeVal = Boolean(allowRange && date && endDate && endDate > date);
 
   return (
     <span className={"ns-datechip-wrap" + (className ? " " + className : "")}>
@@ -171,7 +202,7 @@ export function DateChip({
       {quicks.length > 0 && (
         <span className="ns-datechip-quick" role="group" aria-label={`${label}・快選`}>
           {quicks.map((q) => {
-            const on = date === q.day;
+            const on = !hasRangeVal && date === q.day;
             const ok = inRange(q.day);
             return (
               <button
@@ -194,11 +225,15 @@ export function DateChip({
           <MobileDatePicker
             title={label}
             value={date}
+            endValue={allowRange ? endDate : null}
+            allowRange={allowRange}
             min={lo}
             max={max}
             quick={[]}
             today={today}
             onPick={(d) => pick(d)}
+            onPickRange={allowRange ? pickRange : undefined}
+            onClear={clearable && date ? () => pick(null) : undefined}
             onClose={closeSheet}
             backId={layerId}
             backKind="dialog"
@@ -208,11 +243,14 @@ export function DateChip({
             anchor={chipRef.current}
             label={label}
             value={date}
+            endValue={allowRange ? endDate : null}
+            allowRange={allowRange}
             markValue
             min={lo}
             max={max}
             today={today}
             onPick={(d) => pick(d)}
+            onPickRange={allowRange ? pickRange : undefined}
             onClear={clearable && date ? () => pick(null) : undefined}
             onClose={close}
           />

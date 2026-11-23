@@ -8,7 +8,9 @@
  *   - 鍵盤：Ctrl＋A 選這一頁的列、Shift＋↑↓ 擴選（從游標起算，往回按會縮）、Esc 清掉多選（各頁的 escape 先問 `clearIfAny`）。
  * 鍵位登記在 ui/shell/hotkeys.ts（today／outline 兩組 wired；串流借 daylist 那組，同它其他鍵的做法）。
  */
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { selectionClick, useSelectionStore, type SelectionScope } from "../../../store/selectionStore";
+import { useUiStore } from "../../../store/uiStore";
 
 type Mods = { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: EventTarget | null; clientX?: number; clientY?: number };
 
@@ -82,4 +84,115 @@ export function dragBatch(scope: SelectionScope, id: string, order: readonly str
   if (s.scope !== scope || !s.ids.includes(id)) return [id];
   const want = new Set(s.ids);
   return order.filter((x) => want.has(x) && (x === id || !allowed || allowed(x)));
+}
+
+/* ───────── 點擊空白處收起（操作 3） ───────── */
+
+const NON_BLANK_SELECTOR = [
+  "button",
+  "a",
+  "input",
+  "textarea",
+  "select",
+  "label",
+  "summary",
+  "[role='button']",
+  "[role='tab']",
+  "[role='option']",
+  "[role='menuitem']",
+  "[role='checkbox']",
+  "[role='radio']",
+  "[role='dialog']",
+  "[role='alertdialog']",
+  "[role='menu']",
+  "[role='listbox']",
+  "[role='status']",
+  "[contenteditable='true']",
+  "[data-drag-id]",
+  ".ticket",
+  ".ticket-li",
+  ".prow",
+  ".ns-chapter",
+  ".ns-ov-card",
+  ".ns-bd-card",
+  ".ns-bf-grp",
+  ".m-ticket",
+  ".m2-row",
+  ".m-bd-card",
+  ".m-bf-grp",
+  ".ns-sch-due",
+  ".m-sch-due",
+  ".cal-cell",
+  ".wk-cell",
+  ".wtg-block",
+  ".ns-selbar",
+  ".ns-selbar-dock",
+  ".m-selbar",
+  ".m-selbar-dock",
+  ".ns-qa-li",
+  ".ns-qa-compact",
+  ".ns-qa-inline",
+  ".ns-qa-launch",
+  ".m-newticket",
+  ".ns-qa-pop",
+  ".ns-popmenu",
+  ".ns-bd-namepop",
+  ".ns-select-pop",
+  ".ns-datepick",
+  ".ns-notes-pop",
+  ".ns-msheet",
+  ".complete-card",
+  ".log-row",
+  "aside.panel",
+].join(", ");
+
+export function isBlankSurfaceTarget(target: EventTarget | null, extraExclude?: string): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.closest(NON_BLANK_SELECTOR)) return false;
+  if (extraExclude && target.closest(extraExclude)) return false;
+  return true;
+}
+
+let lastPress: { x: number; y: number; target: EventTarget | null } | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      lastPress = { x: e.clientX, y: e.clientY, target: e.target };
+    },
+    true,
+  );
+}
+
+function isPlainBlankClick(e: ReactMouseEvent<HTMLElement>, extraExclude?: string): boolean {
+  if (e.defaultPrevented) return false;
+  if (typeof window !== "undefined" && window.getSelection()?.toString()) return false;
+  if (!isBlankSurfaceTarget(e.target, extraExclude)) return false;
+  if (lastPress) {
+    if (!isBlankSurfaceTarget(lastPress.target, extraExclude)) return false;
+    if (Math.hypot(e.clientX - lastPress.x, e.clientY - lastPress.y) > CLICK_SLOP_PX) return false;
+  }
+  return true;
+}
+
+/** 桌機主要視圖容器點空白處：清空多選＋收起右側詳情側板 */
+export function dismissOnBlankClick(e: ReactMouseEvent<HTMLElement>): void {
+  if (!isPlainBlankClick(e)) return;
+  const sel = useSelectionStore.getState();
+  if (sel.ids.length) sel.clear();
+  const ui = useUiStore.getState();
+  if (ui.panelOpen) ui.setPanelOpen(false);
+}
+
+/** 手機視圖容器點空白處：清空多選 */
+export function dismissSelectionOnBlankClick(e: ReactMouseEvent<HTMLElement>): void {
+  if (!isPlainBlankClick(e)) return;
+  const sel = useSelectionStore.getState();
+  if (sel.ids.length) sel.clear();
+}
+
+/** 自訂頁面（如售票口、候車室）的空白處點擊判斷工具 */
+export function runOnBlankClick(e: ReactMouseEvent<HTMLElement>, extraExclude: string, action: () => void): void {
+  if (!isPlainBlankClick(e, extraExclude)) return;
+  action();
 }

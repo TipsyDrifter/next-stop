@@ -25,6 +25,7 @@
  */
 import { useMemo } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
+import { formatDateRangeBadge, isRangeTicket } from "../../domain/dateRange";
 import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
 import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { resetRunTimeFlow } from "../outline/nodeFlows";
@@ -63,6 +64,8 @@ export interface ScheduleActions {
    *  day < today ⇒ 補記 updateNode(id, { scheduled_on: day }, { backfill: true })（UI 丙-3 F5；收據由 nodeStore 出）；
    *  其餘 reschedule(id, day)＋（day !== today）showRescheduleToast */
   defer(t: ScheduleTarget, day: string | null): void;
+  /** 區間改期（4B 期間自由券）：寫入 scheduled_on..scheduled_end 並附復原收據 */
+  deferRange(t: ScheduleTarget, start: string | null, end: string | null): void;
   /** 刪除（UI 丙-3 D5）：common/deleteNodeFlow（全 App 同一支：≥5 個子項先問、toast「已刪除『名稱』」＋「復原」） */
   remove(nodeId: string): void;
   /** 桌機 `.`：select(id)＋setPanelOpen(true) */
@@ -96,14 +99,14 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
    */
   /** 取消済：手機那張的完成卡一起收起（D-主-73；卡講的是「剛到站」）。桌機行為不動 */
   const uncomplete = (id: string) => {
-    if (shell === "mobile" && ui().completeCardFor === id) ui().setCompleteCardFor(null);
+    if (ui().completeCardFor === id) ui().setCompleteCardFor(null);
     void ns().setCompleted(id, false);
   };
 
   const complete = (node: NodeRow): boolean => {
     const finish = (cascade: boolean) => {
       void ns().setCompleted(node.id, true, cascade ? true : undefined);
-      if (isTaskKind(node.kind)) ui().setCompleteCardFor(node.id);
+      if (isTaskKind(node.kind) || node.kind === "ticket") ui().setCompleteCardFor(node.id);
     };
     if (shell === "mobile") {
       const tr = ns().today.byId[node.id];
@@ -194,13 +197,20 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
     defer(t, day) {
       const node = nodeOf(t);
       if (!node) return;
+      const key = today();
+      const repeat = t.kind === "entry" ? t.row.isRepeat : parseRule(node.repeat_rule) !== null;
       // 分流與手機今日同一支（pickDay.ts，有單測）：済／運休擋下、定期券只改這一班（⑥ D-主-295）；UI 丙-3 F5：過去日＝補記（磨光⑦ D-主-67）
       const plan = planPickDay({
         target: day,
-        today: today(),
-        current: t.kind === "entry" && t.row.isRepeat ? t.row.entry.date : node.scheduled_on,
+        today: key,
+        current:
+          t.kind === "entry" && repeat
+            ? t.row.entry.date
+            : node.scheduled_end
+              ? "__range__"
+              : node.scheduled_on,
         settled: t.kind === "entry" ? t.row.done || t.row.skipped : node.status === "done",
-        repeat: t.kind === "entry" ? t.row.isRepeat : parseRule(node.repeat_rule) !== null,
+        repeat,
       });
       switch (plan.kind) {
         case "blocked":
@@ -212,7 +222,7 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
           void moveRunFlow(node.id, plan.from, plan.day);
           return;
         case "clear": {
-          // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去
+          // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日（含區間）放回去
           const prev = scheduleSnapshot(node);
           void ns().reschedule(node.id, null);
           ui().showToast({
@@ -224,15 +234,56 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
         }
         case "backfill":
           // 補記：同一個交易裡済在那一天；收據「已補記到 M/D」＋復原由 nodeStore.showBackfillToast 出
-          void ns().updateNode(node.id, { scheduled_on: plan.day }, { backfill: true });
+          void ns().updateNode(node.id, { scheduled_on: plan.day, scheduled_end: null }, { backfill: true });
           return;
         case "reschedule": {
           const prev = scheduleSnapshot(node);
-          void ns().reschedule(node.id, plan.day);
-          if (plan.receipt) showRescheduleToast(node.id, prev, plan.day);
+          void ns().reschedule(node.id, plan.day, { scheduledEnd: null });
+          if (plan.receipt || node.scheduled_end) {
+            if (node.scheduled_end && plan.day === key) {
+              ui().showToast({
+                message: "已排進今天",
+                actionLabel: "復原",
+                onAction: () => void ns().updateNode(node.id, prev),
+              });
+            } else {
+              showRescheduleToast(node.id, prev, plan.day);
+            }
+          }
           return;
         }
       }
+    },
+
+    deferRange(t, start, end) {
+      const node = nodeOf(t);
+      if (!node) return;
+      const settled = t.kind === "entry" ? t.row.done || t.row.skipped : node.status === "done";
+      const repeat = t.kind === "entry" ? t.row.isRepeat : parseRule(node.repeat_rule) !== null;
+      if (settled) {
+        toast(SETTLED_DEFER_MSG);
+        return;
+      }
+      if (repeat) {
+        toast(REPEAT_RESCHEDULE_MSG);
+        return;
+      }
+      if (!start) {
+        this.defer(t, null);
+        return;
+      }
+      if (!end || end <= start) {
+        this.defer(t, start);
+        return;
+      }
+      if (node.scheduled_on === start && node.scheduled_end === end) return;
+      const prev = scheduleSnapshot(node);
+      void ns().reschedule(node.id, start, { scheduledEnd: end });
+      ui().showToast({
+        message: `已改排期間 ${formatDateRangeBadge(start, end)}`,
+        actionLabel: "復原",
+        onAction: () => void ns().updateNode(node.id, prev),
+      });
     },
 
     remove(nodeId) {
@@ -315,17 +366,26 @@ export function scheduleRowMenu(
     }
   } else if (!row.done && !row.skipped) {
     const d = row.entry.date;
-    items.push(
-      d === opts.today
-        ? { key: "tomorrow", label: "推遲到明天", hotkeyId: "daylist.schedule.tomorrow", onSelect: () => actions.scheduleRelative(row, 1) }
-        : {
-            key: "today",
-            label: d < opts.today ? "推遲到今天" : "提前到今天",
-            hotkeyId: "daylist.schedule.today",
-            onSelect: () => actions.scheduleRelative(row, 0),
-          },
-      { key: "pick", label: "選日期…", onSelect: opts.openDefer },
-    );
+    if (isRangeTicket(node)) {
+      items.push({
+        key: "pull-today",
+        label: "排今天（轉單日）",
+        hotkeyId: "daylist.schedule.today",
+        onSelect: () => void useNodeStore.getState().pullRangeTicketToToday(node.id),
+      });
+    } else {
+      items.push(
+        d === opts.today
+          ? { key: "tomorrow", label: "推遲到明天", hotkeyId: "daylist.schedule.tomorrow", onSelect: () => actions.scheduleRelative(row, 1) }
+          : {
+              key: "today",
+              label: d < opts.today ? "推遲到今天" : "提前到今天",
+              hotkeyId: "daylist.schedule.today",
+              onSelect: () => actions.scheduleRelative(row, 0),
+            },
+      );
+    }
+    items.push({ key: "pick", label: "選日期／區間…", onSelect: opts.openDefer });
   }
   // ⑧ 同類：多選的可點入口（只有串流有多選；當日清單不傳）
   if (opts.pick) items.push({ key: "select", label: "選取", onSelect: opts.pick });

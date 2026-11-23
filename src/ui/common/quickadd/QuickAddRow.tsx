@@ -25,6 +25,7 @@ import {
   type MutableRefObject,
 } from "react";
 import type { NodeKind, NodeRow } from "../../../domain";
+import { useSelectionStore } from "../../../store/selectionStore";
 import type { CommitVia } from "../InlineInput";
 import { QuickChips, QuickField, intoLabel } from "./QuickAddParts";
 import { QuickPickers } from "./QuickAddPickers";
@@ -49,8 +50,10 @@ export interface QuickPositional {
 export interface QuickAddRowProps {
   defaults: QuickDefaults;
   here: QuickHere;
-  /** 掛到路線時預設建成什麼（省略＝路線圖列車、其他頁車票；頁首「新增車票」＝車票） */
+  /** 掛到路線時預設建成什麼（省略＝車票；路線大綱可切「車票｜支線」） */
   routeKind?: RouteKind;
+  /** 強制隱藏「車票｜支線」分段鈕（如看板欄內新增車票） */
+  hideRouteKind?: boolean;
   afterId?: string | null;
   positional?: QuickPositional;
   placeholder?: string;
@@ -75,6 +78,7 @@ export function QuickAddRow({
   defaults,
   here,
   routeKind,
+  hideRouteKind,
   afterId,
   positional,
   placeholder,
@@ -85,16 +89,56 @@ export function QuickAddRow({
   variant = "ticket",
   submitRef,
 }: QuickAddRowProps) {
-  const api = useQuickAdd({ defaults, here, routeKind, afterId, positional: positional ? { kind: positional.kind } : undefined, onCreated });
+  const api = useQuickAdd({
+    defaults,
+    here,
+    routeKind,
+    hideRouteKind,
+    afterId,
+    positional: positional ? { kind: positional.kind } : undefined,
+    onCreated,
+  });
   const rootRef = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState<{ key: QuickChipKey; anchor: HTMLElement } | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
   const [focus, setFocus] = useState(true);
+  const outsidePressAtRef = useRef(0);
+  const blurCommittedRef = useRef(false);
 
   const live = useRef({ api, positional, onClose });
   live.current = { api, positional, onClose };
+
+  // 操作 3（互斥）：開啟建票列或位置型草稿列時，自動退出多選
+  useEffect(() => {
+    if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
+  }, []);
+
+  // 切為「支線」時不適用的挑選器若正開著，立即收起（掛到與車站仍適用）
+  useEffect(() => {
+    if (api.target.kind === "branch" && open && open.key !== "dest" && open.key !== "station") {
+      setOpen(null);
+    }
+  }, [api.target.kind, open]);
+
+  // 記錄子浮層開啟期間最後一次指標按下是否落在整個建票列＋浮層之外（防止點空白處被 refocus 拉回輸入框）
+  useEffect(() => {
+    if (!open) {
+      outsidePressAtRef.current = 0;
+      return;
+    }
+    const onDown = (e: PointerEvent | MouseEvent) => {
+      const t = e.target;
+      outsidePressAtRef.current = t instanceof Element && !isInside(t, rootRef.current) ? Date.now() : 0;
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("mousedown", onDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("mousedown", onDown, true);
+    };
+  }, [open]);
 
   const refocus = useCallback(() => {
     const el = inputRef.current;
@@ -126,26 +170,60 @@ export function QuickAddRow({
   }, [submitRef]);
 
   const commit = async (via: CommitVia) => {
-    const { api: a, positional: p, onClose: close } = live.current;
-    if (p) {
-      p.onCommit(a.values.name, via, a.extra());
+    if (via === "blur") {
+      if (blurCommittedRef.current) return;
+      blurCommittedRef.current = true;
+    }
+    try {
+      const { api: a, positional: p, onClose: close } = live.current;
+      if (p) {
+        p.onCommit(p.kind === "branch" ? a.values.name : a.values.effectiveName, via, a.extra());
+        return;
+      }
+      if (!a.canSubmit) {
+        if (via === "blur") close?.(false);
+        else close?.(true);
+        return;
+      }
+      // 點去別處送出：選取留給使用者剛點的那一列（away＝不叫呼叫端選新票）
+      const row = await a.submit(via === "blur" ? { away: true } : undefined);
+      if (!row) return;
+      if (via === "ctrl-enter") {
+        refocus();
+      } else if (via === "enter") {
+        close?.(true);
+      } else {
+        close?.(false);
+      }
+    } finally {
+      if (via === "blur") {
+        window.setTimeout(() => {
+          blurCommittedRef.current = false;
+        }, 120);
+      }
+    }
+  };
+
+  const handlePickerDismiss = () => {
+    const clickedOutside = Date.now() - outsidePressAtRef.current < 400;
+    outsidePressAtRef.current = 0;
+    openRef.current = null;
+    setOpen(null);
+    if (clickedOutside) {
+      window.setTimeout(() => {
+        const root = rootRef.current;
+        if (!root?.isConnected || !document.hasFocus() || openRef.current) return;
+        const a = document.activeElement;
+        if (a instanceof Element && isInside(a, root)) return;
+        setFocus(false);
+        void commit("blur");
+      }, 60);
       return;
     }
-    if (!a.canSubmit) {
-      if (via === "blur") close?.(false);
-      else close?.(true);
-      return;
-    }
-    // 點去別處送出：選取留給使用者剛點的那一列（away＝不叫呼叫端選新票）
-    const row = await a.submit(via === "blur" ? { away: true } : undefined);
-    if (!row) return;
-    if (via === "ctrl-enter") {
-      refocus();
-    } else if (via === "enter") {
-      close?.(true);
-    } else {
-      close?.(false);
-    }
+    window.setTimeout(() => {
+      const a = document.activeElement;
+      if (!a || a === document.body) refocus();
+    }, 0);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -154,7 +232,7 @@ export function QuickAddRow({
       e.preventDefault();
       e.stopPropagation();
       const via: CommitVia = e.ctrlKey || e.metaKey ? "ctrl-enter" : "enter";
-      if (!positional && !api.values.name.trim() && !api.text.trim()) {
+      if (!positional && !api.canSubmit && !api.text.trim()) {
         onClose?.(true); // 空白 Enter＝收掉（同以前的草稿列）
         return;
       }
@@ -187,13 +265,24 @@ export function QuickAddRow({
     }, 60);
   };
 
-  const look = stubLook(positional ? { kind: positional.kind, parentId: "x", routeTagId: null } : api.target);
+  const isBranch = (positional ? positional.kind : api.target.kind) === "branch";
+  const isPh = !isBranch && api.values.isPlaceholder;
+  const look = stubLook(positional ? { kind: positional.kind, parentId: "x", routeTagId: null } : api.target, isPh);
   const destRoute = api.values.dest.routeId ? api.routes.find((r) => r.id === api.values.dest.routeId) : null;
   const stubColor = positional ? (positional.accent ?? "var(--color-ink-soft)") : (destRoute?.color ?? "var(--route-none)");
   const into = positional ? "" : intoLabel(api);
   const ph =
     placeholder ??
-    (positional ? `新的${look.lineName}…` : api.target.kind === "train" ? "新增列車…" : "新增車票…");
+    (positional
+      ? `新的${look.lineName}…`
+      : isBranch
+        ? "新增支線…"
+        : api.target.kind === "train"
+          ? "新增列車…"
+          : variant === "compact"
+            ? "新增車票…（@ # 本週 =）"
+            : "新增車票…（可打 @路線 2h 建預留席 · 10/2~10/4 本週 #荷札 =）");
+  const submitLabel = isBranch ? "建立支線" : isPh ? "建預留席" : "発券";
   const noDateLabel = !!defaults.noDateLabel;
 
   const field = (
@@ -203,6 +292,7 @@ export function QuickAddRow({
     <QuickChips
       api={api}
       hideDest={!!positional}
+      hideRouteKind={hideRouteKind}
       noDateLabel={noDateLabel}
       open={open?.key ?? null}
       keepFocus
@@ -210,7 +300,14 @@ export function QuickAddRow({
     />
   );
   const pickers = (
-    <QuickPickers api={api} open={open?.key ?? null} anchor={open?.anchor ?? null} onClose={() => setOpen(null)} refocus={refocus} />
+    <QuickPickers
+      api={api}
+      open={open?.key ?? null}
+      anchor={open?.anchor ?? null}
+      onClose={() => setOpen(null)}
+      onDismiss={handlePickerDismiss}
+      refocus={refocus}
+    />
   );
 
   if (variant === "compact") {
@@ -228,8 +325,8 @@ export function QuickAddRow({
             {look.badge}
           </span>
           {field}
-          <span className="k" aria-hidden title="Enter 建立 · Ctrl+Enter 連續建立 · Esc 取消">
-            Enter 建立 · Ctrl+Enter 連建 · Esc
+          <span className="k" aria-hidden title="可打 @路線 · #荷札 · 14:00-15:30 · = 同乘車日 ｜ Enter 建立 · Ctrl+Enter 連續建立 · Esc 取消">
+            Esc
           </span>
         </div>
         {chips}
@@ -267,6 +364,13 @@ export function QuickAddRow({
           </span>
           {field}
           {chips}
+          <div className="ns-qa-hint" aria-hidden>
+            {isBranch
+              ? "Enter 建立支線 · Ctrl+Enter 連續建立 · Esc 取消"
+              : positional
+                ? "語法：#荷札 · 14:00-15:30 · = 同乘車日 ｜ Enter 建立 · Tab 改層級 · Esc 取消"
+                : "語法：@路線 · #荷札 · 14:00-15:30 · = 同乘車日 ｜ Enter 建立 · Ctrl+Enter 連打 · Esc 取消"}
+          </div>
         </div>
 
         <div className="stamp-zone">
@@ -278,11 +382,8 @@ export function QuickAddRow({
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => void commit(e.ctrlKey || e.metaKey ? "ctrl-enter" : "enter")}
           >
-            発券
+            {submitLabel}
           </button>
-          <span className="ns-qa-esc" aria-hidden title="Enter 建立 · Ctrl+Enter 連續建立 · Esc 取消">
-            Enter 建立 · Ctrl+Enter 連續建立 · Esc 取消
-          </span>
         </div>
       </article>
       {pickers}

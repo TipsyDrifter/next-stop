@@ -17,11 +17,12 @@
  * 條件一改 store 就查（`patchFilter`／`setFilterText`），N＝`results.length`。
  * 關 sheet（完成／暗幕／看結果）：有任何條件 ⇒ `openSearch`（切清單、清單畫結果，月份列換成 chips 列）；全空 ⇒ `closeSearch`。
  */
-import { useEffect, useMemo, useRef, useState, type CompositionEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CompositionEvent, type ReactNode } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
 import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
 import { useNodeStore } from "../../../store/nodeStore";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
 import { roundelStyle } from "../../common/roundel";
@@ -167,7 +168,9 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
     const has = filter.kinds.indexOf(k) >= 0;
     void patchFilter({ kinds: has ? filter.kinds.filter((x) => x !== k) : [...filter.kinds, k] });
   };
-  const liveRoutes = routes.filter((r) => r.deleted_at === null);
+  const lines = useNodeStore((s) => s.lines);
+  const liveRoutes = useMemo(() => routes.filter((r) => r.deleted_at === null), [routes]);
+  const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, lines), [liveRoutes, lines]);
 
   /* ── 荷札（售票口④）：帳上掛過的荷札連同它的上層（選父含子，同桌機浮層），加上已選的，照名稱排；index 沒載過就載一次 ── */
   const tagIndex = useTagStore((s) => s.index);
@@ -334,23 +337,30 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
         </Sec>
 
         <Sec title="路線">
-          <div className="ns-tk-mchips is-scroll">
+          <div className="ns-tk-mchips">
             {chip("all", filter.routeId === null, "全部", () => void patchFilter({ routeId: null }))}
             {chip("none", filter.routeId === "none", "未掛", () => void patchFilter({ routeId: filter.routeId === "none" ? null : "none" }))}
-            {liveRoutes.map((r) =>
-              chip(
-                r.id,
-                filter.routeId === r.id,
-                <>
-                  <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
-                    {r.code ?? r.name.slice(0, 1)}
-                  </span>
-                  {r.name}
-                </>,
-                () => void patchFilter({ routeId: filter.routeId === r.id ? null : r.id }),
-              ),
-            )}
           </div>
+          {routeGroups.map((g) => (
+            <Fragment key={g.lineId ?? "other"}>
+              <p className="ns-tk-ms-sub">{g.header}</p>
+              <div className="ns-tk-mchips">
+                {g.routes.map((r) =>
+                  chip(
+                    r.id,
+                    filter.routeId === r.id,
+                    <>
+                      <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
+                        {r.code ?? r.name.slice(0, 1)}
+                      </span>
+                      {r.name}
+                    </>,
+                    () => void patchFilter({ routeId: filter.routeId === r.id ? null : r.id }),
+                  ),
+                )}
+              </div>
+            </Fragment>
+          ))}
         </Sec>
 
         {usedTags.length > 0 && (

@@ -89,6 +89,7 @@ import {
   type TreeIndex,
 } from "../../store/nodeStore";
 import { roundelStyle } from "../common/roundel";
+import { dismissSelectionOnBlankClick } from "../common/selection/desktopSelection";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
 import { MSheet, MSheetItem } from "../common/MSheet";
@@ -110,7 +111,6 @@ import { headParts, mdw, summaryParts } from "../outline/routeSummaryText";
 // 票根徽章與票種的算法沿大綱（只讀 import，顯示端不手抄一份規則；OutlineRow 的這三支是純函式／常數）
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
 import { completeNodeFlow, suspendNodeFlow } from "../outline/nodeFlows";
-import { leafKindFor } from "../outline/rowGuards";
 import { makeScheduleActions } from "../schedule/scheduleActions";
 import { moveNodeTo } from "../common/moveTo";
 import { useUiStore } from "../../store/uiStore";
@@ -149,8 +149,18 @@ import { SelectCheck, batchDragIds, pressSelect, tapSelect, usePruneSelection, u
 import { moveNodesWithUndo, stepAnchor } from "./mobileMoves";
 import { Tabs } from "../common/Tabs";
 import { useBoardStore, type OverviewTab } from "../../store/boardStore";
+import { NO_STATION_COL, inheritedStationOf } from "../../domain/board";
+import { matchesStationFilter } from "../../domain/stationTrack";
 import { landOnBoard } from "../board/boardReveal";
-import { useRouteBoard, type BoardColumnModel } from "../board/useRouteBoard";
+import { routeStations, useRouteBoard, type BoardColumnModel } from "../board/useRouteBoard";
+import {
+  STATION_DROP_TYPE,
+  StationTrackBar,
+  dropOnStation,
+  resolveActiveStationFilter,
+  stationTargetVerdict,
+  useRouteStationFilter,
+} from "../outline/StationTrackBar";
 import { MobileBoardAdd, MobileRouteBoard, MobileRouteLayoutTabs, ROUTE_LAYOUT_PANEL } from "./board/MobileRouteBoard";
 import { MobileFilterView, OVERVIEW_PANEL } from "./board/MobileFilterView";
 import { openLateOfRouteMobile, useFilterNavStore } from "./board/filterNav";
@@ -226,6 +236,7 @@ function buildRows(
   collapsed: Record<string, boolean>,
   hideDone: boolean,
   isDone: (n: NodeRow) => boolean,
+  filterPass?: (id: string) => boolean,
 ): { rows: VisibleRow[]; doneHidden: number; doneShown: number } {
   const out: VisibleRow[] = [];
   let doneHidden = 0;
@@ -234,6 +245,7 @@ function buildRows(
     for (const id of ids) {
       const n = tree.byId[id];
       if (!n) continue;
+      if (filterPass && !filterPass(id)) continue;
       if (hideDone && isDone(n)) {
         doneHidden++;
         continue;
@@ -672,10 +684,23 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
   );
   const fare = fareClass(node);
   const runDate = occurrence?.due_on ?? node.scheduled_on;
+  const stations = useNodeStore((s) => s.stations);
+  const treeById = useNodeStore((s) => s.tree.byId);
+  const stationValue = useMemo(() => {
+    if (!node.route_id) return null;
+    const stList = routeStations(stations, node.route_id);
+    if (!stList.length) return null;
+    const stMap = new Map(stList.map((s) => [s.id, s]));
+    const inh = inheritedStationOf(node, stMap, treeById);
+    const stName = inh.stationId ? (stMap.get(inh.stationId)?.name ?? null) : null;
+    if (!stName) return "還沒排站";
+    return inh.inheritedFrom ? `繼承自「${inh.inheritedFrom.name}」（${stName}）` : stName;
+  }, [node, stations, treeById]);
   const fields: { label: string; value: string; latin?: boolean; wrap?: boolean }[] = [
     { label: "票種", value: fare.label },
     ...(serial ? [{ label: "票號", value: `No.${serial}`, latin: true }] : []),
     { label: "現況", value: STATUS_TEXT[node.status] },
+    ...(stationValue ? [{ label: "車站", value: stationValue }] : []),
     /**
      * 定期券多一列「本班」：済／運休蓋在**班次**上，`nodes.status` 一路是 todo（M3 ④ 口徑）。
      * 少了這一列，主人會看到「現況 未開始」旁邊掛著一枚済章——桌機側板是用獨立的検印欄講這件事，
@@ -841,15 +866,26 @@ export default function MobileRouteMap() {
 
   const zoom: NodeRow | null = zoomId && treeReady ? (tree.byId[zoomId] ?? null) : null;
   const rootChildren = zoom ? (tree.childrenOf[zoom.id] ?? EMPTY) : tree.roots;
+  const [rawStationFilter, setStationFilter] = useRouteStationFilter(openedId);
+  const stationFilter = resolveActiveStationFilter(rawStationFilter, allStations, openedId);
+  const routeStList = useMemo(() => routeStations(allStations, openedId), [allStations, openedId]);
+  const routeStationMap = useMemo(() => new Map(routeStList.map((s) => [s.id, s])), [routeStList]);
   /** 回饋甲 D-主-131：已完成收起（桌機大綱同一個記住的狀態；預設收起） */
   const hideDone = useUiStore((s) => s.hideDone);
   const toggleHideDone = useUiStore((s) => s.toggleHideDone);
   const built = useMemo(
     () =>
       treeReady
-        ? buildRows(tree, rootChildren, collapsed, hideDone, (n) => isRouteNodeDone(n, currentOccurrences))
+        ? buildRows(
+            tree,
+            rootChildren,
+            collapsed,
+            hideDone,
+            (n) => isRouteNodeDone(n, currentOccurrences),
+            stationFilter ? (id) => matchesStationFilter(id, stationFilter, tree, routeStList) : undefined,
+          )
         : { rows: [] as VisibleRow[], doneHidden: 0, doneShown: 0 },
-    [treeReady, tree, rootChildren, collapsed, hideDone, currentOccurrences],
+    [treeReady, tree, rootChildren, collapsed, hideDone, currentOccurrences, stationFilter, routeStList],
   );
   const rows = built.rows;
   const showBoard = routeLayout === "board";
@@ -862,6 +898,7 @@ export default function MobileRouteMap() {
     occurrences: currentOccurrences,
     group: boardGroup,
     hideDone,
+    filterStationId: stationFilter,
   });
   const boardCol: BoardColumnModel | undefined = board.columns.find((c) => c.key === boardColKey) ?? board.columns[0];
 
@@ -871,15 +908,17 @@ export default function MobileRouteMap() {
    */
   const zoomKind = zoom?.kind;
   const zoomNodeId = zoom?.id ?? null;
+  const defaultStationForAdd = stationFilter && stationFilter !== NO_STATION_COL ? stationFilter : null;
   const qaDefaults = useMemo<QuickDefaults>(
     () => ({
       dest:
         zoomNodeId && (zoomKind === "train" || zoomKind === "car" || zoomKind === "branch")
           ? { routeId: openedId, nodeId: zoomNodeId, nodeKind: zoomKind }
           : { routeId: openedId, nodeId: null, nodeKind: "route" },
+      stationId: defaultStationForAdd,
       scheduledOn: null,
     }),
-    [openedId, zoomNodeId, zoomKind],
+    [openedId, zoomNodeId, zoomKind, defaultStationForAdd],
   );
   const qaHere = useMemo<QuickHere>(() => ({ kind: "route", routeId: openedId ?? "" }), [openedId]);
 
@@ -902,10 +941,18 @@ export default function MobileRouteMap() {
   /** 畫面上看得到的子孫（拖起時一起走） */
   const visibleKids = (ids: readonly string[]): string[] => {
     const out: string[] = [];
+    const set = new Set(ids);
+    const seen = new Set<string>();
     for (const id of ids) {
       const i = rows.findIndex((r) => r.id === id);
       if (i < 0) continue;
-      for (let j = i + 1; j < rows.length && rows[j].depth > rows[i].depth; j++) out.push(rows[j].id);
+      for (let j = i + 1; j < rows.length && rows[j].depth > rows[i].depth; j++) {
+        const cid = rows[j].id;
+        if (!set.has(cid) && !seen.has(cid)) {
+          seen.add(cid);
+          out.push(cid);
+        }
+      }
     }
     return out;
   };
@@ -925,15 +972,40 @@ export default function MobileRouteMap() {
     // 選中的那張被拖＝整批（其中某張的子孫也被選了就不重複算：它跟著祖先走）
     dragIds: (id) => {
       const ids = batchDragIds("outline", id, rowOrder);
-      const kids = new Set(visibleKids(ids));
-      return ids.filter((x) => !kids.has(x));
+      if (ids.length <= 1) return ids;
+      const idSet = new Set(ids);
+      const byId = useNodeStore.getState().tree.byId;
+      const kids = new Set<string>();
+      for (const x of ids) {
+        const i = rows.findIndex((r) => r.id === x);
+        if (i < 0) continue;
+        for (let j = i + 1; j < rows.length && rows[j].depth > rows[i].depth; j++) kids.add(rows[j].id);
+      }
+      return ids.filter((x) => {
+        if (kids.has(x)) return false;
+        const visited = new Set<string>([x]);
+        let cur = byId[x]?.parent_id ?? null;
+        while (cur && !visited.has(cur)) {
+          if (idSet.has(cur)) return false;
+          visited.add(cur);
+          cur = byId[cur]?.parent_id ?? null;
+        }
+        return true;
+      });
     },
     resolve: (ids, place: DropPlace) => {
+      if (place.kind === "target") {
+        return place.type === STATION_DROP_TYPE ? stationTargetVerdict(ids, place.target, openedId, parked) : "放不進這裡";
+      }
       if (place.kind !== "slot") return "放不進這裡";
       const v = dropVerdict(useNodeStore.getState().tree, dropTop(), ids, place.parent);
       return v.ok ? true : v.why;
     },
     onDrop: (ids, place) => {
+      if (place.kind === "target") {
+        if (place.type === STATION_DROP_TYPE) dropOnStation(ids, place.target, openedId);
+        return;
+      }
       if (place.kind !== "slot") return;
       const t = useNodeStore.getState().tree;
       const v = dropVerdict(t, dropTop(), ids, place.parent);
@@ -1238,7 +1310,7 @@ export default function MobileRouteMap() {
 
   return (
     <>
-    <div ref={pageRef} className={"m-page m2-page" + (showBoard ? " is-board" : "")} aria-label={`路線 ${route?.name ?? ""}`}>
+    <div ref={pageRef} className={"m-page m2-page" + (showBoard ? " is-board" : "")} aria-label={`路線 ${route?.name ?? ""}`} onClick={dismissSelectionOnBlankClick}>
       {/* 麵包屑：sticky 釘在內容區頂端——捲到樹深處時仍看得到；Android 返回鍵也走同一條路（上面的 goUp） */}
       <nav className="m2-crumbs" aria-label="路線位置">
         {crumbs.map((c, i) => (
@@ -1310,6 +1382,17 @@ export default function MobileRouteMap() {
       {/* ⑫：大綱｜看板（看板分頁的內容在 board/MobileRouteBoard）。看板版面欄要高度，下一站方針與別線欄位列留在大綱分頁 */}
       <MobileRouteLayoutTabs />
 
+      {/* 第三梯 3A：路線主畫面站點軌道條（大綱與看板分頁共享單站篩選與拖放歸站） */}
+      {route && treeReady && (
+        <StationTrackBar
+          route={route}
+          tree={tree}
+          occurrences={currentOccurrences}
+          parked={parked}
+          onOpenStationCard={(id) => stationCard.open(id)}
+        />
+      )}
+
       {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿打開的）頂上一行＋「回到運行」（聚焦進支線／列車時照樣顯示） */}
       {route && <DepotBanner route={route} />}
 
@@ -1372,6 +1455,17 @@ export default function MobileRouteMap() {
             顯示已完成
           </button>
         </div>
+      ) : rows.length === 0 && stationFilter !== null && rootChildren.length > 0 ? (
+        <div className="m2-empty">
+          <p className="m2-empty-title">
+            {stationFilter === NO_STATION_COL
+              ? "目前沒有未排站的項目"
+              : `「${routeStationMap.get(stationFilter)?.name ?? "這一站"}」還沒有項目`}
+          </p>
+          <button type="button" className="ns-btn btn-ghost m2-empty-add" onClick={() => setStationFilter(null)}>
+            顯示全部項目
+          </button>
+        </div>
       ) : rows.length === 0 ? (
         <div className="m2-empty">
           <p className="m2-empty-title">{zoom ? "這裡底下還沒有東西" : "這條路線還沒有車票"}</p>
@@ -1410,6 +1504,7 @@ export default function MobileRouteMap() {
 
             // 丁 D-主-247／248：支線＝章節樣子（沒有検印）；有子項、還沒済的列車／車廂＝検印位置畫進度圈（直屬子項 d/t）
             const isChapter = node.kind === "branch";
+            const ownStationName = node.station_id ? (routeStationMap.get(node.station_id)?.name ?? null) : null;
             const kidNodes = kids.map((k) => tree.byId[k]).filter((x): x is NodeRow => !!x);
             const kidDone = kidNodes.filter((k) => isRouteNodeDone(k, currentOccurrences)).length;
             const ring = (node.kind === "train" || node.kind === "car") && hasKids && !done && !suspended;
@@ -1417,12 +1512,13 @@ export default function MobileRouteMap() {
               ? (() => {
                   const cc = chapterCount(kidNodes, (k) => isRouteNodeDone(k, currentOccurrences));
                   const bst = routeHeadStats(flattenSubtrees(tree, [id]), (k) => isRouteNodeDone(k, currentOccurrences));
+                  const stPart = ownStationName ? `・◎ ${ownStationName}` : "";
                   const prog =
                     bst.ticketTotal > 0
                       ? `・${bst.ticketDone}/${bst.ticketTotal} 済 (${Math.round((bst.ticketDone / bst.ticketTotal) * 100)}%)`
                       : "";
                   const parts = chapterParts(cc).join("・");
-                  return `支線${parts ? `・${parts}` : ""}${prog || (cc.done ? `・済 ${cc.done}` : "")}`;
+                  return `支線${stPart}${parts ? `・${parts}` : ""}${prog || (cc.done ? `・済 ${cc.done}` : "")}`;
                 })()
               : null;
 
@@ -1508,6 +1604,7 @@ export default function MobileRouteMap() {
                             ? "車票・自由席"
                             : KIND_LABEL[node.kind]}
                           {total > 0 && !ring ? `・${childDone}/${total}` : ""}
+                          {ownStationName ? `・◎ ${ownStationName}` : ""}
                           {rule ? "・定期券" : ""}
                           {node.scheduled_on ? `・${node.scheduled_on.slice(5)}` : ""}
                         </>
@@ -1647,7 +1744,7 @@ export default function MobileRouteMap() {
       <MobileQuickAdd
         defaults={qaDefaults}
         here={qaHere}
-        routeKind={leafKindFor(zoom?.kind ?? "route") === "ticket" ? "ticket" : "train"}
+        routeKind="ticket"
         onCreated={(row, stays) => {
           if (stays) revealRow(row.id);
         }}

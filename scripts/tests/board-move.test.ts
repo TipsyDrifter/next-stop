@@ -259,7 +259,7 @@ for (const [name, mk] of makers) {
       assert.deepEqual(await restoreCardStates(repo, snap, DAY), []);
     });
 
-    test("listTasks 帶 has_kids；「誤點」條件對得上路線卡的誤點數，其他條件照舊只看葉節點", async () => {
+    test("listTasks 帶 has_kids；「誤點」條件對得上路線卡的誤點數，其他條件亦支援命中列車（Bug 2）", async () => {
       const repo = mk();
       const { R, T, K } = await seed(repo);
       await repo.update(T.id, { due_on: addDays(TODAY, -2) });
@@ -272,7 +272,7 @@ for (const [name, mk] of makers) {
       const hits = tasks.filter((x: Any) => matchTask(x, { ...DEFAULT_TASK_FILTER, routes: [R.id], late: true }, ctx));
       assert.equal(hits.length, n);
       assert.deepEqual(hits.map((x: Any) => x.id), [T.id]);
-      assert.equal(tasks.some((x: Any) => x.id === T.id && matchTask(x, { ...DEFAULT_TASK_FILTER, routes: [R.id] }, ctx)), false);
+      assert.equal(tasks.some((x: Any) => x.id === T.id && matchTask(x, { ...DEFAULT_TASK_FILTER, routes: [R.id] }, ctx)), true);
     });
   });
 }

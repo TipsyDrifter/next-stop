@@ -21,7 +21,7 @@ export interface WeekAimRow extends SyncFields {
   /** 期間鍵（欄名是歷史遺留，D-主-371）：週＝那週第一天 YYYY-MM-DD（寫的當下的「每週從星期幾開始」）；月 M2026-11；年 Y2026；車站 S<節點 id> */
   week_on: string;
   text: string;
-  /** 掛的路線或支線（AIM_ATTACH_KINDS）；null＝不掛 */
+  /** 掛的路線（新寫入統一只掛 route，歷史曾掛支線的列讀取相容）；null＝不掛 */
   node_id: string | null;
   position: number;
   /** 済的時刻（UTC ISO）；null＝還沒済 */
@@ -32,10 +32,56 @@ export interface WeekAimRow extends SyncFields {
 
 /** 一期最多幾句（D-主-253、372：週、月、年、站各算各的） */
 export const MAX_AIMS = 5;
-/** 一句最長幾個字（超過擋下；告示一行放得下的長度） */
-export const AIM_TEXT_MAX = 60;
-/** 方針可以掛的節點種類（D-主-255 起只開路線；丁放寬「支線底下直接放票」後加支線，D-主-281） */
-export const AIM_ATTACH_KINDS: readonly NodeKind[] = ["route", "branch"];
+/** 一句最長幾個字（超過擋下；回饋第三梯升級多行 textarea 放寬至 160 字） */
+export const AIM_TEXT_MAX = 160;
+/** 方針可以掛的節點種類（討論 4：收斂為最多只掛路線；舊資料庫曾掛 branch 的歷史列於讀取顯示與進度計算仍相容） */
+export const AIM_ATTACH_KINDS: readonly NodeKind[] = ["route"];
+
+export interface AimAttachLookupNode {
+  id: string;
+  kind: NodeKind;
+  parent_id: string | null;
+  route_id: string | null;
+  deleted_at?: string | null;
+}
+
+export function isAimAttachableKind(kind: NodeKind): boolean {
+  return AIM_ATTACH_KINDS.includes(kind);
+}
+
+/**
+ * 將方針的 `node_id` 解析為所屬路線 id（討論 4）：
+ * - 新版只掛 `route`，直接回自己的 id；
+ * - 舊資料庫裡曾掛 `branch`（或其他路線內子節點）的歷史方針列，優雅自動向上對應至所屬存活路線；
+ * - 節點不存在或已軟刪則回 `null`。
+ */
+export function resolveAimRouteId(
+  nodeId: string | null | undefined,
+  byId: Readonly<Record<string, AimAttachLookupNode>> | ReadonlyMap<string, AimAttachLookupNode>,
+): string | null {
+  if (!nodeId) return null;
+  const lookup = (id: string) =>
+    byId instanceof Map ? byId.get(id) : (byId as Readonly<Record<string, AimAttachLookupNode | undefined>>)[id];
+  const node = lookup(nodeId);
+  if (!node || (node.deleted_at !== undefined && node.deleted_at !== null)) return null;
+  if (node.kind === "route") return node.id;
+  if (node.route_id) {
+    const route = lookup(node.route_id);
+    if (route && (route.deleted_at === undefined || route.deleted_at === null) && route.kind === "route") {
+      return route.id;
+    }
+  }
+  const seen = new Set<string>([node.id]);
+  let curId = node.parent_id;
+  while (curId && !seen.has(curId)) {
+    seen.add(curId);
+    const anc = lookup(curId);
+    if (!anc || (anc.deleted_at !== undefined && anc.deleted_at !== null)) return null;
+    if (anc.kind === "route") return anc.id;
+    curId = anc.parent_id;
+  }
+  return null;
+}
 /** 帶過去那列的決定性 id 的命名空間（D-主-252；固定值，改了兩台就對不上） */
 export const WEEK_AIM_ID_NAMESPACE = "5b8f2c47-3d1e-5a90-8c6b-2e7f41a9d0c3";
 /** 本地設定鍵（不進同步白名單＝各台自己記；D-主-259、260） */
@@ -271,9 +317,15 @@ export function doneCount(aims: readonly WeekAimRow[]): { done: number; total: n
 
 /* ───────────── 文字 ───────────── */
 
-/** 一句的正規化：換行變空白、頭尾去空白、連續空白收成一格 */
+/** 一句的正規化：保留句內換行（Shift+Enter），各行收斂水平空白與頭尾空白、連續空行收斂後整體 trim */
 export function normalizeAimText(raw: string): string {
-  return raw.replace(/\s+/g, " ").trim();
+  return raw
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t\f\v]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /** 寫入前驗：空字擋、超長擋（RangeError，store 接住 toast） */

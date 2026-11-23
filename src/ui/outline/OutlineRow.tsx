@@ -26,7 +26,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type SyntheticEvent } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { KIND_LABEL, describeRule, parseRule, type NodeKind, type NodeRow, type NodeStatus } from "../../domain";
+import { isRangeTicket } from "../../domain/dateRange";
 import type { CurrentOccurrence } from "../../data";
+import { useNodeStore } from "../../store/nodeStore";
 import { SealSuspended } from "../stamps";
 import { Chevron } from "../common/Chevron";
 import { IconDots } from "../common/icons";
@@ -71,7 +73,7 @@ export function badgeClass(kind: NodeKind): string {
  *   的票**是乘車券**——那是刻意留下的容錯樣本，不能因為欄位非空就發成定期券。
  */
 export function fareClass(
-  node: Pick<NodeRow, "kind" | "repeat_rule"> & { parent_id?: string | null },
+  node: Pick<NodeRow, "kind" | "repeat_rule"> & { parent_id?: string | null; is_placeholder?: number | null },
   parentKind?: NodeKind,
 ): {
   label: string;
@@ -79,6 +81,7 @@ export function fareClass(
 } {
   if (parseRule(node.repeat_rule)) return { label: "定期券", teiki: true };
   if (node.kind === "branch") return { label: "支線", teiki: false };
+  if (node.is_placeholder) return { label: "預留席", teiki: false };
   if (node.kind === "ticket" && (parentKind === "route" || parentKind === "branch")) {
     return { label: "自由席", teiki: false };
   }
@@ -154,6 +157,8 @@ function fromPortal(e: SyntheticEvent<HTMLElement>): boolean {
 function RowDate({
   prefix,
   date,
+  endDate,
+  allowRange = false,
   flag,
   label,
   emptyText,
@@ -161,10 +166,13 @@ function RowDate({
   run = false,
   disabled,
   onPick,
+  onPickRange,
   onFocusBack,
 }: {
   prefix?: string;
   date: string | null;
+  endDate?: string | null;
+  allowRange?: boolean;
   flag?: "late" | "backfill";
   label: string;
   emptyText?: string;
@@ -172,6 +180,7 @@ function RowDate({
   run?: boolean;
   disabled?: boolean;
   onPick(date: string | null): void;
+  onPickRange?(start: string | null, end: string | null): void;
   onFocusBack(): void;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -199,7 +208,10 @@ function RowDate({
       {prefix && date && <span className="row-date-pre">{prefix}</span>}
       <DateChip
         date={date}
+        endDate={endDate}
+        allowRange={allowRange}
         onPick={onPick}
+        onPickRange={onPickRange}
         allowPast={!run}
         clearable={!run}
         disabled={disabled}
@@ -290,6 +302,8 @@ function Stub({
 export interface OutlineRowProps {
   node: NodeRow;
   parentKind?: NodeKind;
+  /** 該列顯式指定的車站名稱（支線／列車／車廂／車票皆可） */
+  stationName?: string | null;
   branchStats?: { done: number; total: number } | null;
   depth: number;
   hasChildren: boolean;
@@ -369,6 +383,7 @@ function RowMore({ name, menu, onReturnFocus }: { name: string; menu: () => PopM
 export function OutlineRow({
   node,
   parentKind,
+  stationName,
   branchStats,
   depth,
   hasChildren,
@@ -405,8 +420,9 @@ export function OutlineRow({
     if (selected) ref.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
-  /** 這一班在講的那一天（過期 chip／誤點註記用它；沒有結局時就等於 scheduled_on） */
-  const railDate = occurrence?.due_on ?? node.scheduled_on;
+  /** 這一班在講的那一天（期間自由券以 scheduled_end 判過期；其餘看 occurrence?.due_on ?? scheduled_on） */
+  const isRange = !rule && isRangeTicket(node);
+  const railDate = occurrence?.due_on ?? (isRange ? node.scheduled_end : node.scheduled_on);
   const pastRun = !!railDate && railDate < today;
   /** 過期且還沒有結局（暖光底＋赭「原定」＋誤點註記） */
   const schedLate = !settled && pastRun;
@@ -419,10 +435,9 @@ export function OutlineRow({
   const lateSeal = pastRun && (!settled || settledToday);
   const dueLate = !settled && !!node.due_on && node.due_on < today;
   /**
-   * 執行日 chip 印的日子：過期時講「這一班」（railDate），沒過期時講 `scheduled_on`——
-   * 定期券交代完之後引擎已把 scheduled_on 推到**下一班**，大綱要顯示的正是它（計畫視角）。
+   * 執行日 chip 印的日子：期間自由券一律印起日（搭配 endDate 畫出區間）；過期單日／定期券講 railDate，其餘講 scheduled_on。
    */
-  const chipDate = schedLate ? railDate : node.scheduled_on;
+  const chipDate = isRange ? node.scheduled_on : schedLate ? railDate : node.scheduled_on;
   /**
    * 定期券 chip 的前綴（M3 ④ 評審 should-2）：本班已交代（occurrence 非 null＝済／運休）時
    * `scheduled_on` 已被引擎推到**下一班**，前綴就得跟著說「下一班」——沿用 QuickJump 的同一個字，
@@ -462,6 +477,7 @@ export function OutlineRow({
       </span>
     ) : null,
     cars && cars.total > 0 && !ring ? <Cars {...cars} /> : null,
+    stationName ? <span title={`車站：${stationName}`}>◎ {stationName}</span> : null,
     node.scheduled_time || node.estimate_min ? (
       <span
         role="button"
@@ -496,18 +512,30 @@ export function OutlineRow({
       ) : (
         // 延着那一張（含今天才補済的）印「原定」＋赭；其餘印「執行」＋補記旗（選到今天以前＝補記）
         <RowDate
-          prefix={lateSeal ? "原定" : "執行"}
+          prefix={lateSeal ? "原定" : isRange ? "期間" : "執行"}
           date={chipDate}
+          endDate={node.scheduled_end}
+          allowRange
           flag={lateSeal ? "late" : "backfill"}
           label="乘車日"
           today={today}
           onPick={(v) => actions.setDate(node.id, "scheduled_on", v)}
+          onPickRange={(s, e) => {
+            const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
+            void useNodeStore.getState().updateNode(
+              node.id,
+              syncDue && s
+                ? { scheduled_on: s, scheduled_end: e, due_on: e ?? s }
+                : { scheduled_on: s, scheduled_end: e },
+              { backfill: !e },
+            );
+          }}
           onFocusBack={actions.focusContainer}
         />
       )
     ) : null,
     // 過期票在大綱：赭 chip「原定 M/D」之後接誤點註記（件一 d3 樣張逐字）
-    schedLate && chipDate ? <LateNote days={diffDays(today, chipDate)} /> : null,
+    schedLate && railDate ? <LateNote days={diffDays(today, railDate)} /> : null,
     node.due_on ? (
       <RowDate
         prefix="締切"
@@ -638,6 +666,11 @@ export function OutlineRow({
           >
             支線
           </button>
+          {stationName && (
+            <span className="ch-count" title={`車站：${stationName}`}>
+              ◎ {stationName}
+            </span>
+          )}
           <span className="ch-rule" aria-hidden />
           <span className="ch-count">
             {chapterParts(chapter ?? { trains: 0, tickets: 0, branches: 0, done: 0 }).join("・")}
@@ -684,6 +717,7 @@ export function OutlineRow({
       <article
         className={
           "ticket" +
+          (node.is_placeholder ? " is-placeholder" : "") +
           // 暖光底＋赭外框只在「還沒有結局」時亮著（同今日列：補済＝來歷退後）
           (schedLate ? " late-t" : "") +
           (selected ? " selected" : "") +
@@ -873,19 +907,25 @@ export function OutlineRow({
 export interface DraftRowProps {
   depth: number;
   kind: NodeKind;
+  routeId?: string | null;
+  defaultStationId?: string | null;
   accent?: string;
   handlers: EditHandlers;
 }
 
 /**
  * 新增中的草稿票：位置與型別跟著 Tab／Shift+Tab 走。回饋甲（D-主-127）起換成共用建票列的位置型——
- * 一樣帶 chips 與快速語法（執行日、幾點、締切、優先、荷札），掛到由位置決定、不出掛到 chip；Enter／Tab／Esc／失焦照舊交給 controller。
+ * 一樣帶 chips 與快速語法（車站、執行日、幾點、締切、優先、荷札），掛到由位置決定、不出掛到 chip；Enter／Tab／Esc／失焦照舊交給 controller。
  */
-export function DraftRow({ depth, kind, accent, handlers }: DraftRowProps) {
+export function DraftRow({ depth, kind, routeId, defaultStationId, accent, handlers }: DraftRowProps) {
+  const defaults = routeId
+    ? { dest: { routeId, nodeId: null, nodeKind: "route" as const }, stationId: defaultStationId ?? null, scheduledOn: null }
+    : DRAFT_DEFAULTS;
+  const here: QuickHere = routeId ? { kind: "route", routeId } : DRAFT_HERE;
   return (
     <QuickAddRow
-      defaults={DRAFT_DEFAULTS}
-      here={DRAFT_HERE}
+      defaults={defaults}
+      here={here}
       positional={{
         kind,
         accent,

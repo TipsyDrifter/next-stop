@@ -31,6 +31,7 @@ button.ns-tt-tplans-hit:focus-visible { outline: var(--focus-ring); outline-offs
 .ns-tt-tplans li.is-new > .ns-datechip-wrap { margin-top: 1px; } /* chip 24 對齊 26 高的時刻框 */
 .ns-tt-tplans-range { display: inline-flex; flex-wrap: wrap; align-items: flex-start; gap: 0 2px; flex: none; }
 .ns-tt-tplans-dash { line-height: 26px; color: var(--color-ink-faint); }
+.ns-tt-tplans-dur { flex: 0 0 100%; min-width: 0; }
 .ns-tt-tplans-acts { flex: 0 0 100%; display: flex; gap: 8px; }
 
 /* ClockInput 收成行內小框（原型 .pr-tin：底線框、拉丁字、焦點朱線＋淡底——ClockInput 本身就是這套語彙）。

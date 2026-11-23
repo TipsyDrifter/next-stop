@@ -7,7 +7,8 @@
  */
 import { nodeRepo } from "../data";
 import { tagRepo } from "../data/tagRepo";
-import { canHaveChildren, type NodeRow, type Priority } from "../domain/node";
+import { canHaveChildren, parseRule, type NodeRow, type Priority, type RepeatRule } from "../domain";
+import { dedupeSubtreeRoots } from "../domain/moveTo";
 import { cardSettled, planCardMove, readCardStates, restoreCardStates, runCardSteps } from "../domain/boardMove";
 import type { SlotAnchor } from "../domain/nodeOrder";
 import { todayKey } from "../lib/date";
@@ -76,20 +77,208 @@ async function rows(ids: readonly string[]): Promise<Map<string, NodeRow>> {
 
 /**
  * 改乘車日（null＝清掉）；定期券由 repository 擋下（一句指路），算在「沒改」。
+ * 若原本 `due_on === scheduled_on`（同乘車日），改乘車日時自動同步推進 `due_on`。
  * `single`＝只改一張時 toast 的字（拖到日期：「已改到 11/3（二）」）；多張照舊「已改期 N 張」。
  */
 export async function batchSetDate(ids: readonly string[], date: string | null, single?: string): Promise<void> {
   const before = await rows(ids);
-  const o = await eachOf(ids, (id) => nodeRepo.reschedule(id, date, dateKey()).then(() => undefined));
+  const dk = dateKey();
+  const opts = { dateKey: dk, dayStartHour: dayStart() };
+  const o = await eachOf(ids, async (id) => {
+    const b = before.get(id);
+    await nodeRepo.reschedule(id, date, dk);
+    if (date !== null && b?.scheduled_on && b.due_on === b.scheduled_on) {
+      await nodeRepo.update(id, { due_on: date }, opts);
+    }
+  });
   await finish(date ? "改期" : "清掉乘車日", o, async () => {
     for (const id of o.done) {
       const b = before.get(id);
       if (!b) continue;
       // 繰越章與今日手排位置一起放回去（F-2，同 showRescheduleToast）；reschedule 只管日期
-      await nodeRepo.reschedule(id, b.scheduled_on, dateKey()).catch(() => undefined);
-      await nodeRepo.update(id, { carried_from: b.carried_from, today_position: b.today_position }).catch(() => undefined);
+      await nodeRepo.reschedule(id, b.scheduled_on, dk).catch(() => undefined);
+      await nodeRepo.update(
+        id,
+        {
+          carried_from: b.carried_from,
+          today_position: b.today_position,
+          ...(date !== null && b.scheduled_on && b.due_on === b.scheduled_on ? { due_on: b.due_on } : {}),
+        },
+        opts,
+      ).catch(() => undefined);
     }
   }, single);
+}
+
+/**
+ * 批量設定／清除締切日，或開啟 `＝同乘車日`（`"sync"`＝把每張的 `due_on` 設為該票目前的 `scheduled_on`）。
+ */
+export async function batchSetDue(ids: readonly string[], dueOn: string | null | "sync"): Promise<void> {
+  const before = await rows(ids);
+  const opts = { dateKey: dateKey(), dayStartHour: dayStart() };
+  const o = await eachOf(ids, async (id) => {
+    const b = before.get(id);
+    if (!b) throw new Error("找不到項目");
+    if (dueOn === "sync") {
+      if (!b.scheduled_on) throw new Error("尚未設定乘車日");
+      await nodeRepo.update(id, { due_on: b.scheduled_on }, opts);
+    } else {
+      await nodeRepo.update(id, { due_on: dueOn }, opts);
+    }
+  });
+  const verb = dueOn === "sync" ? "設締切同乘車日" : dueOn ? "設締切" : "清掉締切";
+  await finish(verb, o, async () => {
+    for (const id of o.done) {
+      const b = before.get(id);
+      if (b) await nodeRepo.update(id, { due_on: b.due_on }, opts).catch(() => undefined);
+    }
+  });
+}
+
+/**
+ * 批量設定／清除開始時刻與預計時長（只改 patch 裡有傳入的欄位）。
+ */
+export async function batchSetTimeSpan(
+  ids: readonly string[],
+  patch: { scheduledTime?: string | null; estimateMin?: number | null },
+): Promise<void> {
+  const hasTime = "scheduledTime" in patch;
+  const hasEst = "estimateMin" in patch;
+  if (!hasTime && !hasEst) return;
+  const before = await rows(ids);
+  const opts = { dateKey: dateKey(), dayStartHour: dayStart() };
+  const nodePatch: Parameters<typeof nodeRepo.update>[1] = {
+    ...(hasTime ? { scheduled_time: patch.scheduledTime ?? null } : {}),
+    ...(hasEst ? { estimate_min: patch.estimateMin ?? null } : {}),
+  };
+  const o = await eachOf(ids, (id) => nodeRepo.update(id, nodePatch, opts));
+  const clearing = (!hasTime || patch.scheduledTime == null) && (!hasEst || patch.estimateMin == null);
+  await finish(clearing ? "清掉時間" : "設時間", o, async () => {
+    for (const id of o.done) {
+      const b = before.get(id);
+      if (!b) continue;
+      await nodeRepo
+        .update(
+          id,
+          {
+            ...(hasTime ? { scheduled_time: b.scheduled_time } : {}),
+            ...(hasEst ? { estimate_min: b.estimate_min } : {}),
+          },
+          opts,
+        )
+        .catch(() => undefined);
+    }
+  });
+}
+
+/**
+ * 批量改推進狀態與結案印記（未開始／進行中／蓋済／取消蓋済／途中下車／解除途中下車）。
+ * 與看板共用 `readCardStates` / `planCardMove` / `restoreCardStates`，定期券與單發票統一對齊。
+ */
+export type BatchStatusSealTarget = "todo" | "doing" | "done" | "uncomplete" | "paused" | "unpause";
+
+export async function batchSetStatusAndSeal(ids: readonly string[], target: BatchStatusSealTarget): Promise<void> {
+  if (target === "done") {
+    await batchComplete(ids);
+    return;
+  }
+  const day = () => ({ dateKey: dateKey(), dayStartHour: dayStart() });
+  const before = await readCardStates(nodeRepo, ids, day());
+
+  if (target === "uncomplete") {
+    const todo = ids.filter((id) => {
+      const s = before.get(id);
+      return s && (s.teiki ? s.run?.status === "done" : s.status === "done");
+    });
+    if (!todo.length) {
+      ui().showToast({ message: "選到的項目尚未蓋済" }, 3000);
+      return;
+    }
+    const o = await eachOf(todo, (id) => runCardSteps(nodeRepo, id, [{ op: "uncomplete" }], day()));
+    await finish("取消蓋済", o, async () => {
+      await restoreCardStates(nodeRepo, new Map(o.done.map((id) => [id, before.get(id)!])), day());
+    });
+    return;
+  }
+
+  if (target === "unpause") {
+    const pausedIds = ids.filter((id) => before.get(id)?.status === "paused");
+    if (!pausedIds.length) {
+      ui().showToast({ message: "選到的項目沒有途中下車" }, 3000);
+      return;
+    }
+    const o = await eachOf(pausedIds, (id) => runCardSteps(nodeRepo, id, planCardMove(before.get(id)!, "todo"), day()));
+    await finish("解除途中下車", o, async () => {
+      await restoreCardStates(nodeRepo, new Map(o.done.map((id) => [id, before.get(id)!])), day());
+    });
+    return;
+  }
+
+  const nextStatus = target; // "todo" | "doing" | "paused"
+  const toChange = ids.filter((id) => {
+    const s = before.get(id);
+    return s && planCardMove(s, nextStatus).length > 0;
+  });
+  if (!toChange.length) {
+    const label = nextStatus === "todo" ? "未開始" : nextStatus === "doing" ? "進行中" : "途中下車";
+    ui().showToast({ message: `選到的都已經是${label}了` }, 3000);
+    return;
+  }
+  const o = await eachOf(toChange, (id) => runCardSteps(nodeRepo, id, planCardMove(before.get(id)!, nextStatus), day()));
+  const verb = nextStatus === "todo" ? "改為未開始" : nextStatus === "doing" ? "改為進行中" : "標為途中下車";
+  await finish(verb, o, async () => {
+    await restoreCardStates(nodeRepo, new Map(o.done.map((id) => [id, before.get(id)!])), day());
+  });
+}
+
+/** 批量指派／清除車站（大綱、今日、看板、篩選、行程表共用） */
+export async function batchSetStation(ids: readonly string[], stationId: string | null): Promise<void> {
+  const station = stationId ? await nodeRepo.getNode(stationId) : null;
+  if (stationId && (!station || station.deleted_at !== null || station.kind !== "station")) {
+    ui().showToast({ message: "找不到這個車站" }, 4000);
+    return;
+  }
+  const before = await rows(ids);
+  const opts = { dateKey: dateKey(), dayStartHour: dayStart() };
+  const o = await eachOf(ids, async (id) => {
+    const b = before.get(id);
+    if (!b) throw new Error("找不到項目");
+    if (b.kind !== "branch" && b.kind !== "train" && b.kind !== "car" && b.kind !== "ticket") {
+      throw new Error("這個項目不能指派車站");
+    }
+    if (station && b.route_id !== station.parent_id) {
+      throw new Error("只能指派同一條路線的車站");
+    }
+    await nodeRepo.update(id, { station_id: stationId }, opts);
+  });
+  await finish(stationId ? "指派車站" : "清掉車站", o, async () => {
+    for (const id of o.done) {
+      const b = before.get(id);
+      if (b) await nodeRepo.update(id, { station_id: b.station_id }, opts).catch(() => undefined);
+    }
+  });
+}
+
+/** 批量設定重複規則，或 `null` 改回乘車券（附完整復原） */
+export async function batchSetRepeat(ids: readonly string[], rule: RepeatRule | null): Promise<void> {
+  const before = await rows(ids);
+  const dk = dateKey();
+  const dsh = dayStart();
+  const o = await eachOf(ids, (id) => nodeRepo.setRepeatRule(id, rule, dk, dsh));
+  await finish(rule ? "設成定期券" : "改回乘車券", o, async () => {
+    for (const id of o.done) {
+      const b = before.get(id);
+      if (!b) continue;
+      const prevRule = parseRule(b.repeat_rule);
+      await nodeRepo.setRepeatRule(id, prevRule, dk, dsh).catch(() => undefined);
+      if (!prevRule) {
+        await nodeRepo.reschedule(id, b.scheduled_on, dk).catch(() => undefined);
+        await nodeRepo
+          .update(id, { carried_from: b.carried_from, today_position: b.today_position }, { dateKey: dk, dayStartHour: dsh })
+          .catch(() => undefined);
+      }
+    }
+  });
 }
 
 export async function batchSetPriority(ids: readonly string[], priority: Priority): Promise<void> {
@@ -174,15 +363,35 @@ export async function batchComplete(ids: readonly string[]): Promise<void> {
   await run(false);
 }
 
-/** 運休（只對定期券；其他的跳過） */
-export async function batchSkip(ids: readonly string[]): Promise<void> {
+/** 運休／取消運休（只對定期券；其他的跳過） */
+export async function batchSkip(ids: readonly string[], skip = true): Promise<void> {
+  const dk = dateKey();
+  const dsh = dayStart();
   const before = await rows(ids);
+  if (skip) {
+    const o = await eachOf(ids, async (id) => {
+      if (!parseRule(before.get(id)?.repeat_rule)) throw new Error("只有定期券能運休");
+      await nodeRepo.skipOccurrence(id, true, dk, dsh);
+    });
+    await finish("運休", o, async () => {
+      for (const id of o.done) await nodeRepo.skipOccurrence(id, false, dk, dsh).catch(() => undefined);
+    });
+    return;
+  }
+  const occs = await nodeRepo.listCurrentOccurrences(dk, dsh);
+  const skippedDue = new Map<string, string>();
   const o = await eachOf(ids, async (id) => {
-    if (!before.get(id)?.repeat_rule) throw new Error("只有定期券能運休");
-    await nodeRepo.skipOccurrence(id, true, dateKey(), dayStart());
+    if (!parseRule(before.get(id)?.repeat_rule)) throw new Error("只有定期券能取消運休");
+    const occ = occs[id];
+    if (!occ || occ.status !== "skipped") throw new Error("這張定期券目前沒有運休");
+    skippedDue.set(id, occ.due_on);
+    await nodeRepo.skipOccurrence(id, false, dk, dsh, occ.due_on);
   });
-  await finish("運休", o, async () => {
-    for (const id of o.done) await nodeRepo.skipOccurrence(id, false, dateKey(), dayStart()).catch(() => undefined);
+  await finish("取消運休", o, async () => {
+    for (const id of o.done) {
+      const due = skippedDue.get(id);
+      await nodeRepo.skipOccurrence(id, true, dk, dsh, due).catch(() => undefined);
+    }
   });
 }
 
@@ -257,6 +466,23 @@ export async function snapshotPlaces(ids: readonly string[]): Promise<() => Prom
   };
 }
 
+async function dedupeNodeIds(ids: readonly string[]): Promise<string[]> {
+  if (ids.length <= 1) return ids.slice();
+  const parentMap = new Map<string, string | null>();
+  for (const id of ids) {
+    let cur: string | null = id;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur) && !parentMap.has(cur)) {
+      seen.add(cur);
+      const node = await nodeRepo.getNode(cur);
+      const p = node && node.deleted_at === null ? node.parent_id : null;
+      parentMap.set(cur, p);
+      cur = p;
+    }
+  }
+  return dedupeSubtreeRoots(ids, (id) => parentMap.get(id) ?? null);
+}
+
 /**
  * 搬一批（拖曳放下、選取列、拖到側欄路線）：記原位 → moveToAnchor 一批寫入 → toast 附「復原」。
  * 被擋下（種類放不下、搬進自己底下）＝toast 理由、回 false。
@@ -267,8 +493,9 @@ export async function moveWithUndo(
   anchor: SlotAnchor,
   message: string,
 ): Promise<boolean> {
-  const undo = await snapshotPlaces(ids);
-  const r = await ns().moveToAnchor([...ids], parentId, anchor);
+  const roots = await dedupeNodeIds(ids);
+  const undo = await snapshotPlaces(roots);
+  const r = await ns().moveToAnchor(roots, parentId, anchor);
   if (!r.ok) {
     ui().showToast({ message: r.reason ?? "沒有搬成功——請再試一次" }, 4000);
     return false;
@@ -282,5 +509,6 @@ export async function moveWithUndo(
  * 種類能不能放由 nodeStore.moveToAnchor／repository 把關（跟單張「移動到…」同一條規則）；一張放不下＝整批不寫、toast 理由。
  */
 export async function batchMoveTo(ids: readonly string[], parentId: string, placeName?: string): Promise<boolean> {
-  return moveWithUndo(ids, parentId, APPEND, placeName ? `已把 ${ids.length} 張移到「${placeName}」` : `已移動 ${ids.length} 張`);
+  const roots = await dedupeNodeIds(ids);
+  return moveWithUndo(roots, parentId, APPEND, placeName ? `已把 ${roots.length} 張移到「${placeName}」` : `已移動 ${roots.length} 張`);
 }

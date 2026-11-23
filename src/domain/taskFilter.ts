@@ -1,12 +1,11 @@
 /**
  * 篩選清單與常用篩選（第五本第三梯 ⑫；契約 docs/research/2026-11-06-⑫看板與篩選-契約.md §2、§3）的純邏輯，兩殼共用。
  *
- * 條件同組「任一」、跨組「而且」。範圍＝葉節點任務；收進車庫的路線不算，除非條件明確選了那條路線。
- * 有子項的列車與車廂（`has_kids`）只有「誤點」條件會收，其他條件看不到它們（見 `isTaskOverdue`）。
+ * 條件同組「任一」、跨組「而且」。範圍＝列車／車廂／車票任務（含掛在列車／車廂上的條件）；收進車庫的路線不算，除非條件明確選了那條路線。
  * 荷札存 key（`tags.name_key`），父含子走 `isUnder`；比對需要的「這張票掛了哪些 key」由呼叫端從 tagStore.index 給。
  * 純函式、不碰 store／DOM／Tauri；import 一律帶 `.ts`（scripts/tests 直接載入）。
  */
-import type { NodeRow, Priority } from "./node.ts";
+import type { NodeKind, NodeRow, Priority } from "./node.ts";
 import { isUnder } from "./tags.ts";
 
 export type DueCond = "overdue" | "today" | "week" | "month" | "has" | "none";
@@ -130,7 +129,6 @@ export interface TaskFilterCtx {
 }
 
 export function matchTask(node: TaskNode, f: TaskFilter, ctx: TaskFilterCtx): boolean {
-  if (node.has_kids && !f.late) return false;
   const occ = ctx.occurrences[node.id];
   const routes = ctx.aliveRoute ? f.routes.filter((r) => r === TEMP_ROUTE || ctx.aliveRoute!(r)) : f.routes;
   const tags = ctx.aliveTag ? f.tags.filter((k) => ctx.aliveTag!(k)) : f.tags;
@@ -256,3 +254,273 @@ export function serializeSavedFilters(list: readonly SavedFilter[]): string {
 export const parseFilterLayout = (raw: string | null): FilterLayout => (raw === "board" ? "board" : "list");
 export const parseTaskSort = (raw: string | null): TaskSort =>
   raw === "scheduled" || raw === "priority" || raw === "updated" ? raw : "smart";
+
+/* ── 命中子樹縮排視圖（Bug 2 · D-FB-1） ── */
+
+export interface FilteredOutlineHolder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+}
+
+export interface FilteredOutlineRoute {
+  id: string;
+}
+
+export type FilteredOutlineRole = "hit" | "ancestor" | "child";
+
+export interface FilteredOutlineItem<T extends TaskNode & { name: string } = TaskRow> {
+  id: string;
+  kind: NodeKind;
+  name: string;
+  parentId: string | null;
+  routeId: string | null;
+  depth: number;
+  /** true＝本身直接命中篩選條件；false＝為補齊脈絡的祖先容器或命中母列車帶出的子項 */
+  matched: boolean;
+  role: FilteredOutlineRole;
+  /** train／car／ticket 帶原列；branch 為 null（holders 只帶最小容器欄位） */
+  node: T | null;
+  /** 容器進度（供進度環顯示）；葉節點或無任務子孫為 null */
+  progress: { done: number; total: number } | null;
+}
+
+export interface FilteredOutlineGroup<T extends TaskNode & { name: string } = TaskRow> {
+  /** 路線 id 或 TEMP_ROUTE（未掛路線／已刪路線的臨時車票） */
+  routeKey: string;
+  /** 路線 id；TEMP_ROUTE 為 null */
+  routeId: string | null;
+  items: FilteredOutlineItem<T>[];
+}
+
+export interface BuildFilteredOutlineOptions<T extends TaskNode & { name: string } = TaskRow> {
+  matched: readonly T[];
+  allTasks: readonly T[];
+  holders: readonly FilteredOutlineHolder[];
+  routes: readonly FilteredOutlineRoute[];
+  aliveRoute?: (id: string) => boolean;
+  occurrences?: Readonly<Record<string, OccurrenceLike | undefined>>;
+  /** 母列車／車廂本身命中時，是否自動帶出底下未單獨被過濾排除的子項（預設 true） */
+  includeMatchedSubtree?: boolean;
+  /** 決定命中母列車／車廂底下的子項是否一併呈現；省略＝全部存活子項皆呈現 */
+  childVisible?: (child: T) => boolean;
+}
+
+/**
+ * 篩選清單「命中子樹縮排視圖」（Bug 2）：
+ * 在預設／路線排序下，將命中的節點按「路線 → 上層支線／列車／車廂標題脈絡（含未直接命中但有子孫命中的祖先容器）
+ * → 縮排子車票」組裝成結構化樹狀清單。零 UI／DOM／Store 依賴。
+ */
+export function buildFilteredOutlineGroups<T extends TaskNode & { name: string } = TaskRow>(
+  opts: BuildFilteredOutlineOptions<T>,
+): FilteredOutlineGroup<T>[] {
+  if (!opts.matched.length) return [];
+
+  const taskById = new Map<string, T>();
+  for (const t of opts.allTasks) taskById.set(t.id, t);
+  for (const m of opts.matched) if (!taskById.has(m.id)) taskById.set(m.id, m);
+
+  const holderById = new Map<string, FilteredOutlineHolder>();
+  for (const h of opts.holders) holderById.set(h.id, h);
+
+  const parentOf = (id: string): string | null => taskById.get(id)?.parent_id ?? holderById.get(id)?.parent_id ?? null;
+
+  const childrenTasksByParent = new Map<string | null, T[]>();
+  for (const t of opts.allTasks) {
+    let list = childrenTasksByParent.get(t.parent_id);
+    if (!list) childrenTasksByParent.set(t.parent_id, (list = []));
+    list.push(t);
+  }
+
+  const childrenHoldersByParent = new Map<string | null, FilteredOutlineHolder[]>();
+  for (const h of opts.holders) {
+    let list = childrenHoldersByParent.get(h.parent_id);
+    if (!list) childrenHoldersByParent.set(h.parent_id, (list = []));
+    list.push(h);
+  }
+
+  const roleById = new Map<string, FilteredOutlineRole>();
+  const routeKeyById = new Map<string, string>();
+  const includeSubtree = opts.includeMatchedSubtree !== false;
+
+  for (const m of opts.matched) {
+    roleById.set(m.id, "hit");
+    routeKeyById.set(m.id, routeKeyOf(m, opts.aliveRoute));
+  }
+
+  if (includeSubtree) {
+    const walkKids = (parentId: string, rk: string, seen: Set<string>): void => {
+      for (const c of childrenTasksByParent.get(parentId) ?? []) {
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        if (opts.childVisible && !opts.childVisible(c)) continue;
+        if (!roleById.has(c.id)) roleById.set(c.id, "child");
+        if (!routeKeyById.has(c.id)) routeKeyById.set(c.id, rk);
+        walkKids(c.id, rk, seen);
+      }
+    };
+    for (const m of opts.matched) {
+      if (m.kind === "train" || m.kind === "car") {
+        walkKids(m.id, routeKeyById.get(m.id)!, new Set([m.id]));
+      }
+    }
+  }
+
+  for (const id of [...roleById.keys()]) {
+    const rk = routeKeyById.get(id) ?? TEMP_ROUTE;
+    let cur = parentOf(id);
+    const seen = new Set<string>([id]);
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      if (!taskById.has(cur) && !holderById.has(cur)) break;
+      if (!roleById.has(cur)) roleById.set(cur, "ancestor");
+      if (!routeKeyById.has(cur)) routeKeyById.set(cur, rk);
+      cur = parentOf(cur);
+    }
+  }
+
+  const progressOf = (id: string, kind: NodeKind): { done: number; total: number } | null => {
+    if (kind === "ticket") return null;
+    const direct = childrenTasksByParent.get(id) ?? [];
+    if (direct.length > 0) {
+      let done = 0;
+      for (const k of direct) {
+        if (opts.occurrences ? isTaskDone(k, opts.occurrences[k.id]) : k.status === "done") done++;
+      }
+      return { done, total: direct.length };
+    }
+    if (kind !== "branch") return null;
+    // 支線底下只有子支線、沒有直屬任務時，往子支線下統計任務進度
+    const tasksUnder: T[] = [];
+    const stack = [...(childrenHoldersByParent.get(id) ?? []).map((h) => h.id)];
+    const seen = new Set<string>([id]);
+    while (stack.length) {
+      const hid = stack.pop()!;
+      if (seen.has(hid)) continue;
+      seen.add(hid);
+      const tKids = childrenTasksByParent.get(hid);
+      if (tKids?.length) tasksUnder.push(...tKids);
+      for (const sub of childrenHoldersByParent.get(hid) ?? []) stack.push(sub.id);
+    }
+    if (!tasksUnder.length) return null;
+    let done = 0;
+    for (const k of tasksUnder) {
+      if (opts.occurrences ? isTaskDone(k, opts.occurrences[k.id]) : k.status === "done") done++;
+    }
+    return { done, total: tasksUnder.length };
+  };
+
+  const mergeOrder = (holderKids: readonly FilteredOutlineHolder[], taskKids: readonly T[]): string[] => {
+    const holderIndex = new Map<string, number>();
+    holderKids.forEach((h, i) => holderIndex.set(h.id, i));
+    const emitted = new Set<string>();
+    const out: string[] = [];
+    let hi = 0;
+    for (const t of taskKids) {
+      const idx = holderIndex.get(t.id);
+      if (idx !== undefined) {
+        while (hi < idx) {
+          const hid = holderKids[hi++].id;
+          if (!emitted.has(hid)) {
+            emitted.add(hid);
+            out.push(hid);
+          }
+        }
+      }
+      if (!emitted.has(t.id)) {
+        emitted.add(t.id);
+        out.push(t.id);
+      }
+    }
+    while (hi < holderKids.length) {
+      const hid = holderKids[hi++].id;
+      if (!emitted.has(hid)) {
+        emitted.add(hid);
+        out.push(hid);
+      }
+    }
+    return out;
+  };
+
+  const isTopInRoute = (id: string): boolean => {
+    const p = parentOf(id);
+    return !p || (!taskById.has(p) && !holderById.has(p));
+  };
+
+  const buildGroup = (routeKey: string): FilteredOutlineItem<T>[] => {
+    const topHolders =
+      routeKey === TEMP_ROUTE
+        ? []
+        : (childrenHoldersByParent.get(routeKey) ?? []).filter((h) => roleById.has(h.id) && routeKeyById.get(h.id) === routeKey);
+    const topTasks = opts.allTasks.filter((t) => roleById.has(t.id) && routeKeyById.get(t.id) === routeKey && isTopInRoute(t.id));
+    // matched 中可能出現未在 allTasks 裡的測試資料，補入 topTasks
+    const topTaskSet = new Set(topTasks.map((t) => t.id));
+    for (const m of opts.matched) {
+      if (!topTaskSet.has(m.id) && routeKeyById.get(m.id) === routeKey && isTopInRoute(m.id)) {
+        topTasks.push(m);
+      }
+    }
+
+    const items: FilteredOutlineItem<T>[] = [];
+    const visited = new Set<string>();
+
+    const visit = (id: string, depth: number): void => {
+      if (visited.has(id)) return;
+      visited.add(id);
+      const task = taskById.get(id) ?? null;
+      const holder = holderById.get(id) ?? null;
+      const kind: NodeKind = task ? task.kind : "branch";
+      const name = task ? task.name : (holder?.name ?? "");
+      const role = roleById.get(id) ?? "ancestor";
+      items.push({
+        id,
+        kind,
+        name,
+        parentId: parentOf(id),
+        routeId: task ? task.route_id : (routeKey === TEMP_ROUTE ? null : routeKey),
+        depth,
+        matched: role === "hit",
+        role,
+        node: task,
+        progress: progressOf(id, kind),
+      });
+
+      const subHolders = (childrenHoldersByParent.get(id) ?? []).filter((h) => roleById.has(h.id));
+      const subTasks = (childrenTasksByParent.get(id) ?? []).filter((t) => roleById.has(t.id));
+      for (const childId of mergeOrder(subHolders, subTasks)) {
+        visit(childId, depth + 1);
+      }
+    };
+
+    for (const rootId of mergeOrder(topHolders, topTasks)) {
+      visit(rootId, 0);
+    }
+    return items;
+  };
+
+  const groups: FilteredOutlineGroup<T>[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const r of opts.routes) {
+    if (seenKeys.has(r.id)) continue;
+    seenKeys.add(r.id);
+    const items = buildGroup(r.id);
+    if (items.length) groups.push({ routeKey: r.id, routeId: r.id, items });
+  }
+
+  const extraKeys = [...new Set(routeKeyById.values())]
+    .filter((k) => k !== TEMP_ROUTE && !seenKeys.has(k))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const k of extraKeys) {
+    seenKeys.add(k);
+    const items = buildGroup(k);
+    if (items.length) groups.push({ routeKey: k, routeId: k, items });
+  }
+
+  if ([...routeKeyById.values()].includes(TEMP_ROUTE)) {
+    const items = buildGroup(TEMP_ROUTE);
+    if (items.length) groups.push({ routeKey: TEMP_ROUTE, routeId: null, items });
+  }
+
+  return groups;
+}

@@ -11,7 +11,8 @@
 import { useRef, useState, type ReactNode } from "react";
 import type { Priority } from "../../../domain";
 import { useNodeStore } from "../../../store/nodeStore";
-import { DatePicker } from "../DatePicker";
+import { useUiStore } from "../../../store/uiStore";
+import { DatePicker, dateRangeQuickSet } from "../DatePicker";
 import { dateQuickSet } from "../DateChip";
 import { PopMenu } from "../PopMenu";
 import { PRIORITY_TEXT } from "./quickAddModel";
@@ -172,6 +173,7 @@ export function QuickDueChip({
 export function QuickExecChip({
   nodeId,
   scheduledOn,
+  scheduledEnd = null,
   today,
   className,
   title = "點擊設定或修改乘車日",
@@ -180,6 +182,7 @@ export function QuickExecChip({
 }: {
   nodeId: string;
   scheduledOn: string | null;
+  scheduledEnd?: string | null;
   today: string;
   className: string;
   title?: string;
@@ -188,6 +191,7 @@ export function QuickExecChip({
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const weekStart = useUiStore((s) => s.weekStart);
   const close = () => {
     setOpen(false);
     onDone?.();
@@ -218,19 +222,30 @@ export function QuickExecChip({
             className="ns-qa-pop"
             label="乘車日"
             value={scheduledOn}
+            endValue={scheduledEnd}
+            allowRange
+            rangeQuick={dateRangeQuickSet(today, weekStart)}
             markValue={Boolean(scheduledOn)}
             today={today}
             quick={dateQuickSet("forward", today)}
             onPick={(d) => {
               setOpen(false);
-              if (d !== scheduledOn) void useNodeStore.getState().updateNode(nodeId, { scheduled_on: d }, { backfill: true });
+              if (d !== scheduledOn || scheduledEnd !== null) {
+                if (d < today) void useNodeStore.getState().updateNode(nodeId, { scheduled_on: d, scheduled_end: null }, { backfill: true });
+                else void useNodeStore.getState().reschedule(nodeId, d);
+              }
+              onDone?.();
+            }}
+            onPickRange={(s, e) => {
+              setOpen(false);
+              void useNodeStore.getState().reschedule(nodeId, s, { scheduledEnd: e });
               onDone?.();
             }}
             onClear={
               scheduledOn
                 ? () => {
                     setOpen(false);
-                    void useNodeStore.getState().updateNode(nodeId, { scheduled_on: null });
+                    void useNodeStore.getState().reschedule(nodeId, null);
                     onDone?.();
                   }
                 : undefined

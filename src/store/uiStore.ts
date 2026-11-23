@@ -38,6 +38,7 @@ import {
 import { syncWindowTheme } from "../lib/windowTheme";
 import { isCaptureWindow } from "../ui/notes/capture-window/shell";
 import { useHandFontStore } from "./handFontStore";
+import { useSelectionStore } from "./selectionStore";
 // type-only import：不產生執行期依賴，store 不會因此被拉進 ui 層（registry 的真相仍在 tabs.ts）
 import type { MobileTabKey } from "../ui/mobile/tabs";
 // 頁面登記表（並行地基・契約 §6）：純資料模組，不拉 React／DOM
@@ -553,7 +554,10 @@ export const useUiStore = create<UiStore>((set, get) => ({
       for (const id of ids) next[id] = false;
       return { collapsed: next };
     }),
-  setPanelOpen: (open) => set({ panelOpen: open }),
+  setPanelOpen: (open) => {
+    if (open && useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
+    set({ panelOpen: open });
+  },
   setSidebarCollapsed: (collapsed) => {
     set({ sidebarCollapsed: collapsed });
     writeLastNav({ sidebarCollapsed: collapsed });

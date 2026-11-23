@@ -8,9 +8,10 @@
  *
  * 嚴守手機觸控與 `useBackLayer`：各挑選抽屜走共用 `MSheet`（`backId="ticket.mfilter"`），返回鍵一次收起。
  */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { useTagStore } from "../../../store/tagStore";
 import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
 import {
@@ -60,6 +61,7 @@ export function MobileFilterBar({ searching, summaryText, onOpenSearchSheet }: M
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const lines = useNodeStore((s) => s.lines);
   const routes = useNodeStore((s) => s.routes);
   const tagIndex = useTagStore((s) => s.index);
 
@@ -156,7 +158,8 @@ export function MobileFilterBar({ searching, summaryText, onOpenSearchSheet }: M
       : undefined;
   const liveAccts = groupAccounts(accounts).flatMap((g) => g.accounts);
   const archivedAccts = archivedAccounts(accounts);
-  const liveRoutes = routes.filter((r) => r.deleted_at === null);
+  const liveRoutes = useMemo(() => routes.filter((r) => r.deleted_at === null), [routes]);
+  const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, lines), [liveRoutes, lines]);
   const searchChipActive = searching && (filter.text.trim() !== "" || filter.from !== null || filter.toExcl !== null);
   const searchChipVal =
     filter.text.trim() !== "" ? `「${filter.text.trim()}」` : vals.from ? vals.from : null;
@@ -344,25 +347,32 @@ export function MobileFilterBar({ searching, summaryText, onOpenSearchSheet }: M
           >
             未掛路線
           </button>
-          {liveRoutes.map((r) => {
-            const on = effectiveFilter.routeId === r.id;
-            return (
-              <button
-                key={r.id}
-                type="button"
-                className={"ns-msheet-item" + (on ? " is-on" : "")}
-                aria-pressed={on}
-                onClick={() => pickRoute(r.id)}
-              >
-                <span className="ns-tk-mf-ritem">
-                  <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
-                    {r.code ?? r.name.slice(0, 1)}
-                  </span>
-                  {r.name}
-                </span>
-              </button>
-            );
-          })}
+          {routeGroups.map((g) => (
+            <Fragment key={g.lineId ?? "other"}>
+              <div role="presentation" className="ns-tk-mf-rgroup">
+                {g.header}
+              </div>
+              {g.routes.map((r) => {
+                const on = effectiveFilter.routeId === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className={"ns-msheet-item" + (on ? " is-on" : "")}
+                    aria-pressed={on}
+                    onClick={() => pickRoute(r.id)}
+                  >
+                    <span className="ns-tk-mf-ritem">
+                      <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
+                        {r.code ?? r.name.slice(0, 1)}
+                      </span>
+                      {r.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </Fragment>
+          ))}
         </MSheet>
       )}
 

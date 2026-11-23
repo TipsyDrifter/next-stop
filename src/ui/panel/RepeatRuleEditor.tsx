@@ -25,19 +25,21 @@ import { REPEATABLE_KINDS } from "../../data";
 import { todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
-import { FieldRow, NumberField, SectionRule } from "./fields";
 import { Choice } from "./Choice";
 import { DateChip } from "../common/DateChip";
 import { shortDayKey } from "../common/DatePicker";
+import { DesktopSeatPicker, releaseSeatedFlow } from "../common/seating";
+import "../common/seating/flexible-seating.css";
+import { CommitInput, FieldRow, NumberField, SectionRule } from "./fields";
 import { RunTimeRow } from "./TimeField";
 import { moveRunFlow, panelStampFlow, panelSuspendFlow } from "../outline/nodeFlows";
 import {
+  ACTIVE_MODE_OPTIONS,
   COUNT_MAX,
   END_OPTIONS,
   FREQ_OPTIONS,
   INTERVAL_UNIT,
   LAST_WEEKDAY_WHY,
-  MODE_OPTIONS,
   intervalMax,
   pickEnd,
   pickFreq,
@@ -105,13 +107,13 @@ export function RepeatSection({ node, repeat }: { node: NodeRow; repeat: PanelRe
   const { draft, push } = repeat;
   const done = useDoneRuns(node);
 
-  if (!REPEATABLE_KINDS.includes(node.kind)) return null;
+  if (!REPEATABLE_KINDS.includes(node.kind) || draft.mode === "none") return null;
 
   /**
    * 規則不完整時**不送**（送出去會把票清成乘車券），票就仍照庫裡那一條發車——aside 把這個真相說出口，
-   * 別讓主人關掉側板後以為已經改好（M3 ④ 評審 should-8；預帶值已讓這種狀態很難撞上，這是最後一道保險）。不重複＝段頭不印字。
+   * 別讓主人關掉側板後以為已經改好（M3 ④ 評審 should-8；預帶值已讓這種狀態很難撞上，這是最後一道保險）。
    */
-  const aside = draft.mode === "none" ? undefined : repeatAside(draft, node.repeat_rule, done);
+  const aside = repeatAside(draft, node.repeat_rule, done);
 
   return (
     <>
@@ -120,7 +122,7 @@ export function RepeatSection({ node, repeat }: { node: NodeRow; repeat: PanelRe
         <FieldRow label="模式">
           <Choice
             value={draft.mode}
-            options={MODE_OPTIONS}
+            options={ACTIVE_MODE_OPTIONS}
             onChange={(v) => {
               if (v !== draft.mode) push(switchMode(draft, v));
             }}
@@ -180,32 +182,28 @@ export function RepeatSection({ node, repeat }: { node: NodeRow; repeat: PanelRe
           </FieldRow>
         )}
 
-        {draft.mode !== "none" && (
-          <FieldRow label="起算日">
-            {/* 起算日一定有值（清掉＝今天），所以不給清除；過去日照舊可挑（舊 DateField 也沒有 min） */}
-            <DateChip
-              date={draft.start}
-              onPick={(v) => push({ ...draft, start: v ?? todayKey(dayStartHour) })}
-              allowPast
-              label="起算日"
-            />
-          </FieldRow>
-        )}
+        <FieldRow label="起算日">
+          {/* 起算日一定有值（清掉＝今天），所以不給清除；過去日照舊可挑（舊 DateField 也沒有 min） */}
+          <DateChip
+            date={draft.start}
+            onPick={(v) => push({ ...draft, start: v ?? todayKey(dayStartHour) })}
+            allowPast
+            label="起算日"
+          />
+        </FieldRow>
 
-        {draft.mode !== "none" && (
-          <FieldRow label="結束">
-            <Choice
-              value={draft.endMode}
-              options={END_OPTIONS}
-              onChange={(v) => {
-                if (v !== draft.endMode) push(pickEnd(draft, v, todayKey(dayStartHour), done));
-              }}
-              ariaLabel="結束條件"
-            />
-          </FieldRow>
-        )}
+        <FieldRow label="結束">
+          <Choice
+            value={draft.endMode}
+            options={END_OPTIONS}
+            onChange={(v) => {
+              if (v !== draft.endMode) push(pickEnd(draft, v, todayKey(dayStartHour), done));
+            }}
+            ariaLabel="結束條件"
+          />
+        </FieldRow>
 
-        {draft.mode !== "none" && draft.endMode === "until" && (
+        {draft.endMode === "until" && (
           <FieldRow label="結束日">
             <DateChip
               date={draft.until}
@@ -218,7 +216,7 @@ export function RepeatSection({ node, repeat }: { node: NodeRow; repeat: PanelRe
           </FieldRow>
         )}
 
-        {draft.mode !== "none" && draft.endMode === "count" && (
+        {draft.endMode === "count" && (
           <FieldRow label="次數">
             <div className="num-row">
               <NumberField
@@ -341,10 +339,91 @@ export function TeikiStampRow({ node }: { node: NodeRow }) {
           {suspended ? "取消運休" : "運休"}
         </button>
       </div>
-      {/* 本班日期（⑥ D-主-295）＋本班時刻（主線②）：只改這一班；railDate 拿不到（沒有班次）就不畫 */}
+      {/* 本班日期（⑥ D-主-295）＋本班時刻（主線②）＋本班填空／入座（第四梯 4C）：只改這一班；railDate 拿不到（沒有班次）就不畫 */}
       {railDate && <RunDateRow node={node} railDate={railDate} locked={done || suspended} />}
       {railDate && <RunTimeRow node={node} date={railDate} />}
+      {railDate && <RunContentAndSeatRows node={node} railDate={railDate} locked={done || suspended} />}
     </>
+  );
+}
+
+function RunContentAndSeatRows({
+  node,
+  railDate,
+  locked,
+}: {
+  node: NodeRow;
+  railDate: string;
+  locked: boolean;
+}) {
+  const runOverrides = useNodeStore((s) => s.runOverrides);
+  const setRunCustomTitle = useNodeStore((s) => s.setRunCustomTitle);
+  const [seatAnchor, setSeatAnchor] = useState<HTMLElement | null>(null);
+  const ovr = runOverrides.find((o) => !o.deleted_at && o.node_id === node.id && o.due_on === railDate);
+  const customTitle = ovr?.custom_title ?? "";
+  const seatedId = ovr?.seated_node_id ?? null;
+
+  return (
+    <div className="fields" style={{ marginTop: 6 }}>
+      <FieldRow label="本班內容">
+        <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+          <CommitInput
+            key={`${node.id}-${railDate}-${customTitle}`}
+            value={customTitle}
+            onCommit={(v) => void setRunCustomTitle(node.id, railDate, v.trim() || null)}
+            ariaLabel="本班填空內容"
+            placeholder={`只填 ${shortDayKey(railDate)} 本班內容…`}
+          />
+          {customTitle && !locked && (
+            <button
+              type="button"
+              className="ns-seat-release"
+              onClick={() => void setRunCustomTitle(node.id, railDate, null)}
+            >
+              還原原名
+            </button>
+          )}
+        </div>
+      </FieldRow>
+      <FieldRow label="本班入座">
+        {seatedId ? (
+          <span className="ns-range-row-acts">
+            <span className="ns-seat-badge">已有待辦車票入座本班</span>
+            {!locked && (
+              <button
+                type="button"
+                className="ns-seat-release"
+                onClick={() => void releaseSeatedFlow(node.id, railDate, seatedId)}
+              >
+                釋出預留席
+              </button>
+            )}
+          </span>
+        ) : locked ? (
+          <span className="meta" style={{ marginTop: 0 }}>
+            本班已結案
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="ns-seat-dropbtn"
+            aria-expanded={seatAnchor !== null}
+            onClick={(e) => setSeatAnchor(seatAnchor ? null : e.currentTarget)}
+          >
+            ⇄ 配對待辦入座…
+          </button>
+        )}
+      </FieldRow>
+      {seatAnchor && (
+        <DesktopSeatPicker
+          slotId={node.id}
+          slotName={customTitle || node.name}
+          dueOn={railDate}
+          anchor={seatAnchor}
+          onClose={() => setSeatAnchor(null)}
+        />
+      )}
+    </div>
   );
 }
 

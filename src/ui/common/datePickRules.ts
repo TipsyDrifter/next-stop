@@ -44,3 +44,42 @@ export function resolveDateEnter(v: string, min?: string, max?: string): DateEnt
   const complete = /^\d{4}-\d{2}-\d{2}$/.test(v) && Number(v.slice(0, 4)) >= 1970;
   return { kind: "revert", hint: complete ? DATE_HINT_OUT_OF_RANGE : DATE_HINT_INCOMPLETE };
 }
+
+/* ───────────── 區間點選狀態機（第四梯 4B · D-FB-7） ───────────── */
+
+export type RangePickStep =
+  | { kind: "start"; draftStart: string }
+  | { kind: "commit"; start: string; end: string | null };
+
+/**
+ * 區間模式的兩下點選規則：
+ * - 第一下（`draftStart === null`）：記住起日，等待訖日
+ * - 第二下（`draftStart !== null`）：
+ *   - 點同一天 ⇒ 收斂為單日 `{ start: day, end: null }`
+ *   - 點更早一天 ⇒ 自動對調為 `[day, draftStart]`
+ *   - 點更晚一天 ⇒ `[draftStart, day]`
+ */
+export function stepRangePick(draftStart: string | null, day: string): RangePickStep {
+  if (!draftStart) return { kind: "start", draftStart: day };
+  if (day === draftStart) return { kind: "commit", start: day, end: null };
+  return day < draftStart
+    ? { kind: "commit", start: day, end: draftStart }
+    : { kind: "commit", start: draftStart, end: day };
+}
+
+export type DayRangeRole = "single" | "start" | "mid" | "end" | null;
+
+/** 月格某一格在 `[start, end]` 區間中的角色（供 DayGrid 標示頭尾與中間底色） */
+export function dayRangeRole(
+  day: string,
+  start: string | null | undefined,
+  end: string | null | undefined,
+): DayRangeRole {
+  if (!start) return null;
+  if (!end || end <= start) return day === start ? "single" : null;
+  if (day === start) return "start";
+  if (day === end) return "end";
+  if (day > start && day < end) return "mid";
+  return null;
+}
+

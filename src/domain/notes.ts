@@ -104,7 +104,7 @@ export interface TodoLine {
 export interface AttachTarget {
   routeId: string | null;
   nodeId: string | null;
-  nodeKind: "route" | "branch" | "train" | "car" | null;
+  nodeKind: "route" | "branch" | "train" | "car" | "ticket" | null;
 }
 
 /* ═══ 票根 ═══ */
@@ -619,9 +619,8 @@ export function groupFootprints(
 ): FootprintDay {
   const byAt = <T extends { at: string }>(a: T, b: T) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0);
   // 排序＋同一節點同一時刻只留一枚：済的定義在 domain/seals.ts（D-主-181）
-  // 收官磨光 Q1（規格 §5：車票沒有心情欄）：手機詳情頁以前能替車票點心情，欄位拿掉後舊值就改不掉也清不掉——
-  // 讀取面一律不認車票的心情（mock 與 SQLite 都經過這裡；外部助理的日記工具讀的也是這份）
-  const outSeals: FootprintSeal[] = dedupeSeals(seals).map((s) => (s.kind === "ticket" && s.mood ? { ...s, mood: null } : s));
+  // Bug 4（D-FB-2）：車票對齊列車／車廂開放心情三色燈，足跡完整保留並顯示車票心情
+  const outSeals: FootprintSeal[] = dedupeSeals(seals);
   const moods: Mood[] = [];
   for (const s of outSeals) if (s.mood) moods.push(s.mood);
   return { day, seals: outSeals, logs: [...logs].sort(byAt), moods, blocks };
@@ -678,8 +677,10 @@ export function footprintSeals(
   w: IsoWindow,
   nodes: readonly FootprintNodeSrc[],
   occurrences: readonly FootprintOccSrc[],
+  customTitleOf?: (nodeId: string, dueOn: string) => string | null | undefined,
+  isSeatedSlot?: (nodeId: string, dueOn: string) => boolean,
 ): FootprintSeal[] {
-  return sealsInWindow(w, nodes, occurrences);
+  return sealsInWindow(w, nodes, occurrences, customTitleOf, isSeatedSlot);
 }
 
 /**
@@ -778,8 +779,8 @@ export function fmtShortDay(day: string): string {
 
 /* ═══ 車次④・筆記掛樹（契約 §4.3；Stage 0 定稿、之後只加不改） ═══ */
 
-/** 側板筆記區的 kinds（`AttachTarget.nodeKind` 的同一組；車票不含，D-筆-6） */
-export const NOTE_NODE_KINDS: readonly NodeKind[] = ["route", "branch", "train", "car"];
+/** 側板筆記區的 kinds（`AttachTarget.nodeKind` 的同一組；Bug 4 開放車票掛載） */
+export const NOTE_NODE_KINDS: readonly NodeKind[] = ["route", "branch", "train", "car", "ticket"];
 
 /**
  * 某節點底下所有子孫的 id（深度優先、前序；不含自己）。`childrenOf`＝parent id → 子節點 id 陣列（nodeStore.tree 的 childrenOf）。

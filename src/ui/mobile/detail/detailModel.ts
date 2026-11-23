@@ -34,6 +34,7 @@ export function timeCardOf(node: NodeRow, occ: CurrentOccurrence | undefined): T
   const done = occ ? occ.status === "done" : node.status === "done";
   const suspended = occ?.status === "skipped";
   const railDate = occ?.due_on ?? node.scheduled_on;
+  const isPh = Boolean(node.is_placeholder);
   return {
     key: node.id,
     nodeId: node.id,
@@ -41,10 +42,14 @@ export function timeCardOf(node: NodeRow, occ: CurrentOccurrence | undefined): T
     kind: node.kind,
     routeId: node.route_id,
     serial: null,
-    fare: rule ? "定期券" : node.parent_id === null ? "臨時券" : "乘車券",
+    fare: rule ? "定期券" : isPh ? "預留席" : node.parent_id === null ? "臨時券" : "乘車券",
     ruleText: rule ? describeRule(rule) : null,
     isRepeat: rule !== null,
     scheduledOn: node.scheduled_on,
+    scheduledEnd: node.scheduled_end ?? null,
+    isPlaceholder: isPh,
+    customTitle: null,
+    seatedInto: null,
     railDate,
     dueOn: node.due_on,
     carriedFrom: node.carried_from,

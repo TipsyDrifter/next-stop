@@ -20,9 +20,10 @@
  * 返回層：MFullPage 給 backId "ticket.dialog"——跟宿主那一行 useBackLayer 同一個 id ⇒ 合併成一層；onBack 用最後登記的（宿主，
  *   effect 父後於子），宿主的語意（closeRepeatEditor）跟本頁左鈕 `onDone` 是同一件事。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTicketStore } from "../../../../store/ticketStore";
 import { useNodeStore } from "../../../../store/nodeStore";
+import { groupRoutesByLine } from "../../../notes/useAttachOptions";
 import { useUiStore } from "../../../../store/uiStore";
 import { addDays, todayKey } from "../../../../lib/date";
 import { roundelStyle } from "../../../common/roundel";
@@ -120,8 +121,10 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
     d.fromEntryId ? (s.entries.find((e) => e.id === d.fromEntryId) ?? s.statsEntries.find((e) => e.id === d.fromEntryId) ?? null) : null,
   );
   const routes = useNodeStore((s) => s.routes);
-  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13）
+  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13；討論 5 依幹線分組）
+  const liveLines = useNodeStore((s) => s.liveLines);
   const liveRoutes = useNodeStore((s) => s.liveRoutes);
+  const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, liveLines), [liveRoutes, liveLines]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
   const isNew = editId === null;
@@ -480,19 +483,26 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                   >
                     不掛
                   </button>
-                  {liveRoutes.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      className={"ns-tk-mchip" + (d.routeId === r.id ? " on" : "")}
-                      aria-pressed={d.routeId === r.id}
-                      onClick={() => setDraft({ routeId: r.id })}
-                    >
-                      <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
-                        {r.code ?? r.name.slice(0, 1)}
+                  {routeGroups.map((g) => (
+                    <Fragment key={g.lineId ?? "other"}>
+                      <span className="ns-tk-mf-acctsep" aria-hidden>
+                        {g.header}
                       </span>
-                      {r.name}
-                    </button>
+                      {g.routes.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className={"ns-tk-mchip" + (d.routeId === r.id ? " on" : "")}
+                          aria-pressed={d.routeId === r.id}
+                          onClick={() => setDraft({ routeId: r.id })}
+                        >
+                          <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
+                            {r.code ?? r.name.slice(0, 1)}
+                          </span>
+                          {r.name}
+                        </button>
+                      ))}
+                    </Fragment>
                   ))}
                 </div>
               </div>

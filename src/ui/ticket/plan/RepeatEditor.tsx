@@ -111,7 +111,8 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   const entries = useTicketStore((s) => s.entries);
   const noteRecall = useTicketStore((s) => s.noteRecall);
   const routes = useNodeStore((s) => s.routes);
-  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13）
+  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13；討論 5 依幹線分組）
+  const liveLines = useNodeStore((s) => s.liveLines);
   const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const [pop, setPop] = useState<PopKind>(null);
@@ -318,6 +319,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
           {pop === "route" && (
             <RoutePop
               routes={liveRoutes}
+              lines={liveLines}
               current={d.routeId}
               onClose={() => setPop(null)}
               onPick={(id) => {

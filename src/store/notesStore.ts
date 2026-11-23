@@ -20,6 +20,8 @@ import { create } from "zustand";
 import { nodeRepo } from "../data";
 import { confirmAndDeleteNode } from "../ui/common/deleteNodeFlow";
 import { noteRepo } from "../data/noteRepo";
+import { tagRepo } from "../data/tagRepo";
+import { bodyWithTag, normalizeName, parseTags, removeTagText } from "../domain/tags";
 import { useNodeStore } from "./nodeStore";
 import { useUiStore } from "./uiStore";
 import { addDays, dayKeyOf, todayKey } from "../lib/date";
@@ -234,6 +236,12 @@ export interface NotesStore {
   tagTicket(id: string, routeId: string): Promise<void>;
   /** 共用刪除流程（confirmAndDeleteNode）。`around`＝真的要刪的那一刻（桌機收件匣在這裡播離場動畫、交選取；按確認框取消就不會動） */
   deleteTicket(id: string, around?: (del: () => Promise<boolean>) => void): Promise<void>;
+  /** 操作 9 跨頁對齊（D-FB-4）：收件匣多選批量整理（排乘車日、掛路線、掛／摘 #荷札、刪除附復原） */
+  batchScheduleInbox(refs: readonly InboxRef[], date: string): Promise<void>;
+  batchAttachInboxToTarget(refs: readonly InboxRef[], target: AttachTarget): Promise<void>;
+  batchAttachInboxTag(refs: readonly InboxRef[], rawName: string): Promise<void>;
+  batchDetachInboxTag(refs: readonly InboxRef[], key: string): Promise<void>;
+  batchDeleteInbox(refs: readonly InboxRef[]): Promise<void>;
 
   /* ── 筆記頁 ── */
   /** 換選取：若上一則是 draftNew 且空 ⇒ 丟棄；editing=false */
@@ -900,6 +908,214 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       });
     },
 
+    async batchScheduleInbox(refs, date) {
+      const ticketIds = refs.filter((r) => r.kind === "ticket").map((r) => r.id);
+      const skippedNotes = refs.length - ticketIds.length;
+      if (!ticketIds.length) {
+        toast("只有臨時車票能排乘車日");
+        return;
+      }
+      const today = todayNow();
+      const done: string[] = [];
+      for (const id of ticketIds) {
+        try {
+          await nodeRepo.reschedule(id, date, today);
+          done.push(id);
+        } catch (e) {
+          console.warn("notesStore.batchScheduleInbox 失敗", e);
+        }
+      }
+      await Promise.all([useNodeStore.getState().refresh(), get().loadInbox()]);
+      if (!done.length) {
+        failToast(new Error("排程失敗——請再試一次"));
+        return;
+      }
+      const label = date === today ? "已排進今日" : `已排到 ${fmtMonthDay(date)}`;
+      useUiStore.getState().showToast({
+        message: done.length === 1 && !skippedNotes ? label : `${label}・${done.length} 張`,
+        sub: skippedNotes > 0 ? `${skippedNotes} 則筆記維持留在收件匣` : undefined,
+        actionLabel: "復原",
+        onAction: () =>
+          void safeUndo(async () => {
+            for (const id of done) await nodeRepo.reschedule(id, null, todayNow()).catch(() => undefined);
+            await Promise.all([useNodeStore.getState().refresh(), get().loadInbox()]);
+          })(),
+      });
+    },
+
+    async batchAttachInboxToTarget(refs, target) {
+      const destId = target.nodeId ?? target.routeId;
+      if (!refs.length || !destId) return;
+      const parent = await nodeRepo.getNode(destId);
+      if (!parent || parent.deleted_at) {
+        failToast(new Error("要掛上去的地方已經不在了"));
+        return;
+      }
+      const ticketIds = refs.filter((r) => r.kind === "ticket").map((r) => r.id);
+      const noteIds = refs.filter((r) => r.kind === "note").map((r) => r.id);
+      const appendAnchor = { after: "\u0000end", before: null } as const;
+      let movedTickets: string[] = [];
+      if (ticketIds.length) {
+        const res = await useNodeStore.getState().moveToAnchor(ticketIds, destId, appendAnchor);
+        if (res.ok) movedTickets = ticketIds;
+        else if (!noteIds.length) {
+          failToast(new Error(res.reason ?? "沒有掛成功——請再試一次"));
+          return;
+        }
+      }
+      // 筆記的 node_id 支援路線／支線／列車／車廂；若目標為車票則退回其上層或路線
+      const noteDestId = parent.kind === "ticket" ? (parent.parent_id ?? parent.route_id ?? destId) : destId;
+      const movedNotes: { id: string; prevNodeId: string | null }[] = [];
+      for (const id of noteIds) {
+        const prevNodeId = get().inboxNotes.find((n) => n.id === id)?.node_id ?? null;
+        try {
+          await noteRepo.update(id, { node_id: noteDestId, inbox: 0 });
+          movedNotes.push({ id, prevNodeId });
+        } catch (e) {
+          console.warn("notesStore.batchAttachInboxToTarget 筆記失敗", e);
+        }
+      }
+      await reloadLists();
+      const doneCount = movedTickets.length + movedNotes.length;
+      if (!doneCount) {
+        failToast(new Error("沒有掛成功——請再試一次"));
+        return;
+      }
+      toast(
+        doneCount === 1 ? `已掛到「${parent.name}」` : `已掛到「${parent.name}」・${doneCount} 則`,
+        safeUndo(async () => {
+          if (movedTickets.length) {
+            await useNodeStore.getState().moveToAnchor(movedTickets, null, appendAnchor);
+          }
+          for (const m of movedNotes) {
+            await noteRepo.update(m.id, { node_id: m.prevNodeId, inbox: 1 }).catch(() => undefined);
+          }
+          await reloadLists();
+        }),
+      );
+    },
+
+    async batchAttachInboxTag(refs, rawName) {
+      if (!refs.length) return;
+      const norm = normalizeName(rawName);
+      if (!norm.ok) {
+        toast(norm.reason);
+        return;
+      }
+      if (!useTagStore.getState().index) await useTagStore.getState().loadIndex();
+      const canonName = useTagStore.getState().index?.byKey[norm.key]?.name ?? norm.name;
+      const nodeReceipts: Parameters<typeof tagRepo.undo>[0][] = [];
+      const noteRewrites: { id: string; before: string; after: string }[] = [];
+      for (const r of refs) {
+        try {
+          if (r.kind === "ticket") {
+            const res = await tagRepo.attach("node", r.id, canonName);
+            if (!res.already) nodeReceipts.push(res.receipt);
+          } else {
+            const n = await noteRepo.getNote(r.id);
+            if (!n || parseTags(n.body).some((o) => o.key === norm.key)) continue;
+            const beforeBody = n.body;
+            const after = bodyWithTag(beforeBody, norm.key, canonName);
+            await tagRepo.writeBodyAndSyncTags(r.id, beforeBody, after);
+            noteRewrites.push({ id: r.id, before: beforeBody, after });
+          }
+        } catch (e) {
+          console.warn("notesStore.batchAttachInboxTag 失敗", e);
+        }
+      }
+      await Promise.all([useTagStore.getState().loadIndex(), reloadLists()]);
+      const doneCount = nodeReceipts.length + noteRewrites.length;
+      if (!doneCount) {
+        toast(`選到的項目都已經掛著 #${canonName} 了`);
+        return;
+      }
+      toast(
+        `已掛上 #${canonName}・${doneCount} 則`,
+        safeUndo(async () => {
+          for (const w of [...noteRewrites].reverse()) {
+            await tagRepo.writeBodyAndSyncTags(w.id, w.after, w.before).catch(() => undefined);
+          }
+          for (const rec of [...nodeReceipts].reverse()) {
+            await tagRepo.undo(rec).catch(() => undefined);
+          }
+          await Promise.all([useTagStore.getState().loadIndex(), reloadLists()]);
+        }),
+      );
+    },
+
+    async batchDetachInboxTag(refs, key) {
+      if (!refs.length || !key) return;
+      const tagName = useTagStore.getState().nameOf(key);
+      const nodeReceipts: Parameters<typeof tagRepo.undo>[0][] = [];
+      const noteRewrites: { id: string; before: string; after: string }[] = [];
+      for (const r of refs) {
+        try {
+          if (r.kind === "ticket") {
+            nodeReceipts.push(await tagRepo.detach("node", r.id, key));
+          } else {
+            const n = await noteRepo.getNote(r.id);
+            if (!n || !parseTags(n.body).some((o) => o.key === key)) continue;
+            const beforeBody = n.body;
+            const after = removeTagText(beforeBody, [key]);
+            await tagRepo.writeBodyAndSyncTags(r.id, beforeBody, after);
+            noteRewrites.push({ id: r.id, before: beforeBody, after });
+          }
+        } catch (e) {
+          console.warn("notesStore.batchDetachInboxTag 失敗", e);
+        }
+      }
+      await Promise.all([useTagStore.getState().loadIndex(), reloadLists()]);
+      const doneCount = nodeReceipts.length + noteRewrites.length;
+      if (!doneCount) return;
+      toast(
+        `已摘下 #${tagName}・${doneCount} 則`,
+        safeUndo(async () => {
+          for (const w of [...noteRewrites].reverse()) {
+            await tagRepo.writeBodyAndSyncTags(w.id, w.after, w.before).catch(() => undefined);
+          }
+          for (const rec of [...nodeReceipts].reverse()) {
+            await tagRepo.undo(rec).catch(() => undefined);
+          }
+          await Promise.all([useTagStore.getState().loadIndex(), reloadLists()]);
+        }),
+      );
+    },
+
+    async batchDeleteInbox(refs) {
+      if (!refs.length) return;
+      const deletedNoteIds: string[] = [];
+      const removedNodeIds: string[] = [];
+      for (const r of refs) {
+        try {
+          if (r.kind === "note") {
+            await noteRepo.softDelete(r.id);
+            deletedNoteIds.push(r.id);
+          } else {
+            removedNodeIds.push(...(await nodeRepo.softDelete(r.id)));
+          }
+        } catch (e) {
+          console.warn("notesStore.batchDeleteInbox 失敗", e);
+        }
+      }
+      await Promise.all([
+        removedNodeIds.length ? useNodeStore.getState().refresh() : Promise.resolve(),
+        reloadLists(),
+      ]);
+      const doneCount = deletedNoteIds.length + refs.filter((r) => r.kind === "ticket").length;
+      if (!deletedNoteIds.length && !removedNodeIds.length) return;
+      toast(
+        `已刪除 ${doneCount} 則`,
+        safeUndo(async () => {
+          if (deletedNoteIds.length) await noteRepo.restore(deletedNoteIds).catch(() => undefined);
+          if (removedNodeIds.length) await nodeRepo.restore(removedNodeIds).catch(() => undefined);
+          await Promise.all([
+            removedNodeIds.length ? useNodeStore.getState().refresh() : Promise.resolve(),
+            reloadLists(),
+          ]);
+        }),
+      );
+    },
+
     /* ── 筆記頁 ── */
     selectNote(id) {
       // draftNew 還沒落庫（空筆記不建）：換選取＝丟棄草稿
@@ -1173,15 +1389,17 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       ).filter((t) => t.trim());
       if (!items.length) return;
       const { attach, scheduledOn } = pv;
-      // 列車／車廂＝掛進樹；路線或支線＝根層臨時車票帶路線標籤（支線視同路線，Plan 附錄 M1）
+      // 支線／列車／車廂／車票＝掛進樹（車票由 nodeRepo.create 自動升格為列車或車廂）；只選路線＝根層臨時車票帶路線標籤
       const parentId =
-        (attach.nodeKind === "train" || attach.nodeKind === "car") && attach.nodeId ? attach.nodeId : null;
+        attach.nodeKind && attach.nodeKind !== "route" && attach.nodeId ? attach.nodeId : null;
       const routeTagId = parentId ? undefined : attach.routeId;
       const noteId = pv.source === "note" ? pv.noteId : null;
       confirming = true;
       const created: string[] = [];
       try {
-        const parentName = parentId ? ((await nodeRepo.getNode(parentId))?.name ?? "") : "";
+        const parentBefore = parentId ? await nodeRepo.getNode(parentId) : null;
+        const parentName = parentBefore?.name ?? "";
+        const wasTicketParent = parentBefore?.kind === "ticket";
         for (let k = 0; k < items.length; k++) {
           try {
             const row = await nodeRepo.create({ kind: "ticket", name: items[k], parentId, routeTagId, scheduledOn });
@@ -1201,6 +1419,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
               `建到第 ${k + 1} 張時失敗，前 ${k} 張已保留`,
               safeUndo(async () => {
                 for (const x of done) await nodeRepo.softDelete(x);
+                if (wasTicketParent && parentId) await nodeRepo.setKind(parentId, "ticket").catch(() => undefined);
                 await useNodeStore.getState().refresh();
                 await get().loadInbox();
               }),
@@ -1230,6 +1449,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           `已建立 ${created.length} 張車票 → ${where}`,
           safeUndo(async () => {
             for (const x of created) await nodeRepo.softDelete(x);
+            if (wasTicketParent && parentId) await nodeRepo.setKind(parentId, "ticket").catch(() => undefined);
             if (noteId) await noteRepo.restore([noteId]);
             await useNodeStore.getState().refresh();
             await reloadLists();

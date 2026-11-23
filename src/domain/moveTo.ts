@@ -11,31 +11,38 @@
 import type { NodeKind } from "./node";
 
 /** 挑選器樹裡能出現的節點種類（＝ useAttachOptions 的 AttachKind；這裡另寫一份，免得 domain 反過來 import ui） */
-export type MoveTreeKind = "branch" | "train" | "car";
+export type MovePickKind = "branch" | "train" | "car" | "ticket";
+/** @deprecated 舊名別名，請優先使用 MovePickKind */
+export type MoveTreeKind = MovePickKind;
 
 export interface MoveTargetRule {
-  /** "route"＝只挑路線（站）；"node"＝點進路線再挑支線／列車／車廂 */
+  /** "route"＝只挑路線（站）；"node"＝點進路線再挑支線／列車／車廂／車票 */
   depth: "route" | "node";
   /** depth="node" 時樹裡能挑的種類；其餘種類當群組頭（灰字、不可點） */
-  kinds: MoveTreeKind[];
-  /** 路線本身能不能當新父節點（列車、支線、站可以；車票、車廂不行） */
+  kinds: MovePickKind[];
+  /** 路線本身能不能當新父節點（幹線／路線以外都可） */
   routeSelectable: boolean;
   /** 挑選器的小標 */
   label: string;
 }
 
 /**
- * 依「要搬的節點」種類決定能挑的新父節點（與 `allowedChildKinds` 對齊，測試會逐條核）：
- *   車票 → 路線／支線／列車／車廂（丁 D-主-245：路線＝掛那條路線標籤的根層車票）；車廂 → 列車／車廂；列車、支線 → 路線／支線；站 → 路線。
+ * 依「要搬的節點」種類決定能挑的新父節點（操作 7 全階層掛載解禁）：
+ *   車票／車廂／列車 → 路線／支線／列車／車廂／車票（資料層 planMove 會自動升格目標車票、列車⇄車廂轉換）；
+ *   支線 → 路線／支線；站 → 路線。
  * 幹線、路線不在這裡搬（路線換幹線走路線對話框）⇒ null＝不出「移動到…」。
  */
 export function moveTargetRule(kind: NodeKind): MoveTargetRule | null {
   switch (kind) {
     case "ticket":
-      return { depth: "node", kinds: ["branch", "train", "car"], routeSelectable: true, label: "移到哪條路線、支線或列車" };
     case "car":
-      return { depth: "node", kinds: ["train", "car"], routeSelectable: false, label: "移到哪一班列車或車廂" };
     case "train":
+      return {
+        depth: "node",
+        kinds: ["branch", "train", "car", "ticket"],
+        routeSelectable: true,
+        label: "移到哪條路線、支線、列車或車票",
+      };
     case "branch":
       return { depth: "node", kinds: ["branch"], routeSelectable: true, label: "移到哪條路線或支線" };
     case "station":
@@ -52,6 +59,30 @@ export interface MoveTreeOption {
   selectable: boolean;
 }
 
+export type MoveTreeItem = MoveTreeOption;
+
+/**
+ * 藏掉多個指定節點及其整個子樹（多選搬移用）。輸入是 flattenAttachTree 的前序清單（父先子後），
+ * 子樹＝自己之後、depth 比自己深的那一段，遇到不比自己深的就結束。
+ */
+export function excludeSubtrees<T extends MoveTreeItem>(tree: readonly T[], excludeIds: ReadonlySet<string>): T[] {
+  if (!excludeIds.size) return tree.slice();
+  const out: T[] = [];
+  let skipDepth: number | null = null;
+  for (const o of tree) {
+    if (skipDepth !== null) {
+      if (o.depth > skipDepth) continue;
+      skipDepth = null;
+    }
+    if (excludeIds.has(o.id)) {
+      skipDepth = o.depth;
+      continue;
+    }
+    out.push(o);
+  }
+  return out;
+}
+
 /**
  * 藏掉自己與整個子樹。輸入是 flattenAttachTree 的前序清單（父先子後），
  * 所以子樹＝自己之後、depth 比自己深的那一段，遇到不比自己深的就結束。
@@ -59,18 +90,36 @@ export interface MoveTreeOption {
  */
 export function excludeSubtree<T extends MoveTreeOption>(opts: readonly T[], excludeId: string | null | undefined): T[] {
   if (!excludeId) return opts.slice();
-  const out: T[] = [];
-  let skipDepth: number | null = null;
-  for (const o of opts) {
-    if (skipDepth !== null) {
-      if (o.depth > skipDepth) continue;
-      skipDepth = null;
+  return excludeSubtrees(opts, new Set([excludeId]));
+}
+
+/**
+ * 搬移樹祖先去重（Bug 1 ＋ 操作 8）：
+ * 當選取清單同時包含祖先與其子孫節點時，自動剔除子孫節點（保持原相對順序），
+ * 使子孫隨母樹原封不動整棵搬遷。防環保護避免異常資料造成死迴圈。
+ */
+export function dedupeSubtreeRoots(ids: readonly string[], parentOf: (id: string) => string | null): string[] {
+  if (ids.length <= 1) return ids.slice();
+  const selected = new Set(ids);
+  const emitted = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (emitted.has(id)) continue;
+    let cur = parentOf(id);
+    const seen = new Set<string>([id]);
+    let hasAncestor = false;
+    while (cur && !seen.has(cur)) {
+      if (selected.has(cur)) {
+        hasAncestor = true;
+        break;
+      }
+      seen.add(cur);
+      cur = parentOf(cur);
     }
-    if (o.id === excludeId) {
-      skipDepth = o.depth;
-      continue;
+    if (!hasAncestor) {
+      emitted.add(id);
+      out.push(id);
     }
-    out.push(o);
   }
   return out;
 }
@@ -129,10 +178,10 @@ export function currentDest(
   parentId: string | null,
   parentKind: NodeKind | null,
   routeId: string | null,
-): { routeId: string | null; nodeId: string | null; nodeKind: "route" | MoveTreeKind | null } {
+): { routeId: string | null; nodeId: string | null; nodeKind: "route" | MovePickKind | null } {
   if (!parentId || !parentKind) return { routeId, nodeId: null, nodeKind: null };
   if (parentKind === "route") return { routeId: parentId, nodeId: null, nodeKind: "route" };
-  const k = parentKind === "branch" || parentKind === "train" || parentKind === "car" ? parentKind : null;
+  const k = parentKind === "branch" || parentKind === "train" || parentKind === "car" || parentKind === "ticket" ? parentKind : null;
   return { routeId, nodeId: parentId, nodeKind: k };
 }
 

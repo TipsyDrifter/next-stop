@@ -96,6 +96,7 @@
 .ns-wr-row .act { min-width: 64px; justify-content: center; white-space: nowrap; }
 .ns-wr-row .act.is-on { border-color: var(--accent); color: var(--color-ink); }
 .ns-wr-row.is-on { background: var(--sel-bg); }
+.ns-wr-row.is-picked { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--accent); }
 .ns-wr-row.is-open { cursor: default; background: var(--hover-bg); }
 
 /* 列下攤開：編輯區／開票、排路線的小表單（從種類小章那一欄開始對齊） */
@@ -156,6 +157,9 @@
   flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 4px;
   background: none; border: 0; font: inherit; font-size: var(--fs-sm); letter-spacing: .08em; color: var(--accent); -webkit-tap-highlight-color: transparent;
 }
+[data-shell="mobile"] .ns-wr-mmanage + .ns-wr-mmanage { margin-left: 6px; }
+[data-shell="mobile"] .ns-wr-mrow.is-selecting { grid-template-columns: 28px 22px minmax(0, 1fr); cursor: pointer; }
+[data-shell="mobile"] .ns-wr-mrow.is-picked { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--accent); border-radius: var(--radius-ctl); }
 [data-shell="mobile"] .ns-wr-mmanage:active { opacity: .7; }
 [data-shell="mobile"] .ns-wr-msum { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-wr-msum b { font-family: var(--font-display); font-weight: 700; color: var(--color-ink); margin: 0 1px; }

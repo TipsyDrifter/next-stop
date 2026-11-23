@@ -16,6 +16,7 @@
 import { nodeRepo } from "../../data";
 import { noteRepo } from "../../data/noteRepo";
 import { tagRepo } from "../../data/tagRepo";
+import { ticketRepo } from "../../data/ticketRepository";
 import { timetableRepo } from "../../data/timetableRepository";
 import { useNodeStore } from "../../store/nodeStore";
 import { useNotesStore } from "../../store/notesStore";
@@ -261,4 +262,115 @@ export async function bootWaitroom(): Promise<void> {
   } catch (e) {
     console.warn("[waitroom] 讀候車室失敗", e);
   }
+}
+
+/* ───────── 操作 9 跨頁對齊（D-FB-4）：候車室批量整理（換番線、掛／摘 #荷札、刪除附復原） ───────── */
+
+export async function batchSetWishKind(ids: readonly string[], kindId: string): Promise<void> {
+  if (!ids.length) return;
+  const st = useTicketStore.getState();
+  const kindName = st.wishKinds.find((k) => k.id === kindId)?.name ?? "這個番線";
+  const byId = new Map(st.wish.want.map((w) => [w.id, w]));
+  const before = new Map<string, string>();
+  const done: string[] = [];
+  for (const id of ids) {
+    const w = byId.get(id);
+    if (!w || w.kind_id === kindId) continue;
+    const prevKindId = w.kind_id;
+    try {
+      await ticketRepo.updateWish(id, { kindId });
+      before.set(id, prevKindId);
+      done.push(id);
+    } catch (e) {
+      console.warn("[waitroom] 批量換番線失敗", e);
+    }
+  }
+  await useTicketStore.getState().refresh();
+  if (!done.length) {
+    toast(`選到的都已經在「${kindName}」了`);
+    return;
+  }
+  toast(
+    done.length === 1 ? `已換到「${kindName}」` : `已換到「${kindName}」・${done.length} 件`,
+    () => {
+      void (async () => {
+        for (const id of done) {
+          const prev = before.get(id);
+          if (prev) await ticketRepo.updateWish(id, { kindId: prev }).catch(() => undefined);
+        }
+        await useTicketStore.getState().refresh();
+      })();
+    },
+  );
+}
+
+export async function batchAttachWishTag(ids: readonly string[], rawName: string): Promise<void> {
+  const clean = rawName.trim();
+  if (!ids.length || !clean) return;
+  const receipts: Parameters<typeof tagRepo.undo>[0][] = [];
+  let done = 0;
+  let lastErr: string | null = null;
+  for (const id of ids) {
+    try {
+      const r = await tagRepo.attach(TK_TAG_WISH, id, clean);
+      if (!r.already) {
+        receipts.push(r.receipt);
+        done++;
+      }
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+  await useTagStore.getState().loadIndex();
+  if (!done) {
+    toast(lastErr ?? "選到的項目都已經掛著這個荷札了");
+    return;
+  }
+  toast(`已掛上荷札・${done} 件`, () => {
+    void (async () => {
+      for (const r of [...receipts].reverse()) await tagRepo.undo(r).catch(() => undefined);
+      await useTagStore.getState().loadIndex();
+    })();
+  });
+}
+
+export async function batchDetachWishTag(ids: readonly string[], key: string): Promise<void> {
+  if (!ids.length || !key) return;
+  const receipts: Parameters<typeof tagRepo.undo>[0][] = [];
+  for (const id of ids) {
+    try {
+      receipts.push(await tagRepo.detach(TK_TAG_WISH, id, key));
+    } catch (e) {
+      console.warn("[waitroom] 批量摘荷札失敗", e);
+    }
+  }
+  await useTagStore.getState().loadIndex();
+  if (!receipts.length) return;
+  toast(`已摘下荷札・${receipts.length} 件`, () => {
+    void (async () => {
+      for (const r of [...receipts].reverse()) await tagRepo.undo(r).catch(() => undefined);
+      await useTagStore.getState().loadIndex();
+    })();
+  });
+}
+
+export async function batchDeleteWishes(ids: readonly string[]): Promise<void> {
+  if (!ids.length) return;
+  const done: string[] = [];
+  for (const id of ids) {
+    try {
+      await ticketRepo.softDeleteWish(id);
+      done.push(id);
+    } catch (e) {
+      console.warn("[waitroom] 批量刪除願望失敗", e);
+    }
+  }
+  await useTicketStore.getState().refresh();
+  if (!done.length) return;
+  toast(`已刪除 ${done.length} 件`, () => {
+    void (async () => {
+      for (const id of done) await ticketRepo.restoreWish(id).catch(() => undefined);
+      await useTicketStore.getState().refresh();
+    })();
+  });
 }

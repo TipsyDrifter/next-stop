@@ -22,8 +22,8 @@ import { useRef, useState } from "react";
 import type { NodeRow } from "../../domain";
 import { useNodeStore } from "../../store/nodeStore";
 import { ColorPicker, routePresetColor } from "../common/ColorPicker";
+import { Select } from "../common/Select";
 import { ActionButton, ActionsRow, CommitInput, CommitTextarea, FieldRow, SectionRule } from "./fields";
-import { Choice } from "./Choice";
 import { moveRouteToLine } from "./moveRouteToLine";
 import { requestDeleteRoute } from "./routeFlows";
 import { requestArrive, requestDepart } from "./arrivalFlows";
@@ -124,15 +124,25 @@ export function RoutePanel({ route }: { route: NodeRow }) {
           />
         </FieldRow>
 
-        {/* 所屬幹線（E12）：只有一條幹線就沒得換、不畫 */}
+        {/* 所屬幹線（E12＋討論 2）：動態集合統一使用手帳下拉選單，不因幹線增減突變元件 */}
         {lines.length >= 2 && route.line_id && !route.arrived_on && (
           <FieldRow label="所屬幹線">
-            <Choice
-              value={route.line_id}
-              options={lines.map((l) => ({ value: l.id, label: l.name }))}
-              onChange={(lineId) => void moveRouteToLine(route.id, lineId)}
-              ariaLabel="所屬幹線"
-            />
+            <span className="ns-select-wrap panel-select">
+              <Select
+                className="techo-input"
+                aria-label="所屬幹線"
+                value={route.line_id}
+                onChange={(lineId) => {
+                  if (lineId && lineId !== route.line_id) void moveRouteToLine(route.id, lineId);
+                }}
+              >
+                {lines.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </Select>
+            </span>
           </FieldRow>
         )}
 

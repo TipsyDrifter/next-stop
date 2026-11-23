@@ -12,12 +12,18 @@
  * 指到已刪路線、荷札的條件：chip 淡掉，面板裡列出來可以拿掉；存檔不改寫（復原路線就回來）。
  * 這個元件回 Fragment：頁、存成常用、選取列都要當殼的直接子節點（mobile-select.css 的落點做法）。
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { NodeRow } from "../../../domain";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { NodeKind, NodeRow } from "../../../domain";
 import { cardStatus, STATUS_COLUMN_LABEL, type BoardCard as BoardCardModel, type BoardStatus } from "../../../domain/board";
 import { PARKED_ADD_WHY } from "../../../domain/depot";
-import { DUE_LABEL, STATUS_COND_LABEL, TASK_SORT_LABEL, TEMP_ROUTE, isTaskLate, type DueCond, type TaskSort, type TaskStatusCond } from "../../../domain/taskFilter";
-import { hasFilterConditions, useBoardStore } from "../../../store/boardStore";
+import { DUE_LABEL, STATUS_COND_LABEL, TEMP_ROUTE, isTaskLate, type DueCond, type TaskStatusCond } from "../../../domain/taskFilter";
+import {
+  FILTER_SORT_LABEL,
+  FILTER_SORT_ORDER,
+  hasFilterConditions,
+  useBoardStore,
+  type FilterListSort,
+} from "../../../store/boardStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { BoardCard } from "../../board/BoardCard";
@@ -28,9 +34,13 @@ import { useTaskFilter, type FilterOption, type TaskRow } from "../../board/useT
 import { useDragReorder, type DropPlace } from "../../common/dragReorder";
 import { IconChevron, IconClose, IconDots } from "../../common/icons";
 import { MSheet, MSheetItem } from "../../common/MSheet";
+import { PriorityMark } from "../../common/PriorityMark";
 import { DoneToggleChip } from "../../common/quickadd";
+import { roundelStyle } from "../../common/roundel";
+import { dismissSelectionOnBlankClick } from "../../common/selection/desktopSelection";
 import { useSelectable } from "../../common/selection/useSelectable";
 import { Tabs } from "../../common/Tabs";
+import { ProgressRing } from "../../outline/ProgressRing";
 import { useMinuteTick } from "../../schedule/useMinuteTick";
 import { useBackLayer } from "../backStack";
 import { useMobileDetailStore } from "../detail/mobileDetailStore";
@@ -98,6 +108,9 @@ function Toggle({ label, on, onToggle }: { label: string; on: boolean; onToggle(
   );
 }
 
+const CONTAINER_GLYPH: Partial<Record<NodeKind, string>> = { branch: "支", train: "列", car: "廂" };
+const CONTAINER_LABEL: Partial<Record<NodeKind, string>> = { branch: "支線", train: "列車", car: "車廂" };
+
 /** 複選條件的面板：點了就套用、不收（路線、荷札要連勾幾個）；「好」只是收起來 */
 function CheckSheet({ title, options, picked, onToggle, onClose }: { title: string; options: readonly FilterOption[]; picked: readonly string[]; onToggle(v: string): void; onClose(): void }) {
   return (
@@ -112,21 +125,28 @@ function CheckSheet({ title, options, picked, onToggle, onClose }: { title: stri
     >
       <div className="m-bf-opts">
         {options.length === 0 && <p className="m-tks-note">沒有可選的</p>}
-        {options.map((o) => {
+        {options.map((o, idx) => {
           const on = picked.includes(o.value);
+          const showGroup = !!o.group && o.group !== options[idx - 1]?.group;
           return (
-            <button
-              key={o.value}
-              type="button"
-              role="checkbox"
-              aria-checked={on}
-              className={"ns-msheet-item" + (on ? " is-on" : "")}
-              style={o.depth ? { paddingLeft: `calc(var(--m-gutter) + ${o.depth * 14}px)` } : undefined}
-              onClick={() => onToggle(o.value)}
-            >
-              {o.label}
-              <span className="m-tks-aside m-bd-check">{on ? "✓" : o.count}</span>
-            </button>
+            <Fragment key={o.value}>
+              {showGroup && (
+                <div role="presentation" className="m-bf-optgroup">
+                  {o.group}
+                </div>
+              )}
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={on}
+                className={"ns-msheet-item" + (on ? " is-on" : "")}
+                style={o.depth ? { paddingLeft: `calc(var(--m-gutter) + ${o.depth * 14}px)` } : undefined}
+                onClick={() => onToggle(o.value)}
+              >
+                {o.label}
+                <span className="m-tks-aside m-bd-check">{on ? "✓" : o.count}</span>
+              </button>
+            </Fragment>
           );
         })}
       </div>
@@ -184,7 +204,7 @@ function SavedRow({ onMenu }: { onMenu(id: string): void }) {
 /* ───────── 頁 ───────── */
 
 export function MobileFilterView() {
-  const { rows, columns, order, doneCount, boardLayout, deadRoutes, deadTags, options, today, tagName } = useTaskFilter();
+  const { rows, columns, order, doneCount, boardLayout, outlineMode, buildOutlineSections, deadRoutes, deadTags, options, today, tagName } = useTaskFilter();
   const filter = useBoardStore((s) => s.filter);
   const sort = useBoardStore((s) => s.sort);
   const layout = useBoardStore((s) => s.layout);
@@ -205,13 +225,17 @@ export function MobileFilterView() {
   const [nameSheet, setNameSheet] = useState<{ id: string | null; initial: string } | null>(null);
   const [savedMenu, setSavedMenu] = useState<string | null>(null);
   const [sheetId, setSheetId] = useState<string | null>(null);
-  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
+  const [listEl, setListEl] = useState<HTMLElement | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   useBackLayer(CARD_LAYER, sheetId !== null, () => setSheetId(null));
 
   const { shown, stamp: stampRow, flash, freshId } = useStampLinger(rows, !boardLayout);
 
   const rowById = useMemo(() => new Map(shown.map((r) => [r.node.id, r])), [shown]);
+  const outlineSections = useMemo(
+    () => (outlineMode ? buildOutlineSections(shown) : []),
+    [outlineMode, buildOutlineSections, shown],
+  );
   // 車庫裡的票不進多選（跨路線：只濾掉那幾張）；判準在 selectionStore 那一關
   useSelectable("board", (id) => !rowById.get(id)?.route?.arrived_on);
   usePruneSelection("board", order);
@@ -334,6 +358,142 @@ export function MobileFilterView() {
         )}
       </div>
     );
+  else if (outlineMode)
+    body = (
+      <div ref={setListEl} className="m-bf-outline" data-no-fab>
+        {outlineSections.map((sec) => (
+          <section key={sec.routeKey} className="m-bf-rsec" aria-label={sec.route?.name ?? "臨時車票"}>
+            <header className="m-bf-rsec-hd">
+              <span
+                aria-hidden
+                className={"roundel m-bf-rbadge" + (sec.route ? "" : " is-temp")}
+                style={sec.route ? roundelStyle(sec.route.color) : undefined}
+              >
+                {sec.route ? (sec.route.code ?? sec.route.name.slice(0, 1)) : "臨"}
+              </span>
+              <span className="m-bf-rname">
+                {sec.route ? (sec.route.arrived_on ? `${sec.route.name}・車庫` : sec.route.name) : "臨時車票"}
+              </span>
+              <span className="m-bf-rcnt">{sec.hitCount} 項</span>
+            </header>
+            <div className="m-bf-tree">
+              {sec.items.map((it) => {
+                const r = rowById.get(it.id);
+                const isContainerRow =
+                  it.kind === "branch" || ((it.kind === "train" || it.kind === "car") && it.progress !== null);
+                if (isContainerRow || !r) {
+                  const node = r?.node ?? null;
+                  const isPicked = !!node && picked.includes(node.id);
+                  const isContext = it.role === "ancestor" || !node;
+                  const occ = node ? occurrences[node.id] : undefined;
+                  const status = node ? cardStatus(node, occ) : null;
+                  const late = node ? isTaskLate(node, occ, today) : false;
+                  return (
+                    <div
+                      key={it.id}
+                      className={
+                        "m-bf-grp" +
+                        (isContext ? " is-context" : " is-hit") +
+                        (isPicked ? " is-picked" : "") +
+                        (it.depth > 0 ? " is-indent" : "")
+                      }
+                      style={it.depth > 0 ? { paddingLeft: it.depth * 14 } : undefined}
+                      data-node-id={node ? node.id : undefined}
+                      data-drag-id={node ? node.id : undefined}
+                      role={selecting && node ? "checkbox" : "button"}
+                      tabIndex={0}
+                      aria-checked={selecting && node ? isPicked : undefined}
+                      onClick={() => {
+                        if (node) {
+                          if (!tapSelect("board", node.id, order)) useMobileDetailStore.getState().open(node.id);
+                        } else if (!selecting) {
+                          useMobileDetailStore.getState().open(it.id);
+                        }
+                      }}
+                    >
+                      {selecting && node && <SelectCheck picked={isPicked} />}
+                      <span
+                        className="m-bf-grp-badge"
+                        style={{ color: sec.route?.color ?? "var(--route-none)" }}
+                        aria-hidden
+                      >
+                        {CONTAINER_GLYPH[it.kind] ?? "項"}
+                      </span>
+                      <div className="m-bf-grp-main">
+                        <div className="m-bf-grp-head">
+                          {node && <PriorityMark priority={node.priority} />}
+                          <span className="m-bf-grp-title">{it.name}</span>
+                          <span className="m-bf-grp-kind">{CONTAINER_LABEL[it.kind]}</span>
+                        </div>
+                        {node && (status === "doing" || status === "paused" || late) && (
+                          <div className="m-bf-grp-meta">
+                            {(status === "doing" || status === "paused") && (
+                              <span className="m-tk-chip">{STATUS_COLUMN_LABEL[status]}</span>
+                            )}
+                            {late && <span className="m-tk-chip is-late">誤點中</span>}
+                          </div>
+                        )}
+                      </div>
+                      {it.progress && (
+                        <ProgressRing done={it.progress.done} total={it.progress.total} size={30} className="ns-ring is-sm" />
+                      )}
+                      {node && !selecting && (
+                        <button
+                          type="button"
+                          className="m-bf-grp-more"
+                          aria-label={`「${node.name}」的更多動作`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSheetId(node.id);
+                          }}
+                        >
+                          <IconDots size={14} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
+                const n = r.node;
+                const occ = occurrences[n.id];
+                const card = {
+                  ...cardFromTreeNode(n, occ, null),
+                  late: isTaskLate(n, occ, today) ? ("inday" as const) : null,
+                  stampHint: null,
+                };
+                const status = cardStatus(n, occ);
+                const extra: ReactNode[] =
+                  status === "doing" || status === "paused"
+                    ? [<span className="m-tk-chip">{STATUS_COLUMN_LABEL[status]}</span>]
+                    : [];
+                return (
+                  <ul
+                    key={n.id}
+                    className={"m-tk-list m-bf-tree-ul" + (it.depth > 0 ? " is-indent" : "")}
+                    style={it.depth > 0 ? { paddingLeft: it.depth * 14 } : undefined}
+                  >
+                    <MobileTicket
+                      card={card}
+                      route={r.route ?? undefined}
+                      today={today}
+                      fresh={freshId === n.id}
+                      now={now}
+                      hideFare
+                      metaExtra={extra}
+                      onComplete={() => stamp(n)}
+                      onMore={() => setSheetId(n.id)}
+                      dragId={n.id}
+                      selecting={selecting}
+                      picked={picked.includes(n.id)}
+                      onPick={() => tapSelect("board", n.id, order)}
+                    />
+                  </ul>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
   else
     body = (
       <ul ref={setListEl} className="m-tk-list m-bf-list" data-no-fab>
@@ -372,7 +532,14 @@ export function MobileFilterView() {
 
   return (
     <>
-      <div ref={pageRef} id={OVERVIEW_PANEL.filter} role="tabpanel" className={"m-page m2-page m-bf" + (boardLayout ? " is-board" : "") + (selecting ? " is-selecting" : "")} aria-label="篩選清單">
+      <div
+        ref={pageRef}
+        id={OVERVIEW_PANEL.filter}
+        role="tabpanel"
+        className={"m-page m2-page m-bf" + (boardLayout ? " is-board" : "") + (selecting ? " is-selecting" : "")}
+        aria-label="篩選清單"
+        onClick={dismissSelectionOnBlankClick}
+      >
         <div className="m-bf-head">
           <div className="m-bf-chips">
             <Chip
@@ -432,7 +599,7 @@ export function MobileFilterView() {
             />
             <button type="button" className="ns-bd-fchip m-bf-sort" aria-haspopup="dialog" onClick={() => setPop("sort")}>
               <span className="lb">依</span>
-              <b>{TASK_SORT_LABEL[sort]}</b>
+              <b>{FILTER_SORT_LABEL[sort]}</b>
               <IconChevron open size={12} className="chev" />
             </button>
           </div>
@@ -507,7 +674,7 @@ export function MobileFilterView() {
       )}
       {pop === "sort" && (
         <MSheet list title="排序" onClose={() => setPop(null)}>
-          {(["smart", "scheduled", "priority", "updated"] as const).map((s: TaskSort) => (
+          {FILTER_SORT_ORDER.map((s: FilterListSort) => (
             <MSheetItem
               key={s}
               onClick={() => {
@@ -515,7 +682,7 @@ export function MobileFilterView() {
                 store().setSort(s);
               }}
             >
-              {TASK_SORT_LABEL[s]}
+              {s === "outline" ? `${FILTER_SORT_LABEL[s]}（預設）` : FILTER_SORT_LABEL[s]}
               {sort === s && <span className="m-tks-aside m-bd-check">✓</span>}
             </MSheetItem>
           ))}

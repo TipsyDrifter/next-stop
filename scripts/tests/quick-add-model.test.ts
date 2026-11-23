@@ -21,24 +21,26 @@ const BRANCH: QuickDest = { routeId: "r1", nodeId: "b1", nodeKind: "branch" };
 const parse = (p: Partial<QuickAddParse> = {}): QuickAddParse => ({ name: "買牛奶", tokens: [], tags: [], ...p });
 const noKind = () => null;
 
-describe("resolveQuickTarget：掛到決定建成什麼", () => {
-  test("無路線＝臨時車票", () => {
-    assert.deepEqual(resolveQuickTarget(NO_DEST, "train"), { kind: "ticket", parentId: null, routeTagId: null, canChoose: false });
+describe("resolveQuickTarget：掛到決定建成什麼（操作 2：車票｜支線）", () => {
+  test("無路線＝臨時車票（不給選）", () => {
+    assert.deepEqual(resolveQuickTarget(NO_DEST, "ticket"), { kind: "ticket", parentId: null, routeTagId: null, canChoose: false });
+    assert.deepEqual(resolveQuickTarget(NO_DEST, "branch"), { kind: "ticket", parentId: null, routeTagId: null, canChoose: false });
   });
-  test("路線＝列車（可選車票）", () => {
-    assert.deepEqual(resolveQuickTarget(ROUTE, "train"), { kind: "train", parentId: "r1", routeTagId: null, canChoose: true });
-  });
-  test("路線＋車票＝掛路線標籤的臨時車票", () => {
+  test("路線＋車票＝掛路線標籤的臨時車票（可選支線）", () => {
     assert.deepEqual(resolveQuickTarget(ROUTE, "ticket"), { kind: "ticket", parentId: null, routeTagId: "r1", canChoose: true });
   });
-  test("支線＝列車掛在支線底下", () => {
-    assert.deepEqual(resolveQuickTarget(BRANCH, "train"), { kind: "train", parentId: "b1", routeTagId: null, canChoose: true });
+  test("路線＋支線＝掛在路線底下的支線", () => {
+    assert.deepEqual(resolveQuickTarget(ROUTE, "branch"), { kind: "branch", parentId: "r1", routeTagId: null, canChoose: true });
   });
   test("支線＋車票＝車票直接掛在支線底下（丁 D-主-245）", () => {
     assert.deepEqual(resolveQuickTarget(BRANCH, "ticket"), { kind: "ticket", parentId: "b1", routeTagId: null, canChoose: true });
   });
+  test("支線＋支線＝子支線掛在支線底下", () => {
+    assert.deepEqual(resolveQuickTarget(BRANCH, "branch"), { kind: "branch", parentId: "b1", routeTagId: null, canChoose: true });
+  });
   test("列車＝車票（不給選）", () => {
-    assert.deepEqual(resolveQuickTarget(TRAIN, "train"), { kind: "ticket", parentId: "t1", routeTagId: null, canChoose: false });
+    assert.deepEqual(resolveQuickTarget(TRAIN, "ticket"), { kind: "ticket", parentId: "t1", routeTagId: null, canChoose: false });
+    assert.deepEqual(resolveQuickTarget(TRAIN, "branch"), { kind: "ticket", parentId: "t1", routeTagId: null, canChoose: false });
   });
   test("討論 5：掛到車票＝建子車票（自動升格目標車票）", () => {
     const TICKET: QuickDest = { routeId: "r1", nodeId: "tk1", nodeKind: "ticket" };
@@ -83,7 +85,7 @@ describe("mergeQuick：chip ＞ 文字 ＞ 預設", () => {
 });
 
 describe("leaveNote：票離開眼前才出收據", () => {
-  const temp = resolveQuickTarget(NO_DEST, "train");
+  const temp = resolveQuickTarget(NO_DEST, "ticket");
   const name = (id: string) => (id === "r2" ? "生活" : "日文");
   test("今日：今天的不出、無日期＝收件匣、別天＝排到", () => {
     assert.equal(leaveNote({ kind: "today", dateKey: "2026-11-02" }, { scheduledOn: "2026-11-02", target: temp, routeId: null }, name), null);
@@ -94,20 +96,18 @@ describe("leaveNote：票離開眼前才出收據", () => {
     );
   });
   test("路線圖：同一條不出、別條＝建到", () => {
-    const t = resolveQuickTarget({ routeId: "r2", nodeId: null, nodeKind: "route" }, "train");
-    assert.equal(leaveNote({ kind: "route", routeId: "r1" }, { scheduledOn: null, target: resolveQuickTarget(ROUTE, "train"), routeId: "r1" }, name), null);
+    const t = resolveQuickTarget({ routeId: "r2", nodeId: null, nodeKind: "route" }, "branch");
+    assert.equal(leaveNote({ kind: "route", routeId: "r1" }, { scheduledOn: null, target: resolveQuickTarget(ROUTE, "branch"), routeId: "r1" }, name), null);
     assert.equal(leaveNote({ kind: "route", routeId: "r1" }, { scheduledOn: null, target: t, routeId: "r2" }, name), "已建到「生活」");
   });
 });
 
 describe("stubLook：票根寫會建成什麼", () => {
   test("臨時車票＝虛線臨", () => {
-    assert.deepEqual(stubLook(resolveQuickTarget(NO_DEST, "train")), { badge: "臨", dashed: true, lineName: "無路線", fare: "臨時券" });
+    assert.deepEqual(stubLook(resolveQuickTarget(NO_DEST, "ticket")), { badge: "臨", dashed: true, lineName: "無路線", fare: "臨時券" });
   });
-  test("列車＝列、乘車券", () => {
-    const l = stubLook(resolveQuickTarget(ROUTE, "train"));
-    assert.equal(l.badge, "列");
-    assert.equal(l.fare, "乘車券");
+  test("支線＝虛線支、支線", () => {
+    assert.deepEqual(stubLook(resolveQuickTarget(ROUTE, "branch")), { badge: "支", dashed: true, lineName: "支線", fare: "支線" });
   });
   test("掛路線標籤的車票＝臨、臨時券（票根與右上角同一個說法）", () => {
     const l = stubLook(resolveQuickTarget(ROUTE, "ticket"));

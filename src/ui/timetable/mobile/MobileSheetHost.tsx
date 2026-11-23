@@ -17,6 +17,7 @@
  */
 import { useEffect } from "react";
 import { useTimetableStore } from "../../../store/timetableStore";
+import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
 import { backStack } from "../../mobile/backStack";
 import { MSheet } from "../../common/MSheet";
 import { SheetPanel, sheetHasFoot, sheetTitle } from "../panels";
@@ -34,6 +35,13 @@ export function MobileSheetHost() {
   const todayBlocks = useTimetableStore((s) => s.todayBlocks);
   const weekBlocks = useTimetableStore((s) => s.weekBlocks);
   const closeSheet = useTimetableStore((s) => s.closeSheet);
+  // 4A／4C：預留席轉正或本班填空時，讓底部 MSheet 標題即時同步重繪
+  useTimetableScheduleStore((s) => (sheet?.kind === "plan" ? s.items[sheet.key] : null));
+  useTimetableScheduleStore((s) => {
+    if (sheet?.kind !== "plan") return null;
+    const it = s.items[sheet.key];
+    return it ? s.nodes[it.nodeId] : null;
+  });
   const now = useNow(60_000); // longRun 標題「已經跑了 X」跟著跳（分鐘級；與桌機一致）
   const open = sheet !== null;
   const { foot, el } = useTtFoot(!!sheet && sheetHasFoot(sheet.kind));

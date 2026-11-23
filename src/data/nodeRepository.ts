@@ -11,11 +11,16 @@ import { addDays, clockInstant, compareClock, dayWindow, isInDay, todayKey } fro
 // UI 取這些值一律經 data/index.ts 的明列 export，不直接 import 本檔的值（主線②契約 §0-1 第 10 條）
 import {
   effectiveTime,
+  hasRepeatRule,
   overridesFromRows,
   serializeTimeOverrides,
   timeOfRow,
+  type RunOverrideRecord,
+  type SeatingSlotRef,
   type TimeOverrideRow,
 } from "../domain/scheduledTime";
+export type { RunOverrideRecord, SeatingSlotRef };
+import { isRangeTicket } from "../domain/dateRange";
 import type { FullSearchHit } from "../domain/fullSearch";
 import type { SlotAnchor } from "../domain/nodeOrder";
 import type { ArrivalWrite } from "../domain/depot";
@@ -41,6 +46,12 @@ export interface CreateNodeInput {
   estimateMin?: number | null;
   /** 只拿來驗 scheduledTime 的範圍（不寫進資料） */
   dayStartHour?: number;
+  /** 所屬車站 id（建支線／列車／車票時同筆寫入；line／route／station 忽略） */
+  stationId?: string | null;
+  /** 期間自由券訖日 'YYYY-MM-DD'（D-FB-7；若與 scheduledOn 同日或未給則存 null） */
+  scheduledEnd?: string | null;
+  /** 是否為預留席車票（D-FB-7；true / 1 存為 1，其餘存 null） */
+  isPlaceholder?: boolean | number | null;
 }
 
 /**
@@ -63,6 +74,8 @@ export type NodePatch = Partial<
     | "code"
     | "status"
     | "scheduled_on"
+    | "scheduled_end"
+    | "is_placeholder"
     | "due_on"
     | "priority"
     | "estimate_min"
@@ -135,6 +148,10 @@ export interface TodayRow extends NodeRow {
   occurrence: CurrentOccurrence | null;
   /** 定期券自己跑完到站了（規則算不出下一班，D-主-293）；跟著上層一起完成的退役不算 */
   run_ended?: boolean;
+  /** Mode A（4C）：該班次本班填空標題 */
+  custom_title?: string | null;
+  /** Mode B（4C）：若此車票已入座頂替某預留席／定期班次，攜帶母空位參考 */
+  seated_into?: SeatingSlotRef | null;
 }
 
 /**
@@ -155,8 +172,12 @@ export interface ScheduleEntry {
   is_done: boolean;
   /** 假想班次：間隔模型在 `projectAfter` 開啟時往後推的第二班起（第一班＝目前班次，恆 false） */
   is_assumed: boolean;
-  /** 這一班的有效時刻（effectiveTime(node, date)；主線②）；null＝沒填 */
+  /** 這一班的有效時刻（effectiveTime(node, date)；若為入座車票則繼承母空位時刻）；null＝沒填 */
   time: string | null;
+  /** Mode A（4C）：當班填空標題 */
+  custom_title?: string | null;
+  /** Mode B（4C）：入座母空位參考 */
+  seated_into?: SeatingSlotRef | null;
 }
 
 /**
@@ -343,6 +364,18 @@ export interface NodeRepository {
    * 副作用：today 分區裡 today_position 還是 NULL 的列，就地 lazy 指派全域 max+1（＝新聚合尾插，r7）。
    */
   listToday(dateKey: string, dayStartHour?: number): Promise<TodayRow[]>;
+  /** 涵蓋 `dateKey` 的期間自由券清單（`scheduled_on <= dateKey <= scheduled_end`，未刪除且非 paused），供今日抽屜呈現 */
+  listRangeTickets(dateKey: string, dayStartHour?: number): Promise<TodayRow[]>;
+  /** 讀取全部存活的 `node_time_overrides`（含 Mode A `custom_title` 與 Mode B `seated_node_id`） */
+  listRunOverrides(): Promise<RunOverrideRecord[]>;
+  /** Mode A（4C）：為指定班次寫入／清除本班填空標題（保留既有 hhmm 與 seated_node_id） */
+  setRunCustomTitle(nodeId: string, dueOn: string, customTitle: string | null): Promise<void>;
+  /** Mode B（4C）：將待辦車票 `ticketId` 配對入座至預留空位 `(slotNodeId, dueOn)` */
+  seatTicketIntoSlot(slotNodeId: string, dueOn: string, ticketId: string): Promise<void>;
+  /** Mode B（4C）：釋出預留空位 `(slotNodeId, dueOn)` 上的入座車票（保留 hhmm 與 custom_title） */
+  releaseSeatedSlot(slotNodeId: string, dueOn: string): Promise<void>;
+  /** 4A：啟動時冪等將未刪除之 `time_plans (kind='adhoc')` 無損轉為 `nodes` 預留席車票並 soft-delete 原列 */
+  migrateAdhocPlans(): Promise<number>;
   /** 依給定順序把 today_position 重寫成 0..n-1（今日手動序的唯一寫入點） */
   assignTodayPositions(ids: string[]): Promise<void>;
   /**
@@ -509,6 +542,8 @@ export interface RescheduleOpts {
   backfill?: boolean;
   /** 補記完成時刻用的日界線；沒給＝3 */
   dayStartHour?: number;
+  /** 第四梯 4B：設定乘車區間時的訖日；省略＝收斂成單日票（清成 null） */
+  scheduledEnd?: string | null;
 }
 export interface RescheduleResult {
   /** true＝這次改期順便補記了（直接済在那一天） */
@@ -537,12 +572,15 @@ export function backfillAtOf(
 }
 
 export function todayBucketOf(
-  row: Pick<NodeRow, "scheduled_on" | "due_on">,
+  row: Pick<NodeRow, "scheduled_on" | "scheduled_end" | "due_on">,
   dateKey: string,
   effectiveDate?: string | null,
 ): TodayBucket {
   const on = effectiveDate === undefined ? row.scheduled_on : effectiveDate;
-  if (on !== null && on < dateKey) return "late";
+  const end = effectiveDate === undefined && row.scheduled_end && row.scheduled_on && row.scheduled_end > row.scheduled_on
+    ? row.scheduled_end
+    : on;
+  if (end !== null && end < dateKey) return "late";
   if (on === null && row.due_on !== null && row.due_on <= dateKey) return "due";
   return "today";
 }
@@ -778,10 +816,101 @@ export const REPEAT_DONE_MSG = "本班已済——取消済章後再運休";
  */
 export const REPEAT_FUTURE_ONLY_MSG = "只能對目前或未來的班次運休";
 
+export interface ResolvedRunSeatings {
+  /** `${nodeId}|${dueOn}` → Mode A 當班填空標題 */
+  customTitles: Map<string, string>;
+  /** `${slotNodeId}|${dueOn}` → 有效入座的待辦車票 id */
+  seatedTicketOfSlot: Map<string, string>;
+  /** `ticketId` → 母預留空位參考（供投影繼承時刻、預估時長與標記） */
+  seatingOfTicket: Map<string, SeatingSlotRef>;
+}
+
+/**
+ * 解析存活覆寫列的 Mode A（當班填空）與 Mode B（有效待辦入座）：
+ * - 若入座車票已刪除、途中下車或已改期離開該班次日 `dueOn`，自動視為已釋出、原預留空位立即恢復顯現。
+ */
+export function resolveRunSeatings(
+  nodesById: ReadonlyMap<string, NodeRow>,
+  overrides: readonly RunOverrideRecord[],
+): ResolvedRunSeatings {
+  const customTitles = new Map<string, string>();
+  const seatedTicketOfSlot = new Map<string, string>();
+  const seatingOfTicket = new Map<string, SeatingSlotRef>();
+
+  for (const ov of overrides) {
+    if (ov.deleted_at !== null) continue;
+    const title = ov.custom_title?.trim() ?? "";
+    if (title) customTitles.set(`${ov.node_id}|${ov.due_on}`, title);
+    if (!ov.seated_node_id) continue;
+
+    const slot = nodesById.get(ov.node_id);
+    const ticket = nodesById.get(ov.seated_node_id);
+    if (!slot || slot.deleted_at !== null || slot.status === "paused") continue;
+    if (!ticket || ticket.deleted_at !== null || ticket.status === "paused") continue;
+    if (slot.id === ticket.id || parseRule(ticket.repeat_rule)) continue;
+    if (isRangeTicket(ticket)) continue;
+
+    const dateValid =
+      ov.due_on === "unscheduled"
+        ? slot.scheduled_on === null && ticket.scheduled_on === null
+        : ticket.scheduled_on === ov.due_on;
+    if (!dateValid) continue;
+    if (seatingOfTicket.has(ticket.id)) continue;
+
+    const isRecurring = hasRepeatRule(slot.repeat_rule);
+    const slotTime = ov.due_on === "unscheduled" ? (slot.scheduled_time ?? null) : effectiveTime(slot, ov.due_on);
+    const slotEst = typeof slot.estimate_min === "number" && slot.estimate_min > 0 ? slot.estimate_min : null;
+    seatedTicketOfSlot.set(`${slot.id}|${ov.due_on}`, ticket.id);
+    seatingOfTicket.set(ticket.id, {
+      slotNodeId: slot.id,
+      slotName: title || slot.name,
+      dueOn: ov.due_on,
+      slotTime,
+      slotEstimateMin: slotEst,
+      isRecurring,
+    });
+  }
+  return { customTitles, seatedTicketOfSlot, seatingOfTicket };
+}
+
+/**
+ * 將 Mode A（當班標題）與 Mode B（隱藏被頂替的空殼預留席、在入座車票附加母空位參考）套用至今日列。
+ */
+export function applyTodaySeating(
+  rows: TodayRow[],
+  nodesById: ReadonlyMap<string, NodeRow>,
+  overrides: readonly RunOverrideRecord[],
+): TodayRow[] {
+  if (!overrides.length) return rows;
+  const { customTitles, seatedTicketOfSlot, seatingOfTicket } = resolveRunSeatings(nodesById, overrides);
+  const rowIds = new Set(rows.map((r) => r.id));
+  const out: TodayRow[] = [];
+  for (const r of rows) {
+    const due = r.occurrence?.due_on ?? r.scheduled_on ?? "unscheduled";
+    const seatedTid = seatedTicketOfSlot.get(`${r.id}|${due}`);
+    if (seatedTid && rowIds.has(seatedTid)) {
+      continue;
+    }
+    const custom = customTitles.get(`${r.id}|${due}`) ?? null;
+    const ref = seatingOfTicket.get(r.id) ?? null;
+    if (custom || ref) {
+      out.push({
+        ...r,
+        ...(custom ? { custom_title: custom } : {}),
+        ...(ref ? { seated_into: ref } : {}),
+      });
+    } else {
+      out.push(r);
+    }
+  }
+  return out;
+}
+
 /**
  * `listSchedule` 的共用核心（兩種實作只負責把 nodes／occurrences 撈出來餵進來，語義只有這一份）。
- * 單發票＝`scheduled_on` 落在區間；定期券＝投影 ∪ 區間內已有結局的班次（退役的只剩後者）。
- * 回傳**排好的**：日期 → 建立時刻 → 同層 position → id（見 `sortByDateThenNode`；日曆三處共用）。
+ * 單發票＝`scheduled_on`（或期間自由券閉區間 `[scheduled_on, scheduled_end]`）落在區間；
+ * 定期券＝投影 ∪ 區間內已有結局的班次（退役的只剩後者）。
+ * 傳入 `overrides` 時自動套用 Mode A 當班標題與 Mode B 隱藏被頂替之預留空位並繼承時刻。
  */
 export function buildSchedule(
   nodes: readonly NodeRow[],
@@ -790,8 +919,10 @@ export function buildSchedule(
   to: string,
   todayDateKey: string,
   dayStartHour = 3,
-  opts: { projectAfter?: boolean } = {},
+  opts: { projectAfter?: boolean; overrides?: readonly RunOverrideRecord[] } = {},
 ): ScheduleEntry[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const seatings = opts.overrides?.length ? resolveRunSeatings(byId, opts.overrides) : null;
   const out: ScheduleEntry[] = [];
   for (const node of nodes) {
     if (node.deleted_at !== null) continue;
@@ -799,7 +930,32 @@ export function buildSchedule(
     const rule = parseRule(node.repeat_rule);
     if (!rule) {
       const d = node.scheduled_on;
-      if (d && d >= from && d <= to) {
+      if (d && isRangeTicket(node)) {
+        const end = node.scheduled_end!;
+        if (end >= from && d <= to) {
+          const lo = d > from ? d : from;
+          const hi = end < to ? end : to;
+          const late = end < todayDateKey && node.status !== "done" && node.status !== "paused";
+          const done = node.status === "done";
+          let guard = 0;
+          for (let cur = lo; cur <= hi && guard < 400; cur = addDays(cur, 1), guard++) {
+            out.push({
+              date: cur,
+              node_id: node.id,
+              kind: "single",
+              occurrence_status: null,
+              is_late: late,
+              is_done: done,
+              is_assumed: false,
+              time: effectiveTime(node, cur),
+            });
+          }
+        }
+      } else if (d && d >= from && d <= to) {
+        if (seatings?.seatedTicketOfSlot.has(`${node.id}|${d}`)) continue;
+        const ref = seatings?.seatingOfTicket.get(node.id);
+        const seatedMatch = ref && ref.dueOn === d ? ref : null;
+        const custom = seatings?.customTitles.get(`${node.id}|${d}`) ?? null;
         out.push({
           date: d,
           node_id: node.id,
@@ -808,7 +964,9 @@ export function buildSchedule(
           is_late: d < todayDateKey && node.status !== "done" && node.status !== "paused",
           is_done: node.status === "done",
           is_assumed: false,
-          time: effectiveTime(node, d),
+          time: effectiveTime(node, d) ?? seatedMatch?.slotTime ?? null,
+          ...(custom ? { custom_title: custom } : {}),
+          ...(seatedMatch ? { seated_into: seatedMatch } : {}),
         });
       }
       continue;
@@ -843,7 +1001,9 @@ export function buildSchedule(
     }
     for (const o of occs) if (o.due_on >= from && o.due_on <= to) add(o.due_on, false);
     for (const d of [...dates.keys()].sort()) {
+      if (seatings?.seatedTicketOfSlot.has(`${node.id}|${d}`)) continue;
       const o = occs.find((x) => x.due_on === d) ?? null;
+      const custom = seatings?.customTitles.get(`${node.id}|${d}`) ?? null;
       out.push({
         date: d,
         node_id: node.id,
@@ -854,6 +1014,7 @@ export function buildSchedule(
         is_done: o?.status === "done",
         is_assumed: dates.get(d) === true,
         time: effectiveTime(node, d),
+        ...(custom ? { custom_title: custom } : {}),
       });
     }
   }
@@ -947,8 +1108,9 @@ export function buildCalendar(
   to: string,
   todayDateKey: string,
   dayStartHour = 3,
+  overrides?: readonly RunOverrideRecord[],
 ): CalendarData {
-  const entries = buildSchedule(nodes, occByNode, from, to, todayDateKey, dayStartHour, { projectAfter: false });
+  const entries = buildSchedule(nodes, occByNode, from, to, todayDateKey, dayStartHour, { projectAfter: false, overrides });
   const byId: Record<string, NodeRow> = {};
   const dues: DueEntry[] = [];
   for (const node of nodes) {
@@ -995,6 +1157,7 @@ export function buildScheduleBounds(
     const rule = parseRule(node.repeat_rule);
     if (!rule) {
       add(node.scheduled_on);
+      add(node.scheduled_end);
       if (node.status !== "done" && node.status !== "paused") add(node.due_on);
       continue;
     }
@@ -1096,10 +1259,10 @@ export function compareTodayRows(a: TodayRow, b: TodayRow): number {
   const rank = BUCKET_RANK[a.bucket] - BUCKET_RANK[b.bucket];
   if (rank !== 0) return rank;
   if (a.bucket === "late") {
-    // 誤點區依「原定日」排——定期券蓋済後 scheduled_on 已被推到下一班，要看班次日（M3 ④）
-    const byDate = (a.occurrence?.due_on ?? a.scheduled_on ?? "").localeCompare(
-      b.occurrence?.due_on ?? b.scheduled_on ?? "",
-    );
+    // 誤點區依「原定日」排——定期券看班次日（M3 ④）；期間自由券看結束日
+    const effA = a.occurrence?.due_on ?? (a.scheduled_end && a.scheduled_on && a.scheduled_end > a.scheduled_on ? a.scheduled_end : a.scheduled_on) ?? "";
+    const effB = b.occurrence?.due_on ?? (b.scheduled_end && b.scheduled_on && b.scheduled_end > b.scheduled_on ? b.scheduled_end : b.scheduled_on) ?? "";
+    const byDate = effA.localeCompare(effB);
     if (byDate !== 0) return byDate;
   } else if (a.bucket === "due") {
     const byDue = (a.due_on ?? "").localeCompare(b.due_on ?? "");

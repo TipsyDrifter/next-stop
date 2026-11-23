@@ -20,15 +20,17 @@ import { useTimetableStore } from "../../../store/timetableStore";
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
 import { PlanPanel } from "../panels/PlanPanel";
 import { TtFootContext, useTtFoot } from "../panels/controls";
+import { planItemDisplay } from "./scheduleSeatModel";
 
-const W = 316;
+const W = 340;
 const MARGIN = 12;
 
 export function PlanPopover({ planKey, rootRef, scrollRef }: { planKey: string; rootRef: RefObject<HTMLElement | null>; scrollRef: RefObject<HTMLElement | null> }) {
   const closeSheet = useTimetableStore((s) => s.closeSheet);
   const name = useTimetableScheduleStore((s) => {
     const it = s.items[planKey];
-    return it ? (s.nodes[it.nodeId]?.name ?? "") : "";
+    if (!it) return "";
+    return planItemDisplay(it, s.nodes[it.nodeId]).title;
   });
   const boxRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);

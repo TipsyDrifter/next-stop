@@ -33,8 +33,15 @@
   border-color: var(--color-line);
   box-shadow: var(--shadow-card-hover), inset 0 1px 0 rgba(var(--starlight), .09); /* 字面值：陰影色（§1.1 例外）：月光上緣高光 */
 }
+.ns-datepick-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: 8px; }
+.ns-datepick-head .ns-datepick-label { margin-bottom: 0; }
 .ns-datepick-label { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); margin-bottom: 8px; } /* 字面值：小標 10px；DatePicker 被多支元件共用、判斷不了只在桌機，--fs-* 手機會換值，照原值留 */
 .ns-datepick-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ns-datepick-chips + .ns-datepick-chips { margin-top: 6px; }
+.ns-datepick-rangehint {
+  margin-top: 6px; font-size: var(--fs-sm); color: var(--color-ink-faint); letter-spacing: .04em;
+  font-variant-numeric: tabular-nums;
+}
 .ns-datepick-chip {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; background: transparent;
   padding: 3px 10px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
@@ -110,6 +117,10 @@
   border: 1px solid var(--color-ink-faint); border-radius: 3px; /* 字面值：今天框 3px 圓角（照原 DatePop） */
 }
 .ns-datepick-days .day.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--color-ink); font-weight: 600; }
+.ns-datepick-days .day.in-range { background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--color-ink); border-radius: 0; }
+.ns-datepick-days .day.range-start { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ns-datepick-days .day.range-end { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.ns-datepick-days .day.range-draft { outline: 1px dashed var(--accent); outline-offset: -2px; }
 .ns-datepick-days .day .dot,
 .ns-datepick-gridlegend .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--stamp-ink); } /* 磨光⑤：記號不是済，朱改墨 */
 .ns-datepick-days .day .dot { position: absolute; bottom: 4px; left: 50%; margin-left: -2px; }
@@ -160,6 +171,12 @@
   border: 1px solid var(--color-ink-faint); border-radius: 4px; /* 字面值：今天框 4px 圓角（照原 MobileDatePick；--radius-card 銀河是 3，不能換） */
 }
 [data-shell="mobile"] .ns-mdatepick-days .day.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--color-ink); font-weight: 600; }
+[data-shell="mobile"] .ns-mdatepick-days .day.in-range { background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--color-ink); border-radius: 0; }
+[data-shell="mobile"] .ns-mdatepick-days .day.range-start { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+[data-shell="mobile"] .ns-mdatepick-days .day.range-end { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+[data-shell="mobile"] .ns-mdatepick-days .day.range-draft { outline: 1px dashed var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-mdatepick-mode { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+[data-shell="mobile"] .ns-mdatepick-rangehint { font-size: var(--fs-sm); color: var(--color-ink-faint); letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 [data-shell="mobile"] .ns-mdatepick-days .day .dot,
 [data-shell="mobile"] .ns-mdatepick-gridlegend .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--stamp-ink); } /* 磨光⑤：朱改墨 */
 [data-shell="mobile"] .ns-mdatepick-days .day .dot { position: absolute; bottom: 7px; left: 50%; margin-left: -2.5px; }

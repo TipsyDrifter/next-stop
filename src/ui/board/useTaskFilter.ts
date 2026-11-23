@@ -10,7 +10,7 @@
  * 欄也在這裡算（兩殼同一份）：済欄跟大綱同一個開關（uiStore.hideDone），預設收成窄條；打開時只畫最近完成的 100 張（domain/board.recentDoneCards）。
  * 列的物件能留就留（內容沒變的列同一個物件）：一次寫入只有動到的那幾列重畫。
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { todayKey } from "../../lib/date";
 import type { NodeRow } from "../../domain";
 import { useBoardStore } from "../../store/boardStore";
@@ -21,15 +21,21 @@ import { STATUS_COLUMNS, STATUS_COLUMN_LABEL, cardStatus, recentDoneCards } from
 import {
   DUE_LABEL,
   TEMP_ROUTE,
+  buildFilteredOutlineGroups,
+  isTaskDone,
+  isTaskSettled,
   matchTask,
   routeKeyOf,
   sortTasks,
   type DueCond,
+  type FilteredOutlineItem,
   type TaskFilter,
   type TaskFilterCtx,
   type TaskRow,
+  type TaskSort,
 } from "../../domain/taskFilter";
 import { isUnder } from "../../domain/tags";
+import { groupRoutesByLine } from "../notes/useAttachOptions";
 import type { BoardColumnModel } from "./useRouteBoard";
 
 export interface FilterRow {
@@ -42,12 +48,21 @@ export interface FilterRow {
   tags: string[];
 }
 
+export interface FilterOutlineSection {
+  routeKey: string;
+  route: NodeRow | null;
+  hitCount: number;
+  items: FilteredOutlineItem<TaskRow>[];
+}
+
 export interface FilterOption {
   value: string;
   label: string;
   count: number;
   /** 荷札的層級（父含子：子往右縮） */
   depth?: number;
+  /** 討論 5：選單分組標頭（如「幹線・○○」／「其他」） */
+  group?: string;
 }
 
 const DUE_ORDER: readonly DueCond[] = ["overdue", "today", "week", "month", "has", "none"];
@@ -58,7 +73,7 @@ const sameRoute = (a: NodeRow | null, b: NodeRow | null) =>
   a === b || (!!a && !!b && a.id === b.id && a.name === b.name && a.code === b.code && a.color === b.color && a.arrived_on === b.arrived_on);
 const sameRow = (a: FilterRow, b: FilterRow) => a.node === b.node && sameRoute(a.route, b.route) && sameList(a.crumb, b.crumb) && sameList(a.tags, b.tags);
 
-export type { TaskRow };
+export type { FilteredOutlineItem, TaskRow };
 
 export function useTaskFilter() {
   const tasks = useBoardStore((s) => s.tasks);
@@ -66,6 +81,7 @@ export function useTaskFilter() {
   const filter = useBoardStore((s) => s.filter);
   const sort = useBoardStore((s) => s.sort);
   const layout = useBoardStore((s) => s.layout);
+  const lines = useNodeStore((s) => s.lines);
   const routes = useNodeStore((s) => s.routes);
   const occurrences = useNodeStore((s) => s.currentOccurrences);
   const tree = useNodeStore((s) => s.tree);
@@ -83,6 +99,8 @@ export function useTaskFilter() {
 
   const today = todayKey(dayStartHour);
   const boardLayout = layout === "board";
+  const outlineMode = !boardLayout && sort === "outline";
+  const effectiveSort: TaskSort = sort === "outline" ? "smart" : sort;
 
   const tagsById = useMemo(() => {
     const m = new Map<string, string[]>();
@@ -105,6 +123,15 @@ export function useTaskFilter() {
 
   const effective = useMemo<TaskFilter>(() => (boardLayout ? { ...filter, status: "all" } : filter), [filter, boardLayout]);
 
+  const childVisible = useCallback(
+    (c: TaskRow): boolean => {
+      if (effective.status === "open") return !isTaskSettled(c, occurrences[c.id]);
+      if (effective.status === "done") return isTaskDone(c, occurrences[c.id]);
+      return true;
+    },
+    [effective.status, occurrences],
+  );
+
   const lastRows = useRef<FilterRow[]>([]);
   const rows = useMemo<FilterRow[]>(() => {
     const byId = new Map(holders.map((h) => [h.id, h]));
@@ -118,7 +145,22 @@ export function useTaskFilter() {
       }
       return out;
     };
-    const hit = sortTasks(tasks.filter((n) => matchTask(n, effective, ctx) && !(boardLayout && n.has_kids)), sort, ctx);
+    const matched = tasks.filter((n) => matchTask(n, effective, ctx) && !(boardLayout && n.has_kids));
+    let hit: TaskRow[];
+    if (outlineMode) {
+      const groups = buildFilteredOutlineGroups({
+        matched,
+        allTasks: tasks,
+        holders,
+        routes,
+        aliveRoute: ctx.aliveRoute,
+        occurrences,
+        childVisible,
+      });
+      hit = groups.flatMap((g) => g.items.flatMap((it) => (it.role !== "ancestor" && it.node ? [it.node] : [])));
+    } else {
+      hit = sortTasks(matched, effectiveSort, ctx);
+    }
     const prev = new Map(lastRows.current.map((r) => [r.node.id, r]));
     const next = hit.map((node) => {
       const row: FilterRow = {
@@ -133,7 +175,41 @@ export function useTaskFilter() {
     if (next.length === lastRows.current.length && next.every((r, i) => r === lastRows.current[i])) return lastRows.current;
     lastRows.current = next;
     return next;
-  }, [tasks, holders, routes, effective, sort, ctx, tagsById, index, boardLayout]);
+  }, [tasks, holders, routes, effective, outlineMode, effectiveSort, ctx, occurrences, childVisible, tagsById, index, boardLayout]);
+
+  const directHitIds = useMemo(
+    () => new Set(tasks.filter((n) => matchTask(n, effective, ctx) && !(boardLayout && n.has_kids)).map((n) => n.id)),
+    [tasks, effective, ctx, boardLayout],
+  );
+
+  const buildOutlineSections = useCallback(
+    (shownRows: readonly FilterRow[]): FilterOutlineSection[] => {
+      if (!shownRows.length) return [];
+      const routeById = new Map(routes.map((r) => [r.id, r]));
+      const shownById = new Map(shownRows.map((r) => [r.node.id, r.node]));
+      const mergedTasks = tasks.map((t) => shownById.get(t.id) ?? t);
+      // 保留直接命中的節點＋剛蓋済停留 700ms 的列，讓母列車帶出的子票維持 role="child"
+      const roots = shownRows
+        .filter((r) => directHitIds.has(r.node.id) || (effective.status === "open" && r.node.status === "done"))
+        .map((r) => r.node);
+      const groups = buildFilteredOutlineGroups({
+        matched: roots.length ? roots : shownRows.map((r) => r.node),
+        allTasks: mergedTasks,
+        holders,
+        routes,
+        aliveRoute: ctx.aliveRoute,
+        occurrences,
+        childVisible,
+      });
+      return groups.map((g) => ({
+        routeKey: g.routeKey,
+        route: g.routeId ? (routeById.get(g.routeId) ?? null) : null,
+        hitCount: g.items.filter((it) => it.role !== "ancestor").length,
+        items: g.items,
+      }));
+    },
+    [routes, tasks, holders, directHitIds, effective.status, ctx.aliveRoute, occurrences, childVisible],
+  );
 
   /* 看板版面的四欄（兩殼同一份） */
   const columns = useMemo<BoardColumnModel[]>(() => {
@@ -175,11 +251,24 @@ export function useTaskFilter() {
         const key = routeKeyOf(n, ctx.aliveRoute);
         tally.set(key, (tally.get(key) ?? 0) + 1);
       }
-      const opts: FilterOption[] = routes
-        // 收進車庫的路線照樣選得到，名字後面標「車庫」（同完整搜尋 D-主-223）；條件明確選了才算進結果
-        .map((r) => ({ value: r.id, label: r.arrived_on ? `${r.name}・車庫` : r.name, count: tally.get(r.id) ?? 0 }));
+      const opts: FilterOption[] = [];
+      for (const g of groupRoutesByLine(routes, lines)) {
+        for (const r of g.routes) {
+          // 收進車庫的路線照樣選得到，名字後面標「車庫」（同完整搜尋 D-主-223）；條件明確選了才算進結果
+          opts.push({
+            value: r.id,
+            label: r.arrived_on ? `${r.name}・車庫` : r.name,
+            count: tally.get(r.id) ?? 0,
+            group: g.header,
+          });
+        }
+      }
       // 指到已刪路線的條件也列出來，才拿得掉（兩殼同一份）
-      return [...deadRoutes.map((v) => ({ value: v, label: "已刪除的路線", count: 0 })), ...opts, { value: TEMP_ROUTE, label: "臨時車票", count: tally.get(TEMP_ROUTE) ?? 0 }];
+      return [
+        ...deadRoutes.map((v) => ({ value: v, label: "已刪除的路線", count: 0, group: "已刪除" })),
+        ...opts,
+        { value: TEMP_ROUTE, label: "臨時車票", count: tally.get(TEMP_ROUTE) ?? 0, group: "未掛路線" },
+      ];
     }
     if (k === "tags") {
       if (!index) return [];
@@ -205,5 +294,18 @@ export function useTaskFilter() {
     }));
   };
 
-  return { rows, columns, order, doneCount, boardLayout, deadRoutes, deadTags, options, today, tagName: (k: string) => index?.byKey[k]?.name ?? k };
+  return {
+    rows,
+    columns,
+    order,
+    doneCount,
+    boardLayout,
+    outlineMode,
+    buildOutlineSections,
+    deadRoutes,
+    deadTags,
+    options,
+    today,
+    tagName: (k: string) => index?.byKey[k]?.name ?? k,
+  };
 }

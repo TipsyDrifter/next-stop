@@ -20,6 +20,7 @@
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useUiStore } from "../../store/uiStore";
+import { dayRangeRole } from "./datePickRules";
 import {
   canShowMonth,
   focusDayOf,
@@ -34,8 +35,12 @@ import {
 } from "./monthGridMath";
 
 export interface DayGridProps {
-  /** 目前的日子（底色）；null／省略＝沒有 */
+  /** 目前的日子（底色；區間時為起日）；null／省略＝沒有 */
   value?: string | null;
+  /** 區間訖日（有值且 > value 時畫區間連帶）；null／省略＝單日 */
+  endValue?: string | null;
+  /** 區間模式已點第一下起日、等待點選訖日時的暫存起日 */
+  draftStart?: string | null;
   /** 今天（外框；也決定沒有 value 時開在哪個月） */
   today: string;
   min?: string;
@@ -54,11 +59,24 @@ export interface DayGridProps {
 const NAV_ICON = { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.6 } as const;
 const NO_MARKS: ReadonlySet<string> = new Set();
 
-export function DayGrid({ value, today, min, max, marks = NO_MARKS, marksLabel, onMonthChange, onPick, variant }: DayGridProps) {
+export function DayGrid({
+  value,
+  endValue,
+  draftStart,
+  today,
+  min,
+  max,
+  marks = NO_MARKS,
+  marksLabel,
+  onMonthChange,
+  onPick,
+  variant,
+}: DayGridProps) {
   const weekStart = useUiStore((s) => s.weekStart);
   const [month, setMonth] = useState(() => initialMonth(value, today, min, max));
   /** 鍵盤焦點日（只在 month 裡才有意義；換月時重算） */
   const [focusDay, setFocusDay] = useState(() => focusDayOf(month, value, today, min, max));
+  const [hoverDay, setHoverDay] = useState<string | null>(null);
   /** 方向鍵換月後要把真正的 DOM 焦點搬到新格（點箭頭換月時不搬，焦點留在箭頭上） */
   const moveDom = useRef(false);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -104,6 +122,21 @@ export function DayGrid({ value, today, min, max, marks = NO_MARKS, marksLabel, 
   };
 
   const what = marksLabel ?? "有記號";
+  const effStart = draftStart
+    ? hoverDay && hoverDay !== draftStart
+      ? hoverDay < draftStart
+        ? hoverDay
+        : draftStart
+      : draftStart
+    : (value ?? null);
+  const effEnd = draftStart
+    ? hoverDay && hoverDay !== draftStart
+      ? hoverDay < draftStart
+        ? draftStart
+        : hoverDay
+      : null
+    : (endValue ?? null);
+
   return (
     <div className={`${p}-grid`}>
       <div className={`${p}-gridhead`}>
@@ -141,6 +174,9 @@ export function DayGrid({ value, today, min, max, marks = NO_MARKS, marksLabel, 
         role="group"
         aria-label={`${monthTitle(month)}，方向鍵移動、Enter 選取`}
         onKeyDown={onGridKey}
+        onMouseLeave={() => {
+          if (hoverDay !== null) setHoverDay(null);
+        }}
       >
         {weekHeads(weekStart).map((w) => (
           <span key={w} className="wd" aria-hidden>
@@ -150,8 +186,22 @@ export function DayGrid({ value, today, min, max, marks = NO_MARKS, marksLabel, 
         {monthCells(month, weekStart).map((key, i) => {
           if (!key) return <span key={`b${i}`} className="blank" aria-hidden />;
           const marked = marks.has(key);
-          const cls = ["day", marked && "mk", key === today && "today", key === value && "sel"].filter(Boolean).join(" ");
+          const role = dayRangeRole(key, effStart, effEnd);
+          const isSel = role === "single" || role === "start" || role === "end";
+          const cls = [
+            "day",
+            marked && "mk",
+            key === today && "today",
+            isSel && "sel",
+            role === "start" && "range-start",
+            role === "end" && "range-end",
+            role === "mid" && "in-range",
+            draftStart === key && "range-draft",
+          ]
+            .filter(Boolean)
+            .join(" ");
           const n = Number(key.slice(8));
+          const pickable = inRange(key, min, max);
           return (
             <button
               key={key}
@@ -159,11 +209,14 @@ export function DayGrid({ value, today, min, max, marks = NO_MARKS, marksLabel, 
               className={cls}
               data-day={key}
               tabIndex={key === rovingDay ? 0 : -1}
-              disabled={!inRange(key, min, max)}
+              disabled={!pickable}
               aria-label={`${Number(key.slice(5, 7))} 月 ${n} 日${key === today ? "，今天" : ""}${marked ? `，${what}` : ""}`}
-              aria-pressed={key === value}
+              aria-pressed={isSel}
               aria-current={key === today ? "date" : undefined}
               onFocus={() => setFocusDay(key)}
+              onMouseEnter={() => {
+                if (draftStart && pickable) setHoverDay(key);
+              }}
               onClick={() => onPick(key)}
             >
               {n}

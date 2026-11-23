@@ -56,6 +56,7 @@ import { MonthJump } from "./MonthJump";
 import { WeekGrid } from "./WeekGrid";
 import { CalendarProvider, dateOf, useCalendarController, type CalendarViewMode } from "./useCalendarController";
 import { useCalendarKeyboard } from "./useCalendarKeyboard";
+import { dismissOnBlankClick } from "../common/selection/desktopSelection";
 import "./calendar.css";
 
 const MONTH_EN = [
@@ -151,6 +152,7 @@ export function CalendarView() {
       ref={containerRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onClick={dismissOnBlankClick}
       // 捲動即關浮層（技術自決；原型的浮層是 fixed、不跟捲動）
       onScroll={() => {
         if (c.popTarget) c.closeDay();

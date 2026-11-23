@@ -528,10 +528,10 @@ export function useDragReorder(opts: DragReorderOpts): void {
 
     const locate = (d: Drag) => {
       const o = ref.current;
-      // 外部落點優先（側欄路線、日期列）；影子卡 pointer-events:none，不擋 elementFromPoint
+      // 外部落點優先（側欄路線、日期列），或清單內顯式標記 data-drop-inside="true" 的入座槽（排除被拖曳列自身）
       const hit = document.elementFromPoint(d.lastX, d.lastY) as HTMLElement | null;
       const tgt = hit?.closest<HTMLElement>("[data-drop-target]") ?? null;
-      if (tgt && !root.contains(tgt)) {
+      if (tgt && (!root.contains(tgt) || tgt.dataset.dropInside === "true") && !d.els.some((el) => el.contains(tgt))) {
         const place: DropPlace = { kind: "target", type: tgt.dataset.dropType ?? "", target: tgt.dataset.dropTarget ?? "" };
         const v = o.resolve?.(d.ids, place) ?? true;
         d.place = place;

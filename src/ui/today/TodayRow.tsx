@@ -37,9 +37,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { describeRule, parseRule, type NodeRow, type NodeStatus } from "../../domain";
+import { formatDateRangeBadge, isRangeTicket, rangeRemainingDays } from "../../domain/dateRange";
 import type { TodayRow as TodayRowData } from "../../data";
-import { isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
+import { effectiveEstimateMin, isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
 import { isClockPast } from "../../lib/date";
+import { useNodeStore } from "../../store/nodeStore";
 import { TicketTime } from "../calendar/DayRow";
 import { PunchNick, SealCarryOver, SealStopover, SealSuspended } from "../stamps";
 import { lineTodayRowActions } from "../../lines/runtime";
@@ -51,6 +53,13 @@ import type { QuickChipKey } from "../common/quickadd/quickAddModel";
 import { rowContextMenu } from "../common/contextMenu";
 import { useReattach } from "../common/quickadd/reattach";
 import { QuickDueChip, QuickPriorityChip } from "../common/quickadd/QuickPriorityChip";
+import {
+  canActAsSeatSlot,
+  formatRunOriginText,
+  formatSeatBadgeText,
+  releaseSeatedFlow,
+} from "../common/seating";
+import "../common/seating/flexible-seating.css";
 
 /** MMDD-NN 之外的 M/D 顯示（票面 chip 用） */
 function mmdd(key: string): string {
@@ -180,7 +189,8 @@ function MetaItems({ items }: { items: ReactNode[] }) {
  * ⚠ 判定只認 parseRule 的結果：欄位裡塞著 legacy 自由文字（種子的「量體重記錄」）的票**是乘車券**。
  */
 function fareOf(rule: ReturnType<typeof parseRule>, row: TodayRowData): { label: string; teiki: boolean } {
-  if (rule) return { label: "定期券", teiki: true };
+  if (rule) return { label: row.is_placeholder ? "定期 · 預留席" : "定期券", teiki: true };
+  if (row.is_placeholder) return { label: "預留席", teiki: false };
   if (row.parent_id === null) return { label: "臨時券", teiki: false };
   return { label: "乘車券", teiki: false };
 }
@@ -201,6 +211,8 @@ export interface TodayRowActions {
   openPanel(id: string): void;
   /** 乘車日 chip＝推遲小卡入口（取代原生 date input；D-③-6） */
   openDefer(id: string, anchor: HTMLElement | null): void;
+  /** 4C：開啟待辦入座挑選器 */
+  openSeatPicker?(slotId: string, slotName: string, dueOn: string, anchor: HTMLElement | null): void;
   focusContainer(): void;
   /** 列的 mousedown 先問多選（Ctrl／⌘／Shift＋點；回饋乙）：回 true＝是多選的點，不要再單選 */
   pick(id: string, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: EventTarget | null }): boolean;
@@ -225,12 +237,33 @@ export interface TodayRowProps {
   now: number;
   /** 列的 ⋯ 選單項目（UI 丙-3 A5）：開卡那一刻才算；anchor＝⋯ 鈕。沒給＝不畫 ⋯ */
   menu?: (anchor: HTMLElement | null) => PopMenuItem[];
+  /** 4B：位於「期間自由券（涵蓋今日）」抽屜內時提供的直覺動作 */
+  rangeDrawer?: {
+    onPullToday(): void;
+    onDepart?(): void;
+  };
 }
 
-export function TodayRow({ row, route, selected, picked = false, fresh, dateKey, actions, onFreshEnd, dndProps, now, menu }: TodayRowProps) {
+export function TodayRow({
+  row,
+  route,
+  selected,
+  picked = false,
+  fresh,
+  dateKey,
+  actions,
+  onFreshEnd,
+  dndProps,
+  now,
+  menu,
+  rangeDrawer,
+}: TodayRowProps) {
   useHotkeyRevision();
   const ref = useRef<HTMLLIElement>(null);
   const [inlineEdit, setInlineEdit] = useState<{ picker: Exclude<QuickChipKey, "dest"> | null } | null>(null);
+  const [runFillOpen, setRunFillOpen] = useState(false);
+  const [runDraft, setRunDraft] = useState("");
+  const runInputRef = useRef<HTMLInputElement>(null);
   /** 票根改掛（v1.31 D-1.31-5）：挑選器收起後焦點還給今日容器（鍵盤流接得下去） */
   const reattach = useReattach(row, actions.focusContainer);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／臨時券 */
@@ -245,10 +278,26 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
   const due = row.bucket === "due";
   const paused = row.status === "paused" && !settled;
   /**
-   * 這一列在講的那一天（分區與「原定 M/D」的取法；見檔頭）。定期券交代完之後 scheduled_on
-   * 已經指向下一班，印它會變成「已完成・原定 9/12」——要印的是**這一班**的日子。
+   * 這一列在講的那一天（分區與「原定 M/D」的取法；期間自由券過期時以 scheduled_end 作為原定訖日）。
    */
-  const railDate = row.occurrence?.due_on ?? row.scheduled_on;
+  const isRange = !rule && isRangeTicket(row);
+  const railDate = row.occurrence?.due_on ?? (late && isRange ? row.scheduled_end : row.scheduled_on);
+  const effEst = effectiveEstimateMin(row);
+  const canSeatHere = !rangeDrawer && !row.seated_into && canActAsSeatSlot(row, settled) && Boolean(railDate);
+
+  const openRunFill = () => {
+    setRunDraft(row.custom_title ?? "");
+    setRunFillOpen(true);
+    window.setTimeout(() => runInputRef.current?.focus({ preventScroll: true }), 0);
+  };
+
+  const commitRunFill = () => {
+    setRunFillOpen(false);
+    if (!railDate) return;
+    const next = runDraft.trim() || null;
+    if (next === (row.custom_title ?? null)) return;
+    void useNodeStore.getState().setRunCustomTitle(row.id, railDate, next);
+  };
 
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: "nearest" });
@@ -284,7 +333,7 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
       >
         <TicketTime
           time={time}
-          estimateMin={row.estimate_min}
+          estimateMin={effEst}
           overridden={isTimeOverridden(row, railDate)}
           past={!settled && !punchedRun && isClockPast(railDate ?? dateKey, time, now)}
         />
@@ -334,87 +383,172 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
     </QuickDueChip>
   );
 
-  const metaItems: ReactNode[] = late
-    ? settled
-      ? // 補済態（件一 :1192-1208 逐字＝ `.ticket.done.late-done`）：來歷退後——
-        // 暖光底（.late-t）與手寫「晚了 N 天」隨結局收掉，只留「已完成 ✓ ・ 赭 chip 原定 M/D」
-        // （運休走同一條：運休也是結局，延着一樣退到右下）；點擊仍給明確回饋（openDefer 會提示先撤章再推遲）
-        [
-          timeItem,
-          statusItem,
-          <button
-            type="button"
-            tabIndex={-1}
-            className="chip chip-btn late"
-            title="已交代——點擊查看改期說明"
-            onClick={(e) => {
-              e.stopPropagation();
-              actions.openDefer(row.id, e.currentTarget);
-            }}
-          >
-            原定 {railDate ? mmdd(railDate) : "—"}
-          </button>,
-          row.due_on ? dueChip(dueLate) : null,
-        ]
-      : [
-          // 誤點票（C2 :826-832 逐字）：赭「原定 M/D」＋誤點註記。
-          // v1.31 D-1.31-5：「原定 M/D」＝推遲入口（同一般票的乘車日 chip，開同一張推遲小卡），長相照原型留赭字
-          timeItem,
-          <button
-            type="button"
-            tabIndex={-1}
-            className="late-note late-note-btn"
-            aria-label="原定乘車日——點擊改期"
-            title={`改期（${hotkeyCaps("today.schedule.today")} 排今天・${hotkeyCaps("today.schedule.tomorrow")} 明天）`}
-            onClick={(e) => {
-              e.stopPropagation();
-              actions.openDefer(row.id, e.currentTarget);
-            }}
-          >
-            原定 {railDate ? mmdd(railDate) : "—"}
-          </button>,
-          railDate ? <LateNote days={diffDays(dateKey, railDate)} /> : null,
-          // 誤點票若也掛著締切，一樣給入口（原本這一格整個沒畫，改締切只能進側板）
-          row.due_on ? dueChip(dueLate) : null,
-        ]
-    : due
-      ? // D-③-7：沒排乘車日、締切已到／已過 → 誤點區尾段，赭 chip「締切 M/D」、不蓋延着。
-        // 「＋乘車日」是原型沒有的控件 → 收進下方 .meta-hover（hover／選中才現身），有結局時不畫。
-        settled
-        ? [timeItem, statusItem, dueChip(true)]
-        : [timeItem, dueChip(true)]
-      : [
-          timeItem,
-          // 丙-7：途中下車已經蓋角印（検印位），meta 不再重寫一次同字的狀態膠囊；拿掉整格才不會留下空的分隔點
-          paused ? null : statusItem,
-          // 定期券的一句話規則（C2 :745「每日重複」那一格）——印 describeRule，不印 JSON
-          rule ? (
-            <span>
-              <RepeatGlyph />
-              {describeRule(rule)}
-            </span>
-          ) : null,
-          row.child_total > 0 ? <Cars total={row.child_total} done={row.child_done} label={carsLabel(row.kind)} /> : null,
-          row.estimate_min && time === null ? (
-            <span
-              role="button"
+  const seatItems = row.seated_into ? (
+    <span className="ns-range-row-acts">
+      <span className="ns-seat-badge">{formatSeatBadgeText(row.seated_into)}</span>
+      {!settled && (
+        <button
+          type="button"
+          tabIndex={-1}
+          className="ns-seat-release"
+          title="釋出預留席，讓空位與待辦恢復獨立"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (row.seated_into) void releaseSeatedFlow(row.seated_into.slotNodeId, row.seated_into.dueOn, row.id);
+          }}
+        >
+          釋出預留席
+        </button>
+      )}
+    </span>
+  ) : canSeatHere && railDate ? (
+    <button
+      type="button"
+      tabIndex={-1}
+      data-drop-target={row.id}
+      data-drop-type="seat-slot"
+      data-drop-inside="true"
+      className="ns-seat-dropbtn"
+      title="點擊挑一張待辦車票入座，或直接把車票拖進此處"
+      onClick={(e) => {
+        e.stopPropagation();
+        actions.openSeatPicker?.(row.id, row.custom_title || row.name, railDate, e.currentTarget);
+      }}
+    >
+      ⇄ 待辦入座
+    </button>
+  ) : null;
+
+  const remDays = rangeDrawer && row.scheduled_end ? rangeRemainingDays(row.scheduled_end, dateKey) : null;
+
+  const metaItems: ReactNode[] = rangeDrawer
+    ? [
+        timeItem,
+        paused ? null : statusItem,
+        effEst && time === null ? <span>預計 {effEst} 分</span> : null,
+        row.scheduled_on && row.scheduled_end ? deferChip(`期間 ${formatDateRangeBadge(row.scheduled_on, row.scheduled_end)}`, false) : null,
+        remDays !== null ? (
+          <span className={"chip" + (remDays <= 0 ? " late" : "")}>
+            {remDays <= 0 ? "今天到期" : `剩 ${remDays} 天`}
+          </span>
+        ) : null,
+        row.due_on ? dueChip(dueLate) : null,
+        !settled ? (
+          <span className="ns-range-row-acts">
+            <button
+              type="button"
               tabIndex={-1}
-              style={{ cursor: "pointer" }}
-              title="點擊修改預計分鐘"
+              className="ns-range-pullbtn"
+              title="將這張期間自由券收斂排入今天的列車"
               onClick={(e) => {
                 e.stopPropagation();
-                setInlineEdit({ picker: "time" });
+                rangeDrawer.onPullToday();
               }}
             >
-              預計 {row.estimate_min} 分
-            </span>
-          ) : null,
-          row.parent_id === null ? <span>臨時車票</span> : null,
-          // 乘車日不是「今天」時（例：昨天排、今天補済留原位）常駐顯示，否則收進 hover 群組。
-          // 定期券吃 railDate：蓋済／運休留原位的那一列講的是今天，不是引擎推到的下一班。
-          chipDate && chipDate !== dateKey ? deferChip(`執行 ${mmdd(chipDate)}`, false) : null,
-          row.due_on ? dueChip(dueLate) : null,
-        ];
+              排今天
+            </button>
+            {rangeDrawer.onDepart && (
+              <button
+                type="button"
+                tabIndex={-1}
+                className="chip chip-btn"
+                title="直接開始計時発車"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  rangeDrawer.onDepart?.();
+                }}
+              >
+                ▶ 発車
+              </button>
+            )}
+          </span>
+        ) : null,
+      ]
+    : late
+      ? settled
+        ? [
+            timeItem,
+            statusItem,
+            <button
+              type="button"
+              tabIndex={-1}
+              className="chip chip-btn late"
+              title="已交代——點擊查看改期說明"
+              onClick={(e) => {
+                e.stopPropagation();
+                actions.openDefer(row.id, e.currentTarget);
+              }}
+            >
+              原定 {isRange && row.scheduled_on ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end) : railDate ? mmdd(railDate) : "—"}
+            </button>,
+            row.due_on ? dueChip(dueLate) : null,
+          ]
+        : [
+            timeItem,
+            <button
+              type="button"
+              tabIndex={-1}
+              className="late-note late-note-btn"
+              aria-label="原定乘車日——點擊改期"
+              title={`改期（${hotkeyCaps("today.schedule.today")} 排今天・${hotkeyCaps("today.schedule.tomorrow")} 明天）`}
+              onClick={(e) => {
+                e.stopPropagation();
+                actions.openDefer(row.id, e.currentTarget);
+              }}
+            >
+              原定 {isRange && row.scheduled_on ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end) : railDate ? mmdd(railDate) : "—"}
+            </button>,
+            railDate ? <LateNote days={diffDays(dateKey, railDate)} /> : null,
+            seatItems,
+            row.due_on ? dueChip(dueLate) : null,
+          ]
+      : due
+        ? settled
+          ? [timeItem, statusItem, dueChip(true)]
+          : [timeItem, dueChip(true)]
+        : [
+            timeItem,
+            paused ? null : statusItem,
+            rule ? (
+              <span>
+                <RepeatGlyph />
+                {describeRule(rule)}
+              </span>
+            ) : null,
+            row.child_total > 0 ? <Cars total={row.child_total} done={row.child_done} label={carsLabel(row.kind)} /> : null,
+            effEst && time === null ? (
+              <span
+                role="button"
+                tabIndex={-1}
+                style={{ cursor: "pointer" }}
+                title="點擊修改預計分鐘"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setInlineEdit({ picker: "time" });
+                }}
+              >
+                預計 {effEst} 分
+              </span>
+            ) : null,
+            row.parent_id === null && !row.is_placeholder ? <span>臨時車票</span> : null,
+            seatItems,
+            !rule && row.is_placeholder && !settled ? (
+              <button
+                type="button"
+                tabIndex={-1}
+                className="chip chip-btn"
+                title="填入具體車票標題並轉為一般車票"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setInlineEdit({ picker: null });
+                }}
+              >
+                ✎ 填入內容…
+              </button>
+            ) : null,
+            chipDate && chipDate !== dateKey ? deferChip(`執行 ${mmdd(chipDate)}`, false) : null,
+            row.due_on ? dueChip(dueLate) : null,
+          ];
 
   return (
     <li
@@ -455,6 +589,7 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
       <article
         className={
           "ticket" +
+          (row.is_placeholder ? " is-placeholder" : "") +
           // 暖光底＋赭外框只在「還沒有結局」時亮著（件一：補済＝來歷退後，樣張 .ticket.done.late-done 無 .late-t）
           ((late || due) && !settled ? " late-t" : "") +
           (selected ? " selected" : "") +
@@ -533,6 +668,36 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
                 actions.focusContainer();
               }}
             />
+          ) : runFillOpen ? (
+            <div
+              className="ns-run-fillbox"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <input
+                ref={runInputRef}
+                type="text"
+                value={runDraft}
+                placeholder={`填入本班具體內容（母定期：${row.name}）…`}
+                aria-label="本班具體內容"
+                onChange={(e) => setRunDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitRunFill();
+                    actions.focusContainer();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setRunFillOpen(false);
+                    actions.focusContainer();
+                  }
+                }}
+                onBlur={commitRunFill}
+              />
+              <span className="ns-run-hint">Enter 存入 · 清空還原 · Esc 取消</span>
+            </div>
           ) : (
             <p
               className="title"
@@ -553,17 +718,53 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
                   <PriorityMark priority={row.priority} />
                 </QuickPriorityChip>
               )}
-              {row.name}
+              {row.custom_title || row.name}
+              {row.custom_title && (
+                <span
+                  className="ns-run-origin"
+                  role={settled ? undefined : "button"}
+                  tabIndex={-1}
+                  style={settled ? undefined : { cursor: "pointer" }}
+                  title={settled ? `母定期班次：${row.name}` : "點擊修改本班填空內容"}
+                  onClick={
+                    settled
+                      ? undefined
+                      : (e) => {
+                          e.stopPropagation();
+                          openRunFill();
+                        }
+                  }
+                >
+                  （{formatRunOriginText(row.name, effEst)}）
+                </span>
+              )}
             </p>
           )}
 
           {!inlineEdit && (
           <div className="meta">
             <MetaItems items={metaItems} />
+            {/* Mode A：定期券本班填空入口（hover／選中現身） */}
+            {rule && !settled && !row.seated_into && railDate && !runFillOpen && (
+              <span className="meta-hover">
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="chip chip-btn"
+                  title="只填寫今天這一班的具體內容，不改母定期券標題"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openRunFill();
+                  }}
+                >
+                  {row.custom_title ? "✎ 改本班內容" : "✎ 本班內容"}
+                </button>
+              </span>
+            )}
             {/* 原型沒有的控件：締切段的「＋乘車日」（T 鍵才是主要入口），hover／選中才現身；有結局時不畫 */}
             {due && !settled && <span className="meta-hover">{deferChip("＋乘車日", false)}</span>}
             {/* 原型沒有的控件：與頁首日期重複的那一枚乘車日 chip，hover／選中才現身 */}
-            {!late && !due && (!chipDate || chipDate === dateKey) && (
+            {!rangeDrawer && !late && !due && (!chipDate || chipDate === dateKey) && (
               <span className="meta-hover">
                 {deferChip(chipDate ? `執行 ${mmdd(chipDate)}` : "＋乘車日", false)}
               </span>

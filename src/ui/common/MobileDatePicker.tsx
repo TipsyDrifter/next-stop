@@ -15,26 +15,41 @@
  * 不然 z 序（sheet 45／dialog 47）與返回鍵的先後會跟呼叫端以為的不同。
  * UI 丙-7 T5：呼叫端全數補上 backId，舊殼（`.ns-mdatepick-veil > .ns-mdatepick`、自管 Esc）與它的 css 一起刪掉，backId 改成必填。
  */
+import { useState } from "react";
+import { formatDateRangeBadge } from "../../domain/dateRange";
 import { MSheet } from "./MSheet";
+import { Segmented } from "./Segmented";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
-import { shortDayKey, type DateQuick } from "./DatePicker";
+import { dateRangeQuickSet, shortDayKey, type DateQuick, type DateRangeQuick } from "./DatePicker";
 import { DayGrid } from "./DayGrid";
+import { stepRangePick } from "./datePickRules";
 import "./datepicker.css";
 
-export type { DateQuick } from "./DatePicker";
+export type { DateQuick, DateRangeQuick } from "./DatePicker";
+
+const RANGE_MODE_OPTS = [
+  { value: "single" as const, label: "單日" },
+  { value: "range" as const, label: "區間" },
+];
 
 export interface MobileDatePickerProps {
   /** 面板標題（也是 dialog 的 aria-label） */
   title: string;
   /** 目前的值（同日的 chip 亮起；不在 chip 裡＝日期欄預填並亮起）；null＝沒有 */
   value: string | null;
+  /** 期間自由券訖日（有值且 > value 時顯示區間連帶；僅 allowRange 時使用） */
+  endValue?: string | null;
   /** YYYY-MM-DD；含 */
   min?: string;
   /** YYYY-MM-DD；含 */
   max?: string;
   quick: readonly DateQuick[];
+  /** 是否允許切換「單日｜區間」並顯示週末／本週／下週／本月區間快選（第四梯 4B） */
+  allowRange?: boolean;
+  rangeQuick?: readonly DateRangeQuick[];
   onPick(day: string): void;
+  onPickRange?(start: string, end: string | null): void;
   onClose(): void;
   /** 舊的原生日期欄前的小字；磨光⑤ S8 起一律畫月格、不再顯示（保留 prop 免得呼叫端跟著改） */
   fieldLabel?: string;
@@ -59,10 +74,14 @@ export interface MobileDatePickerProps {
 export function MobileDatePicker({
   title,
   value,
+  endValue,
   min,
   max,
   quick,
+  allowRange = false,
+  rangeQuick,
   onPick,
+  onPickRange,
   onClose,
   marks,
   onMonthChange,
@@ -74,33 +93,93 @@ export function MobileDatePicker({
   clearLabel = "清除",
 }: MobileDatePickerProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
+  const effToday = today ?? todayKey(dayStartHour);
+  const hasRangeVal = Boolean(value && endValue && endValue > value);
+  const [mode, setMode] = useState<"single" | "range">(() => (allowRange && hasRangeVal ? "range" : "single"));
+  const [draftStart, setDraftStart] = useState<string | null>(null);
+  const effRangeQuick = allowRange
+    ? (rangeQuick ?? dateRangeQuickSet(effToday, weekStart)).filter(
+        (rq) => (!min || rq.to >= min) && (!max || rq.from <= max),
+      )
+    : [];
+
+  const handleDayPick = (day: string) => {
+    if (allowRange && mode === "range") {
+      const step = stepRangePick(draftStart, day);
+      if (step.kind === "start") {
+        setDraftStart(step.draftStart);
+        return;
+      }
+      setDraftStart(null);
+      if (onPickRange) onPickRange(step.start, step.end);
+      else onPick(step.start);
+      return;
+    }
+    setDraftStart(null);
+    if (allowRange && onPickRange) onPickRange(day, null);
+    else onPick(day);
+  };
+
   const chips = (
     <div className="ns-mdatepick-chips">
-      {quick.map((q) => (
-        <button
-          key={q.label}
-          type="button"
-          className={"ns-mdatepick-chip" + (value === q.day ? " on" : "")}
-          aria-pressed={value === q.day}
-          onClick={() => onPick(q.day)}
-        >
-          {q.label}
-          <span className="sub">{shortDayKey(q.day)}</span>
-        </button>
-      ))}
+      {quick.map((q) => {
+        const on = !hasRangeVal && value === q.day;
+        return (
+          <button
+            key={q.label}
+            type="button"
+            className={"ns-mdatepick-chip" + (on ? " on" : "")}
+            aria-pressed={on}
+            onClick={() => {
+              setDraftStart(null);
+              if (allowRange && onPickRange) onPickRange(q.day, null);
+              else onPick(q.day);
+            }}
+          >
+            {q.label}
+            <span className="sub">{shortDayKey(q.day)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+  const rangeChips = effRangeQuick.length > 0 && (
+    <div className="ns-mdatepick-chips" role="group" aria-label="期間區間快選">
+      {effRangeQuick.map((rq) => {
+        const on = value === rq.from && endValue === rq.to;
+        return (
+          <button
+            key={rq.label}
+            type="button"
+            className={"ns-mdatepick-chip" + (on ? " on" : "")}
+            aria-pressed={on}
+            onClick={() => {
+              setDraftStart(null);
+              if (onPickRange) onPickRange(rq.from, rq.to);
+              else onPick(rq.from);
+            }}
+          >
+            {rq.label}
+            <span className="sub">{formatDateRangeBadge(rq.from, rq.to)}</span>
+          </button>
+        );
+      })}
     </div>
   );
   const grid = (
     <DayGrid
       variant="mobile"
       value={value}
-      today={today ?? todayKey(dayStartHour)}
+      endValue={allowRange ? endValue : null}
+      draftStart={allowRange && mode === "range" ? draftStart : null}
+      today={effToday}
       min={min}
       max={max}
       marks={marks}
       marksLabel={marksLabel}
       onMonthChange={onMonthChange}
-      onPick={onPick}
+      onPick={handleDayPick}
     />
   );
 
@@ -127,7 +206,30 @@ export function MobileDatePicker({
       }
     >
       <div className="ns-mdatepick-sheet">
+        {allowRange && (
+          <div className="ns-mdatepick-mode">
+            <Segmented<"single" | "range">
+              options={RANGE_MODE_OPTS}
+              value={mode}
+              onChange={(next) => {
+                setMode(next);
+                setDraftStart(null);
+              }}
+              aria-label="單日或期間區間"
+            />
+          </div>
+        )}
         {quick.length > 0 && chips}
+        {rangeChips}
+        {allowRange && mode === "range" && (
+          <div className="ns-mdatepick-rangehint" aria-live="polite">
+            {draftStart
+              ? `已選起日 ${shortDayKey(draftStart)} — 請點訖日（再點同日＝單日）`
+              : hasRangeVal && value && endValue
+                ? `目前區間：${formatDateRangeBadge(value, endValue)}（點任一日重選起訖）`
+                : "先點起日，再點訖日"}
+          </div>
+        )}
         {grid}
       </div>
     </MSheet>

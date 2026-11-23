@@ -32,15 +32,20 @@ import type { AttachTarget } from "../../../domain/notes";
 import { todayKey } from "../../../lib/date";
 import { lineNodeFields } from "../../../lines/runtime";
 import { conflictNameOf, isSettling, serialOf, useNodeStore } from "../../../store/nodeStore";
+import { useSelectionStore } from "../../../store/selectionStore";
 import { useUiStore } from "../../../store/uiStore";
 import { CommitInput, CommitTextarea } from "../../common/fields";
 import { MFullPage } from "../../common/MFullPage";
-import { MobileAttachPicker } from "../../common/MobileAttachPicker";
+import { MobileAttachPicker, RouteRoundel } from "../../common/MobileAttachPicker";
+import type { AttachKind } from "../../notes/useAttachOptions";
 import { MobileDatePicker, type DateQuick } from "../../common/MobileDatePicker";
-import { dateQuickSet } from "../../common/DateChip";
+import { dateChipRangeText, dateQuickSet } from "../../common/DateChip";
+import { MobileSeatSheet, canActAsSeatSlot, releaseSeatedFlow } from "../../common/seating";
+import "../../common/seating/flexible-seating.css";
 import { IconClose } from "../../common/icons";
 import { Segmented } from "../../common/Segmented";
-import { moveNodeTo } from "../../common/moveTo";
+import { reattachTo } from "../../common/quickadd/reattach";
+import { useNodeLocationInfo, type NodeLocationInfo } from "../../panel/MoveTo";
 import "../../common/moveTo.css";
 import { MOODS } from "../../complete/moods";
 import { fareClass } from "../../outline/OutlineRow";
@@ -75,6 +80,9 @@ export function MobileDetailHost() {
 
 function DetailPage({ nodeId }: { nodeId: string }) {
   const close = useMobileDetailStore((s) => s.close);
+  useEffect(() => {
+    if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
+  }, []);
   // 路線不在 tree／today 切片裡（tree 是它底下的節點）：從書封的路線清單找（第四輪）
   const sliced = useNodeStore((s) => s.tree.byId[nodeId] ?? s.today.byId[nodeId] ?? s.routes.find((r) => r.id === nodeId));
   const tree = useNodeStore((s) => s.tree);
@@ -123,20 +131,31 @@ function DetailPage({ nodeId }: { nodeId: string }) {
 }
 
 type Sub =
-  | { kind: "date"; title: string; value: string | null; quick: readonly DateQuick[]; min?: string; max?: string; onPick(day: string): void }
+  | {
+      kind: "date";
+      title: string;
+      value: string | null;
+      endValue?: string | null;
+      allowRange?: boolean;
+      quick: readonly DateQuick[];
+      min?: string;
+      max?: string;
+      onPick(day: string): void;
+      onPickRange?(start: string, end: string | null): void;
+    }
   | { kind: "time" }
   /** 時段的結束（MobileTimeSheet end 模式；改結束＝重算長度） */
   | { kind: "end" }
   /** 定期券本班時刻（MobileTimeSheet run 模式） */
   | { kind: "run"; railDate: string }
-  | { kind: "move"; from: AttachTarget }
-  | { kind: "route" };
+  /** 4C：配對待辦入座 */
+  | { kind: "seat"; slotId: string; slotName: string; dueOn: string }
+  | { kind: "move"; from: AttachTarget };
 
 /* ───────────── 內容 ───────────── */
 
 function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
   const updateNode = useNodeStore((s) => s.updateNode);
-  const showToast = useUiStore((s) => s.showToast);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
   const [sub, setSub] = useState<Sub | null>(null);
@@ -144,6 +163,7 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
 
   const task = isTaskKind(node.kind) || node.kind === "ticket";
   const moveRule = moveTargetRule(node.kind);
+  const locInfo = useNodeLocationInfo(node);
 
   /** 先問到父節點的種類才開挑選器（要標「目前位置」；同 MobileTicketSheet.startMove） */
   const startMove = async () => {
@@ -165,12 +185,21 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
     void confirmAndDeleteNode(node.id);
   };
 
+  const canTicketToBranch =
+    node.kind === "ticket" &&
+    node.route_id !== null &&
+    !locInfo.route?.arrived_on &&
+    locInfo.parentKind !== "train" &&
+    locInfo.parentKind !== "car";
+
   return (
     <div className="m-dt">
       <Stub node={node} />
       <CommitInput
         value={node.name}
-        onCommit={(name) => void updateNode(node.id, { name })}
+        onCommit={(name) =>
+          void updateNode(node.id, { name, ...(node.is_placeholder ? { is_placeholder: null } : {}) })
+        }
         required
         wrap
         ariaLabel="名稱"
@@ -189,28 +218,42 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
       )}
 
       {task ? (
-        <TaskFields node={node} today={today} setSub={setSub} />
+        <TaskFields node={node} today={today} setSub={setSub} locInfo={locInfo} onStartMove={() => void startMove()} />
       ) : (
-        <LineFieldRows node={node} />
+        <>
+          {(moveRule || node.kind === "branch") && (
+            <div className="m-dt-group">
+              {moveRule && <LocationPickRow info={locInfo} onOpen={() => void startMove()} />}
+              {node.kind === "branch" && <MobileStationRow node={node} />}
+            </div>
+          )}
+          <LineFieldRows node={node} />
+        </>
       )}
 
-      {moveRule && (
-        <button type="button" className="m-dt-link" onClick={() => void startMove()}>
-          <span>移動到…</span>
-          <span className="m-dt-link-aside">
-            <RouteLabel routeId={node.route_id} empty={node.parent_id === null ? "臨時車票" : "—"} />
-          </span>
+      {/* 轉種類（雙端同等：列車→支線、支線→列車、掛路線車票→支線、空支線→車票） */}
+      {(node.kind === "train" || node.kind === "branch") && (
+        <button type="button" className="m-dt-link" onClick={() => void convertKindFlow(node, node.kind === "train" ? "branch" : "train")}>
+          <span>{node.kind === "train" ? "轉為支線" : "轉為列車"}</span>
+          <span className="m-dt-link-aside">{node.kind === "train" ? "把這班列車改成支線" : "把這條支線改成一班列車"}</span>
           <span className="m-dt-chev" aria-hidden="true">
             ›
           </span>
         </button>
       )}
-
-      {/* 轉種類（同桌機：列車→支線、支線→列車；車廂不給，setKind 也會擋） */}
-      {(node.kind === "train" || node.kind === "branch") && (
-        <button type="button" className="m-dt-link" onClick={() => void convertKindFlow(node, node.kind === "train" ? "branch" : "train")}>
-          <span>{node.kind === "train" ? "轉為支線" : "轉為列車"}</span>
-          <span className="m-dt-link-aside">{node.kind === "train" ? "把這班列車改成支線" : "把這條支線改成一班列車"}</span>
+      {canTicketToBranch && (
+        <button type="button" className="m-dt-link" onClick={() => void convertKindFlow(node, "branch")}>
+          <span>轉為支線</span>
+          <span className="m-dt-link-aside">把這張車票改成支線（主題）</span>
+          <span className="m-dt-chev" aria-hidden="true">
+            ›
+          </span>
+        </button>
+      )}
+      {node.kind === "branch" && !locInfo.hasKids && (
+        <button type="button" className="m-dt-link" onClick={() => void convertKindFlow(node, "ticket")}>
+          <span>轉為車票</span>
+          <span className="m-dt-link-aside">把這條空支線改成一張車票</span>
           <span className="m-dt-chev" aria-hidden="true">
             ›
           </span>
@@ -226,17 +269,37 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
         <MobileDatePicker
           title={sub.title}
           value={sub.value}
+          endValue={sub.endValue}
+          allowRange={sub.allowRange}
           min={sub.min}
           max={sub.max}
           today={today}
           quick={sub.quick}
           onPick={(d) => {
             closeSub();
-            if (d !== sub.value) sub.onPick(d);
+            if (d !== sub.value || sub.endValue) sub.onPick(d);
           }}
+          onPickRange={
+            sub.onPickRange
+              ? (s, e) => {
+                  closeSub();
+                  if (s !== sub.value || (e ?? null) !== (sub.endValue ?? null)) sub.onPickRange?.(s, e);
+                }
+              : undefined
+          }
           onClose={closeSub}
           backId={SUB_LAYER}
           backKind="dialog"
+        />
+      )}
+      {sub?.kind === "seat" && (
+        <MobileSeatSheet
+          slotId={sub.slotId}
+          slotName={sub.slotName}
+          dueOn={sub.dueOn}
+          backId={SUB_LAYER}
+          backKind="dialog"
+          onClose={closeSub}
         />
       )}
       {sub?.kind === "time" && <TimeSub node={node} today={today} onClose={closeSub} />}
@@ -246,7 +309,7 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
         <MobileAttachPicker
           title={moveRule.label}
           depth={moveRule.depth}
-          kinds={moveRule.depth === "node" ? moveRule.kinds : undefined}
+          kinds={moveRule.depth === "node" ? (moveRule.kinds as readonly AttachKind[]) : undefined}
           routeSelectable={moveRule.routeSelectable}
           value={sub.from}
           excludeId={node.id}
@@ -254,30 +317,17 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
           backKind="dialog"
           onPick={(t) => {
             closeSub();
-            void moveNodeTo(node.id, { routeId: t.routeId, nodeId: t.nodeId });
-          }}
-          onClose={closeSub}
-        />
-      )}
-      {sub?.kind === "route" && (
-        <MobileAttachPicker
-          title="所屬路線"
-          depth="route"
-          value={{ routeId: node.route_id, nodeId: null, nodeKind: node.route_id ? "route" : null }}
-          backKind="dialog"
-          onPick={(t) => {
-            closeSub();
-            if (t.routeId !== node.route_id) void tagRoute(node.id, t.routeId, showToast);
+            void reattachTo(node, { routeId: t.routeId, nodeId: t.nodeId });
           }}
           onClear={
-            node.route_id
+            node.kind === "ticket" && (node.parent_id !== null || node.route_id !== null)
               ? () => {
                   closeSub();
-                  void tagRoute(node.id, null, showToast);
+                  void reattachTo(node, null);
                 }
               : undefined
           }
-          clearLabel="改成無路線"
+          clearLabel="無路線（臨時車票）"
           onClose={closeSub}
         />
       )}
@@ -285,14 +335,25 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
   );
 }
 
-/** 臨時車票的路線標籤（桌機 TicketPanel.tag 同一支動作與失敗句） */
-async function tagRoute(
-  id: string,
-  routeId: string | null,
-  showToast: ReturnType<typeof useUiStore.getState>["showToast"],
-): Promise<void> {
-  const r = await useNodeStore.getState().setRouteTag(id, routeId);
-  if (!r.ok) showToast({ message: r.reason ?? "無法加上路線" }, 4000);
+function LocationPickRow({ info, onOpen }: { info: NodeLocationInfo; onOpen: () => void }) {
+  const pathText = info.route ? info.segments.join(" › ") : "無路線（臨時券）";
+  return (
+    <Row label="掛在">
+      <button type="button" className="m-dt-pick" aria-label={`掛在：${pathText}`} onClick={onOpen}>
+        {info.route ? (
+          <>
+            <RouteRoundel route={info.route} />
+            <span className="m-dt-loc-path">{pathText}</span>
+          </>
+        ) : (
+          <span className="is-empty">{pathText}</span>
+        )}
+        <span className="m-dt-chev" aria-hidden="true">
+          ›
+        </span>
+      </button>
+    </Row>
+  );
 }
 
 /* ───────────── 票根列 ───────────── */
@@ -318,45 +379,52 @@ function Stub({ node }: { node: NodeRow }) {
   );
 }
 
-function RouteLabel({ routeId, empty }: { routeId: string | null; empty: string }) {
-  const route = useNodeStore((s) => (routeId ? s.routes.find((r) => r.id === routeId) : undefined));
-  if (!route) return <>{empty}</>;
-  return <>{route.code ? `${route.code}・${route.name}` : route.name}</>;
-}
-
 /* ───────────── 列車／車廂／車票的欄位 ───────────── */
 
-function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; setSub: (s: Sub) => void }) {
+function TaskFields({
+  node,
+  today,
+  setSub,
+  locInfo,
+  onStartMove,
+}: {
+  node: NodeRow;
+  today: string;
+  setSub: (s: Sub) => void;
+  locInfo: NodeLocationInfo;
+  onStartMove: () => void;
+}) {
   const updateNode = useNodeStore((s) => s.updateNode);
+  const runOverrides = useNodeStore((s) => s.runOverrides);
   const repeatable = REPEATABLE_KINDS.includes(node.kind);
   const { draft, push } = useRepeatDraft(node);
   const [repOpen, setRepOpen] = useState(false);
   /** 定期券（含退役的）：掛著規則就不給直改乘車日（repository 的 reschedule 只看 parseRule） */
   const ruled = parseRule(node.repeat_rule) !== null;
-  const isTemp = node.kind === "ticket" && node.parent_id === null;
-  const plainFare = fareClass({ ...node, repeat_rule: null }).label;
+  const plainFare = fareClass({ ...node, repeat_rule: null, is_placeholder: null }).label;
+  const syncDueTarget = node.scheduled_end ?? node.scheduled_on;
+  const isDueSynced = Boolean(syncDueTarget && node.due_on === syncDueTarget);
+
+  const seatedOvr = !ruled && node.scheduled_on
+    ? runOverrides.find((o) => !o.deleted_at && o.seated_node_id === node.id && o.due_on === node.scheduled_on)
+    : undefined;
+  const hostOvr = !ruled && node.is_placeholder && node.scheduled_on
+    ? runOverrides.find((o) => !o.deleted_at && o.node_id === node.id && o.due_on === node.scheduled_on && o.seated_node_id)
+    : undefined;
+  const canHostSeat = !ruled && canActAsSeatSlot(node, node.status === "done") && Boolean(node.scheduled_on);
 
   const pickDate = (
     title: string,
     value: string | null,
     quick: readonly DateQuick[],
     onPick: (d: string) => void,
-    range?: { min?: string; max?: string },
+    range?: { min?: string; max?: string; endValue?: string | null; allowRange?: boolean; onPickRange?(s: string, e: string | null): void },
   ) => setSub({ kind: "date", title, value, quick, onPick, ...range });
 
   return (
     <>
       <div className="m-dt-group">
-        {isTemp && (
-          <Row label="路線">
-            <button type="button" className="m-dt-pick" onClick={() => setSub({ kind: "route" })}>
-              <RouteLabel routeId={node.route_id} empty="無路線" />
-              <span className="m-dt-chev" aria-hidden="true">
-                ›
-              </span>
-            </button>
-          </Row>
-        )}
+        <LocationPickRow info={locInfo} onOpen={onStartMove} />
 
         {repeatable && (
           <Row label="票種">
@@ -369,11 +437,61 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
               onChange={(v) => {
                 const teiki = v === "teiki";
                 push(switchFare(draft, teiki));
-                // 切定期券＝展開重複規則給人看；切回＝規則已清，段落照舊（段頭寫「不重複」）
                 if (teiki) setRepOpen(true);
               }}
               aria-label="票種"
             />
+          </Row>
+        )}
+
+        <Row label="預留席">
+          <button
+            type="button"
+            className={"ns-qa-chip" + (node.is_placeholder ? " is-on" : "")}
+            aria-pressed={Boolean(node.is_placeholder)}
+            onClick={() => void updateNode(node.id, { is_placeholder: node.is_placeholder ? null : 1 })}
+          >
+            <span className="k">{node.is_placeholder ? "預留席（點擊轉正式車票）" : "設為預留席"}</span>
+          </button>
+        </Row>
+
+        {seatedOvr && (
+          <Row label="入座席次">
+            <div className="ns-range-row-acts">
+              <span className="ns-seat-badge">已入座（{seatedOvr.due_on.slice(5).replace("-", "/")}）</span>
+              <button
+                type="button"
+                className="ns-seat-release"
+                onClick={() => void releaseSeatedFlow(seatedOvr.node_id, seatedOvr.due_on, node.id)}
+              >
+                釋出預留席
+              </button>
+            </div>
+          </Row>
+        )}
+
+        {canHostSeat && node.scheduled_on && (
+          <Row label="待辦入座">
+            {hostOvr?.seated_node_id ? (
+              <div className="ns-range-row-acts">
+                <span className="ns-seat-badge">已有車票入座</span>
+                <button
+                  type="button"
+                  className="ns-seat-release"
+                  onClick={() => void releaseSeatedFlow(node.id, node.scheduled_on!, hostOvr.seated_node_id ?? undefined)}
+                >
+                  釋出預留席
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="ns-seat-dropbtn"
+                onClick={() => setSub({ kind: "seat", slotId: node.id, slotName: node.name, dueOn: node.scheduled_on! })}
+              >
+                ⇄ 配對待辦入座…
+              </button>
+            )}
           </Row>
         )}
 
@@ -386,21 +504,37 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
           ) : (
             <DatePick
               value={node.scheduled_on}
+              endValue={node.scheduled_end}
               empty="沒排日期"
               label="乘車日"
-              // 選日期 sheet 的快選＝「今天／昨天／前天」（E20 手機補記；票卡 ⋯ 選日期… 同一套）
               onOpen={() =>
-                pickDate("乘車日", node.scheduled_on, dateQuickSet("backward", today), (d) => {
-                  const syncDue = Boolean(node.scheduled_on && node.due_on === node.scheduled_on);
-                  void updateNode(
-                    node.id,
-                    syncDue ? { scheduled_on: d, due_on: d } : { scheduled_on: d },
-                    { backfill: true },
-                  );
-                })
+                pickDate(
+                  "乘車日",
+                  node.scheduled_on,
+                  dateQuickSet("backward", today),
+                  (d) => {
+                    const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
+                    void updateNode(
+                      node.id,
+                      syncDue ? { scheduled_on: d, scheduled_end: null, due_on: d } : { scheduled_on: d, scheduled_end: null },
+                      { backfill: true },
+                    );
+                  },
+                  {
+                    endValue: node.scheduled_end,
+                    allowRange: true,
+                    onPickRange: (s, e) => {
+                      const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
+                      void updateNode(
+                        node.id,
+                        syncDue ? { scheduled_on: s, scheduled_end: e, due_on: e ?? s } : { scheduled_on: s, scheduled_end: e },
+                        { backfill: !e },
+                      );
+                    },
+                  },
+                )
               }
-              // D-主-67：日期欄親手選＝帶 backfill（選到今天以前＝補記；清除時 repository 不當補記）
-              onClear={() => void updateNode(node.id, { scheduled_on: null }, { backfill: true })}
+              onClear={() => void updateNode(node.id, { scheduled_on: null, scheduled_end: null }, { backfill: true })}
             />
           )}
         </Row>
@@ -426,23 +560,23 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
                 pickDate(
                   "締切日",
                   node.due_on,
-                  node.scheduled_on
-                    ? [{ label: "＝同乘車日", day: node.scheduled_on }, ...dateQuickSet("forward", today)]
+                  syncDueTarget
+                    ? [{ label: "＝同乘車日", day: syncDueTarget }, ...dateQuickSet("forward", today)]
                     : dateQuickSet("forward", today),
                   (d) => void updateNode(node.id, { due_on: d }),
                 )
               }
               onClear={() => void updateNode(node.id, { due_on: null })}
             />
-            {node.scheduled_on && (
+            {syncDueTarget && (
               <button
                 type="button"
-                className={"ns-qa-chip" + (node.due_on === node.scheduled_on ? " is-on" : "")}
-                aria-pressed={node.due_on === node.scheduled_on}
-                title="將締切日設為與乘車日同一天"
+                className={"ns-qa-chip" + (isDueSynced ? " is-on" : "")}
+                aria-pressed={isDueSynced}
+                title="將締切日設為與乘車日（或期間訖日）同一天"
                 onClick={() =>
                   void updateNode(node.id, {
-                    due_on: node.due_on === node.scheduled_on ? null : node.scheduled_on,
+                    due_on: isDueSynced ? null : syncDueTarget,
                   })
                 }
               >
@@ -456,7 +590,7 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
         <MobileStationRow node={node} />
       </div>
 
-      {repeatable && (
+      {repeatable && draft.mode !== "none" && (
         <MobileRepeatSection
           node={node}
           draft={draft}
@@ -488,14 +622,13 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
               { min, max },
             );
           }}
+          onRunSeat={(railDate, slotName) => setSub({ kind: "seat", slotId: node.id, slotName, dueOn: railDate })}
         />
         {(isTaskKind(node.kind) || node.kind === "ticket") && <StatusRows node={node} />}
-        {/* 收官磨光 Q1（規格 §5：心情只在列車／車廂的完成卡選填、跟著済章；車票沒有心情欄）——車票不畫，同桌機車票側板 */}
-        {node.kind !== "ticket" && (
-          <Row label="心情">
-            <MoodLights value={node.mood} onChange={(m) => void updateNode(node.id, { mood: m })} />
-          </Row>
-        )}
+        {/* Bug 4：車票與列車／車廂統一提供心情三燈 */}
+        <Row label="心情">
+          <MoodLights value={node.mood} onChange={(m) => void updateNode(node.id, { mood: m })} />
+        </Row>
         <AmountRows node={node} />
       </div>
 
@@ -508,22 +641,24 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
 /** 日期列：整列可點開日期 sheet；有值時右邊一顆 ×（清除；同 DateChip clearable 的位置） */
 function DatePick({
   value,
+  endValue,
   empty,
   label,
   onOpen,
   onClear,
 }: {
   value: string | null;
+  endValue?: string | null;
   empty: string;
   label: string;
   onOpen(): void;
   onClear(): void;
 }) {
-  // × 疊在整列鈕的 › 左邊（不擠在 › 右邊：› 永遠貼列尾，跟沒有值的列對齊）
+  const shown = value ? (endValue && endValue > value ? dateChipRangeText(value, endValue) : mdwText(value)) : null;
   return (
     <div className={"m-dt-datepick" + (value ? " has-clear" : "")}>
-      <button type="button" className="m-dt-pick" aria-label={`${label}：${value ? mdwText(value) : empty}`} onClick={onOpen}>
-        {value ? <span>{mdwText(value)}</span> : <span className="is-empty">{empty}</span>}
+      <button type="button" className="m-dt-pick" aria-label={`${label}：${shown ?? empty}`} onClick={onOpen}>
+        {shown ? <span>{shown}</span> : <span className="is-empty">{empty}</span>}
         <span className="m-dt-chev" aria-hidden="true">
           ›
         </span>

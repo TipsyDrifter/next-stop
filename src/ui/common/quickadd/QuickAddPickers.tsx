@@ -11,6 +11,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { applyDurationMin, applyEndClock, applyStartClock, deriveClockSpan } from "../../../domain/clockSpan";
 import { AttachPicker } from "../AttachPicker";
 import { ClockInput } from "../ClockInput";
 import { DatePicker } from "../DatePicker";
@@ -18,6 +19,7 @@ import { dateQuickSet } from "../DateChip";
 import { DurationPicker } from "../DurationPicker";
 import { EntityTagField } from "../EntityTagField";
 import { PopMenu } from "../PopMenu";
+import { Segmented } from "../Segmented";
 import { clockBounds, clockSeed, clockToMs, msToClock } from "../../panel/clockValue";
 import type { QuickAddApi } from "./useQuickAdd";
 import { NO_DEST, PRIORITY_TEXT, type QuickChipKey } from "./quickAddModel";
@@ -28,19 +30,25 @@ export interface QuickPickersProps {
   open: QuickChipKey | null;
   anchor: HTMLElement | null;
   onClose(): void;
+  /** 沒挑直接收起（Esc 或點外面）時由父層判斷是否拉回焦點或觸發失焦收起 */
+  onDismiss?(): void;
   /** 收起後焦點還給誰（建票列的輸入框） */
   refocus(): void;
 }
 
-export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPickersProps) {
+export function QuickPickers({ api, open, anchor, onClose, onDismiss, refocus }: QuickPickersProps) {
   if (!open || !anchor) return null;
   /** 挑好了：收起、焦點回輸入框（接著打字） */
   const done = () => {
     onClose();
     window.setTimeout(refocus, 0);
   };
-  /** 沒挑就收（Esc、點外面）：焦點掉到 body 才拉回輸入框；點去別處的焦點留在那裡（建票列的失焦規則接手） */
+  /** 沒挑就收（Esc、點外面）：交給父層分辨「Esc／點卡內 → 回輸入框」與「點整個建票列外 → 讓建票列失焦收起」 */
   const dismiss = () => {
+    if (onDismiss) {
+      onDismiss();
+      return;
+    }
     onClose();
     window.setTimeout(() => {
       const a = document.activeElement;
@@ -51,7 +59,7 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
   switch (open) {
     case "dest":
       return (
-        <AnchoredLayer anchor={anchor} onClose={onClose} selfDismiss>
+        <AnchoredLayer anchor={anchor} onClose={dismiss} selfDismiss>
           <AttachPicker
             depth="node"
             float
@@ -70,6 +78,37 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
           />
         </AnchoredLayer>
       );
+    case "station":
+      return (
+        <PopMenu
+          anchor={anchor}
+          overline={{ zh: "車站", latin: "Station" }}
+          label="指派車站"
+          returnFocus={() => null}
+          items={[
+            ...api.stations.map((s) => ({
+              key: s.id,
+              label: s.name,
+              caps: v.stationId === s.id ? "✓" : undefined,
+              onSelect: () => {
+                api.setStation(s.id);
+                done();
+              },
+            })),
+            {
+              key: "none",
+              label: "還沒排站",
+              cut: api.stations.length > 0,
+              caps: !v.stationId ? "✓" : undefined,
+              onSelect: () => {
+                api.setStation(null);
+                done();
+              },
+            },
+          ]}
+          onClose={dismiss}
+        />
+      );
     case "date":
       return (
         <DatePicker
@@ -77,6 +116,8 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
           className="ns-qa-pop"
           label="乘車日"
           value={v.scheduledOn}
+          endValue={v.scheduledEnd}
+          allowRange
           markValue
           min={api.today}
           today={api.today}
@@ -85,8 +126,12 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
             api.setDate(d);
             done();
           }}
+          onPickRange={(s, e) => {
+            api.setDateRange(s, e);
+            done();
+          }}
           onClear={() => {
-            api.setDate(null);
+            api.setDateRange(null, null);
             done();
           }}
           clearLabel="無日期"
@@ -170,58 +215,172 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
   }
 }
 
-/* ───────── 幾點＋長度 ───────── */
+/* ───────── 幾點（開始 ⇄ 結束）＋ 持續時長 ───────── */
+
+const DIAL_EDGE_OPTS = [
+  { value: "start" as const, label: "撥開始" },
+  { value: "end" as const, label: "撥結束" },
+];
 
 function TimeCard({ api, onDone }: { api: QuickAddApi; onDone(): void }) {
   const v = api.values;
   const refDay = v.scheduledOn ?? api.today;
   const { lo, hi } = useMemo(() => clockBounds(refDay, api.dayStartHour), [refDay, api.dayStartHour]);
   const [seed] = useState(() => clockSeed(refDay, api.today, api.dayStartHour));
-  const shown = (v.scheduledTime ? clockToMs(v.scheduledTime, refDay) : null) ?? seed;
+  const [activeDial, setActiveDial] = useState<"start" | "end">("start");
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  /** 這張卡裡動過開始時刻沒（沒動過又按 Enter／好＝就用起點；動過就照動過的，不拿舊 closure 的值蓋回去） */
-  const touched = useRef(false);
+  const span = useMemo(() => deriveClockSpan(v.scheduledTime, v.estimateMin), [v.scheduledTime, v.estimateMin]);
+  const startShownMs = (span.startHm ? clockToMs(span.startHm, refDay) : null) ?? seed;
+  const effectiveStartHm = span.startHm ?? msToClock(startShownMs, refDay) ?? "09:00";
+  const startMsForEnd = clockToMs(effectiveStartHm, refDay) ?? lo;
+  const endCurrentMs = span.endHm ? clockToMs(span.endHm, refDay) : null;
+  const endLo = startMsForEnd + 60_000;
+  const endHi = Math.max(hi, startMsForEnd + 12 * 3_600_000, endCurrentMs ?? 0);
+  const endShownMs = endCurrentMs ?? Math.min(startMsForEnd + (span.durationMin ?? 60) * 60_000, endHi);
+
+  const touchedStart = useRef(false);
+  const touchedDur = useRef(false);
+
   const setStart = (ms: number) => {
     const t = msToClock(ms, refDay);
     if (!t) return;
-    touched.current = true;
-    api.setTime(t, v.estimateMin);
+    const res = applyStartClock({ startHm: span.startHm, durationMin: span.durationMin }, t, api.dayStartHour);
+    if (!res.ok) {
+      setErrMsg(res.error ?? null);
+      return;
+    }
+    touchedStart.current = true;
+    setErrMsg(null);
+    api.setTime(res.startHm, res.durationMin);
   };
-  const applySeed = () => {
-    if (!touched.current && !v.scheduledTime) setStart(shown);
+
+  const setEnd = (ms: number) => {
+    const t = msToClock(ms, refDay);
+    if (!t) return;
+    const res = applyEndClock({ startHm: effectiveStartHm, durationMin: span.durationMin }, t, api.dayStartHour);
+    if (!res.ok) {
+      setErrMsg(res.error ?? null);
+      return;
+    }
+    touchedStart.current = true;
+    touchedDur.current = true;
+    setErrMsg(null);
+    api.setTime(res.startHm, res.durationMin);
   };
-  const setLen = (min: number | null) => api.setTime(v.scheduledTime, min);
+
+  const setLen = (min: number | null) => {
+    const res = applyDurationMin({ startHm: span.startHm, durationMin: span.durationMin }, min);
+    if (!res.ok) {
+      setErrMsg(res.error ?? null);
+      return;
+    }
+    touchedDur.current = true;
+    setErrMsg(null);
+    api.setTime(res.startHm, res.durationMin);
+  };
+
+  const applySeedIfUntouched = (forceStart = false) => {
+    if (forceStart && !v.scheduledTime) {
+      setStart(startShownMs);
+      return;
+    }
+    if (!touchedStart.current && !touchedDur.current && !v.scheduledTime && v.estimateMin === null) {
+      setStart(startShownMs);
+    }
+  };
 
   return (
-    <div className="ns-qa-card techo-card" role="dialog" aria-label="幾點">
-      <div className="ns-qa-cardlabel">幾點</div>
-      <ClockInput
-        variant="compact"
-        picker="inline"
-        value={shown}
-        lo={lo}
-        hi={hi}
-        refDay={refDay}
-        label="開始時刻"
-        autoFocus
-        onChange={setStart}
-        onEnter={() => {
-          // 沒動過就按 Enter＝就用起點（同側板「幾點」）
-          applySeed();
-          onDone();
-        }}
-      />
-      <div className="ns-qa-cardlabel">長度</div>
+    <div className="ns-qa-card is-time techo-card" role="dialog" aria-label="幾點與持續時長">
+      <div className="ns-qa-timehead">
+        <span className="ns-qa-cardlabel">開始與結束時刻</span>
+        <Segmented<"start" | "end">
+          compact
+          options={DIAL_EDGE_OPTS}
+          value={activeDial}
+          onChange={setActiveDial}
+          aria-label="站鐘錶盤對象"
+        />
+      </div>
+
+      <div className="ns-qa-spanbox">
+        <div className="ns-qa-spanrow" onFocusCapture={() => setActiveDial("start")}>
+          <div className="ns-qa-spanlbl">
+            <span>開始時刻</span>
+            {span.startHm && (
+              <button
+                type="button"
+                className="ns-qa-clearlink"
+                title="只清除時刻、保留持續時長"
+                onClick={() => {
+                  touchedStart.current = true;
+                  setErrMsg(null);
+                  api.setTime(null, span.durationMin);
+                }}
+              >
+                不排時刻
+              </button>
+            )}
+          </div>
+          <ClockInput
+            variant="compact"
+            picker={activeDial === "start" ? "inline" : false}
+            value={startShownMs}
+            lo={lo}
+            hi={hi}
+            refDay={refDay}
+            label="開始時刻"
+            dateLabel="other"
+            autoFocus
+            onChange={setStart}
+            onEnter={() => {
+              applySeedIfUntouched(true);
+              onDone();
+            }}
+          />
+        </div>
+
+        <div className="ns-qa-spanrow" onFocusCapture={() => setActiveDial("end")}>
+          <div className="ns-qa-spanlbl">
+            <span>結束時刻</span>
+            <span className="ns-qa-spansub">
+              {span.endHm ? "改結束自動反推時長" : "點選或輸入即反推時長"}
+            </span>
+          </div>
+          <ClockInput
+            variant="compact"
+            picker={activeDial === "end" ? "inline" : false}
+            value={endShownMs}
+            lo={endLo}
+            hi={endHi}
+            refDay={refDay}
+            label="結束時刻"
+            dateLabel="other"
+            onChange={setEnd}
+            onEnter={() => {
+              if (span.durationMin === null) setEnd(endShownMs);
+              onDone();
+            }}
+          />
+        </div>
+      </div>
+
+      {errMsg && (
+        <p className="ns-qa-timeerr" role="status">
+          {errMsg}
+        </p>
+      )}
+
+      <div className="ns-qa-cardlabel">持續時長</div>
       <DurationPicker
         compact
         liveCommit
-        value={v.estimateMin}
+        value={span.durationMin}
         onChange={setLen}
         onEnter={() => {
-          applySeed();
           onDone();
         }}
-        ariaLabel="長度"
+        ariaLabel="持續時長"
       />
       <div className="ns-qa-cardfoot">
         <button
@@ -239,7 +398,7 @@ function TimeCard({ api, onDone }: { api: QuickAddApi; onDone(): void }) {
           type="button"
           className="ns-btn ns-btn--sm btn-ghost"
           onClick={() => {
-            applySeed();
+            applySeedIfUntouched(false);
             onDone();
           }}
         >

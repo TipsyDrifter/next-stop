@@ -7,7 +7,13 @@
  */
 import { KIND_LABEL, parseRule, type NodeRow } from "../../domain";
 import type { TaskRow } from "../../domain/taskFilter";
-import { STATUS_COLUMNS, STATUS_COLUMN_LABEL, cardStatus, effectiveStation } from "../../domain/board";
+import {
+  STATUS_COLUMNS,
+  STATUS_COLUMN_LABEL,
+  cardStatus,
+  inheritedStationOf,
+  type StationParentNode,
+} from "../../domain/board";
 import { moveTargetRule } from "../../domain/moveTo";
 import { PARKED_ADD_WHY } from "../../domain/depot";
 import { addDays } from "../../lib/date";
@@ -23,19 +29,44 @@ import { routeStations } from "./useRouteBoard";
 
 const CHECK = "✓";
 
-/** 「車站」那幾項（卡 ⋯、選取列共用）：還沒排站＋這條路線每一站 */
-export function stationItems(nodes: readonly NodeRow[], routeId: string, group?: string): PopMenuItem[] {
-  const list = routeStations(useNodeStore.getState().stations, routeId);
-  const byId = new Map(list.map((s) => [s.id, s]));
-  const single = nodes.length === 1 ? effectiveStation(nodes[0], byId) : undefined;
+/** 「車站」那幾項（卡 ⋯、大綱 ⋯、選取列共用）：還沒排站（或繼承自父層）＋這條路線每一站 */
+export function stationItems(
+  nodes: readonly NodeRow[],
+  routeId: string,
+  group?: string,
+  treeById?: Readonly<Record<string, StationParentNode>>,
+): PopMenuItem[] {
+  const ns = useNodeStore.getState();
+  const list = routeStations(ns.stations, routeId);
+  const stationMap = new Map(list.map((s) => [s.id, s]));
+  const byId = treeById ?? (ns.routeId === routeId ? ns.tree.byId : undefined);
+  const one = nodes.length === 1 ? nodes[0] : null;
+  const ownId = one && one.station_id && stationMap.has(one.station_id) ? one.station_id : null;
+  const parentInh = one ? inheritedStationOf({ ...one, station_id: null }, stationMap, byId) : { stationId: null, inheritedFrom: null };
+  const inheritedName = parentInh.stationId ? (stationMap.get(parentInh.stationId)?.name ?? null) : null;
+  const noneLabel =
+    one && parentInh.inheritedFrom && inheritedName
+      ? ownId === null
+        ? `繼承自「${parentInh.inheritedFrom.name}」（${inheritedName}）`
+        : `恢復繼承自「${parentInh.inheritedFrom.name}」（${inheritedName}）`
+      : "還沒排站";
+  const clearToastLabel =
+    one && parentInh.inheritedFrom && inheritedName ? `繼承「${inheritedName}」` : "還沒排站";
+
   return [
-    { key: "st:none", label: "還沒排站", group, caps: nodes.length === 1 && single === null ? CHECK : undefined, onSelect: () => void setCardsStation(nodes, null, "還沒排站") },
+    {
+      key: "st:none",
+      label: noneLabel,
+      group,
+      caps: one && ownId === null ? CHECK : undefined,
+      onSelect: () => void setCardsStation(nodes, null, clearToastLabel),
+    },
     ...list.map(
       (s): PopMenuItem => ({
         key: `st:${s.id}`,
         label: s.name,
         group,
-        caps: single === s.id ? CHECK : undefined,
+        caps: one ? (ownId === s.id ? CHECK : ownId === null && parentInh.stationId === s.id ? "繼承" : undefined) : undefined,
         onSelect: () => void setCardsStation(nodes, s.id, `「${s.name}」`),
       }),
     ),
@@ -58,26 +89,28 @@ export function boardCardMenu(node: TaskRow, opts: CardMenuOpts): PopMenuItem[] 
   const ui = useUiStore.getState();
   const occ = ns.currentOccurrences[node.id];
   const actions = makeScheduleActions("desktop");
+  const isBranch = node.kind === "branch";
   const teiki = parseRule(node.repeat_rule) !== null;
   const why = parked ? PARKED_ADD_WHY : undefined;
   const current = cardStatus(node, occ);
   const skipped = occ?.status === "skipped";
   const settled = current === "done" || skipped;
 
-  const status = STATUS_COLUMNS.map(
-    (s): PopMenuItem => ({
-      key: `status:${s}`,
-      label: STATUS_COLUMN_LABEL[s],
-      group: "現況",
-      caps: s === current ? CHECK : undefined,
-      disabled: parked,
-      why,
-      onSelect: () => void moveCardToStatus(node, s),
-    }),
-  );
+  const status = isBranch
+    ? []
+    : STATUS_COLUMNS.map(
+        (s): PopMenuItem => ({
+          key: `status:${s}`,
+          label: STATUS_COLUMN_LABEL[s],
+          group: "現況",
+          caps: s === current ? CHECK : undefined,
+          disabled: parked,
+          why,
+          onSelect: () => void moveCardToStatus(node, s),
+        }),
+      );
 
-  // 有子項的列車不是卡，不掛車站（只有「誤點」條件會把它列出來）
-  const stations = !node.has_kids && node.route_id && routeStations(ns.stations, node.route_id).length ? stationItems([node], node.route_id, "車站") : [];
+  const stations = node.route_id && routeStations(ns.stations, node.route_id).length ? stationItems([node], node.route_id, "車站", ns.tree.byId) : [];
   const stationGroup = parked ? stations.map((s) => ({ ...s, disabled: true, why })) : stations;
 
   const dated = (key: string, label: string, day: string): PopMenuItem => ({
@@ -88,7 +121,9 @@ export function boardCardMenu(node: TaskRow, opts: CardMenuOpts): PopMenuItem[] 
     why: why ?? "這張已經有結局了",
     onSelect: () => actions.defer({ kind: "due", node }, day),
   });
-  const reschedule: PopMenuItem[] = [
+  const reschedule: PopMenuItem[] = isBranch
+    ? []
+    : [
     ...(teiki
       ? [
           {

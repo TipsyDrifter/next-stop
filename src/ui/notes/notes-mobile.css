@@ -269,6 +269,34 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   transition: border-color var(--dur-fast);
 }
 [data-shell="mobile"] .ns-notes-mitem.is-sel .ns-notes-mtk { border-color: var(--sel-fg); }
+/* 操作 9（D-FB-4）：手機收件匣多選（勾選圈＋選中底＋頂列選取鈕） */
+[data-shell="mobile"] .ns-notes-mselbtn {
+  margin-left: 8px; padding: 2px 8px; min-height: 28px;
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  font: inherit; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--accent);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-notes-mselbtn[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--sel-bg); color: var(--sel-fg);
+}
+[data-shell="mobile"] .ns-notes-mitem.is-selecting .ns-notes-mslip-body {
+  padding-left: 44px;
+}
+[data-shell="mobile"] .ns-notes-mitem.is-selecting .ns-notes-mslip-body > .m-sel-check {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+}
+[data-shell="mobile"] .ns-notes-mitem.is-selecting .ns-notes-mtk-face {
+  grid-template-columns: 38px 36px minmax(0, 1fr) 60px;
+}
+[data-shell="mobile"] .ns-notes-mitem.is-picked .ns-notes-mslip::before {
+  border-color: var(--accent);
+  background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--color-paper-high);
+}
+[data-shell="mobile"] .ns-notes-mitem.is-picked .ns-notes-mtk {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent), var(--shadow-card);
+  background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--color-paper-high);
+}
 [data-shell="mobile"] .ns-notes-mtk-face {
   display: grid; grid-template-columns: 40px minmax(0, 1fr) 60px; align-items: stretch;
   width: 100%; min-height: 66px; padding: 0;

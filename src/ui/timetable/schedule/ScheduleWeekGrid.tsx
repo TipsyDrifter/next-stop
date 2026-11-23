@@ -1,14 +1,23 @@
 /**
- * ScheduleWeekGrid——「時刻表 › 日程」內的「週時段（手機：三日時段）」互動排程畫布（第三梯・討論 6 方案 A）。
+ * ScheduleWeekGrid——「時刻表 › 日程」內的「週時段（手機：三日時段）」互動排程畫布（第三梯＋第四梯 D-FB-7）。
  *
- * 將原本唯讀的「行程表 › 時段」收斂進「時刻表 › 日程」，並升級為完整互動排程：
+ * 將原本唯讀的「行程表 › 時段」收斂進「時刻表 › 日程」，並與單日日程完全互通：
  * - 桌機顯示一週 7 天（週一～週日）；手機顯示 3 天（前一天、當天、後一天）。
- * - 頂端「未定時」籤帶：列出各日未排時刻的車票，點選籤再點下方任意日期與時段即可排入時刻（跨日點放會一併改乘車日）；
- *   左上角提供「＋ 臨時」按鈕，點選後點任意時段（或在空白時段雙擊）即可建立虛線邊框的「臨時班次／主題預留時段」。
- * - 時段格內同時顯示：已排時刻車票、車票第 2+ 段（第 N 段）、以及臨時班次（虛線車廂邊框＋「臨時」小牌）。
- * - 支援滑鼠拖曳／點選搬移時段塊（跨時段或跨日），以及點日欄頭一鍵切回該日的「單日（預定 vs 實績）」對照視圖。
+ * - 頂端「未定時」籤帶：列出各日未排時刻的車票（含期間自由券區間徽章與預留席虛線籤），點選籤再點下方任意日期與時段即可排入時刻（期間自由券自動收斂為該日單日票並支援撤回）；
+ *   左上角提供「＋預留」按鈕，點選後點任意時段、在空白時段雙擊、或直接在空白時段上下拖拉，皆建立雙邊互通的「預留席車票」（自動同步至今日頁與時刻表日程）。
+ * - 時段格內同時呈現：預留席虛線卡、Mode A 本班填空（`具體內容（↻ 母定期名）`）、Mode B 待辦入座頂替（繼承空位時長且不重複計時）、以及車票第 2+ 段。
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { nodeRepo } from "../../../data";
 import { WEEKDAY_LABEL, type NodeRow } from "../../../domain";
 import { MIN, fmtDur } from "../../../domain/timetable";
@@ -24,6 +33,11 @@ import "../../schedule/timegrid.css";
 import { openTicket } from "./openTicket";
 import { segNumberOf } from "./routineModel";
 import { SCHED_UI, snapFrac } from "./scheduleModel";
+import {
+  PLACEHOLDER_UI,
+  computeDragCreateRange,
+  planItemDisplay,
+} from "./scheduleSeatModel";
 import { adhocItemsOf, schedBlocksOf, slotItemsOf, type AdhocItem, type SchedBlock, type SlotItem } from "./slotModel";
 import { adhocDisplayOf, routeColorOf, type SchedulePage } from "./useSchedulePage";
 
@@ -59,7 +73,7 @@ interface DayPack {
 }
 
 type PickTarget =
-  | { kind: "addadhoc" }
+  | { kind: "addplaceholder" }
   | { kind: "untimed"; date: string; key: string; nodeId: string; name: string; item: PlanItem }
   | {
       kind: "block";
@@ -74,7 +88,7 @@ type PickTarget =
     };
 
 interface WeekDragState {
-  target: Exclude<PickTarget, { kind: "addadhoc" }>;
+  target: Exclude<PickTarget, { kind: "addplaceholder" }>;
   startX: number;
   startY: number;
   active: boolean;
@@ -83,8 +97,18 @@ interface WeekDragState {
   estimateMin: number;
 }
 
+interface ColCreateDrag {
+  date: string;
+  startY: number;
+  colTop: number;
+  colHeight: number;
+  anchorMin: number;
+  currentMin: number;
+  active: boolean;
+}
+
 export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
-  const { shell, dayKey, todayKey, dayStartHour, now, routeById, catById, slotsByNode } = page;
+  const { shell, dayKey, todayKey, dayStartHour, now, routeById, catById, slotsByNode, createPlaceholderAt } = page;
   const mobile = shell === "mobile";
   const H = mobile ? 48 : 44;
   const minH = mobile ? 24 : 18;
@@ -99,6 +123,8 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
   const nodeToday = useNodeStore((s) => s.today);
   const nodeTree = useNodeStore((s) => s.tree);
   const nodeCal = useNodeStore((s) => s.calendar);
+  const runOverrides = useNodeStore((s) => s.runOverrides);
+  const rangeTickets = useNodeStore((s) => s.rangeTickets);
   const rowsByDay = useTimetablePlanStore((s) => s.rowsByDay);
 
   const [calData, setCalData] = useState<{
@@ -108,6 +134,7 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
 
   const [pickTarget, setPickTarget] = useState<PickTarget | null>(null);
   const [dragState, setDragState] = useState<WeekDragState | null>(null);
+  const [createDrag, setCreateDrag] = useState<ColCreateDrag | null>(null);
   const [hoverSlot, setHoverSlot] = useState<{ date: string; min: number } | null>(null);
   const swallowRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -154,7 +181,7 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
     return () => {
       cancelled = true;
     };
-  }, [fromKey, toKey, todayKey, dayStartHour, days, nodeToday, nodeTree, nodeCal]);
+  }, [fromKey, toKey, todayKey, dayStartHour, days, nodeToday, nodeTree, nodeCal, runOverrides, rangeTickets]);
 
   // 組裝每一天的 items / slots / adhocs / blocks
   const packs = useMemo((): DayPack[] => {
@@ -206,7 +233,7 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
     el.scrollTop = Math.max(((targetMin - axisMin) / 60) * H, 0);
   }, [packs.length, nowMin, axisMin, H]);
 
-  /** 在指定日期與分鐘執行排入／搬移／新建臨時班次 */
+  /** 在指定日期與分鐘執行排入／搬移／新建預留席車票 */
   const commitTargetAt = useCallback(
     async (target: PickTarget, destDate: string, min: number) => {
       const time = clockText(min) as ClockText | null;
@@ -215,15 +242,16 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
         useUiStore.getState().showToast({ message: TT_TEXT.schedPast });
         return;
       }
-      const schedStore = useTimetableScheduleStore.getState();
       const planStore = useTimetablePlanStore.getState();
-      const ns = useNodeStore.getState();
 
-      if (target.kind === "addadhoc") {
+      if (target.kind === "addplaceholder") {
         setPickTarget(null);
-        await useTimetableStore.getState().setDayKey(destDate);
-        schedStore.setScheduleMode("day");
-        await schedStore.addAdhocAt(time, { date: destDate, openAfter: true });
+        await createPlaceholderAt(time, {
+          date: destDate,
+          durationMin: 60,
+          openAfter: true,
+          switchToDayMode: true,
+        });
         return;
       }
 
@@ -234,8 +262,25 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
           const msg = it.time === null ? TT_TEXT.schedPlaced(time) : TT_TEXT.schedMoved(time);
           await runScheduleWrite(planTimeWrite(it, time), planUndo(it), msg);
         } else if (it.kind === "single") {
-          await ns.updateNode(it.nodeId, { scheduled_on: destDate, scheduled_time: time });
-          useUiStore.getState().showToast({ message: `已排到 ${destDate.slice(5).replace("-", "/")} ${time}` });
+          const undoBase = planUndo(it);
+          const undoWrite =
+            undoBase.op === "setTime"
+              ? {
+                  ...undoBase,
+                  scheduledOn: it.rangeOrigin ? it.rangeOrigin.start : (it.lateFrom ?? target.date),
+                }
+              : undoBase;
+          await runScheduleWrite(
+            {
+              op: "setTime",
+              id: it.nodeId,
+              time,
+              scheduledOn: destDate,
+              ...(it.rangeOrigin ? { scheduledEnd: null } : {}),
+            },
+            undoWrite,
+            `已排到 ${destDate.slice(5).replace("-", "/")} ${time}`,
+          );
         } else {
           useUiStore.getState().showToast({ message: "定期券只能排在當班日期" });
         }
@@ -306,14 +351,31 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
         if (destDate === target.date) {
           await runScheduleWrite(planTimeWrite(it, time), planUndo(it), TT_TEXT.schedMoved(time));
         } else if (it.kind === "single") {
-          await ns.updateNode(it.nodeId, { scheduled_on: destDate, scheduled_time: time });
-          useUiStore.getState().showToast({ message: `已改到 ${destDate.slice(5).replace("-", "/")} ${time}` });
+          const undoBase = planUndo(it);
+          const undoWrite =
+            undoBase.op === "setTime"
+              ? {
+                  ...undoBase,
+                  scheduledOn: it.rangeOrigin ? it.rangeOrigin.start : (it.lateFrom ?? target.date),
+                }
+              : undoBase;
+          await runScheduleWrite(
+            {
+              op: "setTime",
+              id: it.nodeId,
+              time,
+              scheduledOn: destDate,
+              ...(it.rangeOrigin ? { scheduledEnd: null } : {}),
+            },
+            undoWrite,
+            `已改到 ${destDate.slice(5).replace("-", "/")} ${time}`,
+          );
         } else {
           useUiStore.getState().showToast({ message: "定期券只能在同一天調整時刻" });
         }
       }
     },
-    [todayKey, packs, dayStartHour],
+    [todayKey, packs, dayStartHour, createPlaceholderAt],
   );
 
   // 指標拖曳（支援從未定時籤或已排時段卡拖到任意日欄與時刻）
@@ -358,7 +420,47 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
     };
   }, [dragState, dayStartHour, commitTargetAt]);
 
-  const startDrag = (target: Exclude<PickTarget, { kind: "addadhoc" }>, estimateMin: number) => (e: ReactPointerEvent) => {
+  // 4A：空白日欄上下拖拉建立預留席車票
+  useEffect(() => {
+    if (!createDrag) return;
+    const onMove = (e: PointerEvent) => {
+      const dy = e.clientY - createDrag.startY;
+      const active = createDrag.active || Math.abs(dy) >= 8;
+      if (!active || createDrag.colHeight <= 0) return;
+      const curMin = snapFrac((e.clientY - createDrag.colTop) / createDrag.colHeight, dayStartHour);
+      setCreateDrag((s) => (s ? { ...s, active: true, currentMin: curMin } : null));
+    };
+    const onUp = () => {
+      const cur = createDrag;
+      setCreateDrag(null);
+      if (cur.active) {
+        swallowRef.current = true;
+        setTimeout(() => {
+          swallowRef.current = false;
+        }, 80);
+        const range = computeDragCreateRange(cur.anchorMin, cur.currentMin, dayStartHour);
+        const sHm = clockText(range.startMin) as ClockText | null;
+        if (sHm) {
+          void createPlaceholderAt(sHm, {
+            date: cur.date,
+            durationMin: range.durationMin,
+            openAfter: true,
+            switchToDayMode: true,
+          });
+        }
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [createDrag, dayStartHour, createPlaceholderAt]);
+
+  const startDrag = (target: Exclude<PickTarget, { kind: "addplaceholder" }>, estimateMin: number) => (e: ReactPointerEvent) => {
     if (e.button !== 0 || target.date < todayKey) return;
     setDragState({
       target,
@@ -368,6 +470,23 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
       hoverDate: null,
       hoverMin: null,
       estimateMin,
+    });
+  };
+
+  const onColPointerDown = (e: ReactPointerEvent<HTMLDivElement>, date: string) => {
+    if (e.button !== 0 || pickTarget || date < todayKey) return;
+    if ((e.target as HTMLElement).closest(".ns-tg-blk")) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const m = snapFrac((e.clientY - rect.top) / rect.height, dayStartHour);
+    setCreateDrag({
+      date,
+      startY: e.clientY,
+      colTop: rect.top,
+      colHeight: rect.height,
+      anchorMin: m,
+      currentMin: m,
+      active: false,
     });
   };
 
@@ -403,7 +522,7 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
     const rect = col.getBoundingClientRect();
     if (rect.height <= 0) return;
     const min = snapFrac((e.clientY - rect.top) / rect.height, dayStartHour);
-    void commitTargetAt({ kind: "addadhoc" }, date, min);
+    void commitTargetAt({ kind: "addplaceholder" }, date, min);
   };
 
   const headCells = packs.map((p) => {
@@ -449,27 +568,37 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
         {shown.map((u) => {
           const e = u.entry;
           const node = nodes[e.node_id];
-          const name = node?.name ?? "？";
           const key = `${p.date}-${e.node_id}`;
           const it = p.items[key];
           if (!it) return null;
+          const routeName = node?.route_id ? (routeById[node.route_id]?.name ?? null) : null;
+          const disp = planItemDisplay(it, node, routeName);
           const isPicked = pickTarget?.kind === "untimed" && pickTarget.key === key;
-          const targetObj: Exclude<PickTarget, { kind: "addadhoc" }> = {
+          const targetObj: Exclude<PickTarget, { kind: "addplaceholder" }> = {
             kind: "untimed",
             date: p.date,
             key,
             nodeId: e.node_id,
-            name,
+            name: disp.title,
             item: it,
           };
           return (
             <button
               key={key}
               type="button"
-              className={cx("ns-tg-chip", u.outOfAxis && "oob", isPicked && "is-sel")}
+              className={cx(
+                "ns-tg-chip",
+                u.outOfAxis && "oob",
+                disp.isPlaceholder && "is-placeholder",
+                isPicked && "is-sel",
+              )}
               data-row-key={key}
               data-node={e.node_id}
-              title={p.date >= todayKey ? `${name}（點一下再點時段排入，或直接拖到下方時段）` : name}
+              title={
+                p.date >= todayKey
+                  ? `${disp.fullTitle}（點一下再點時段排入，或直接拖到下方時段）`
+                  : disp.fullTitle
+              }
               onPointerDown={startDrag(targetObj, it.estimateMin ?? 45)}
               onClick={(ev) => {
                 ev.stopPropagation();
@@ -482,7 +611,10 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
               }}
             >
               <i className="dot" style={{ background: routeColorOf(pageWithNodes, e.node_id) }} />
-              <span className="nm">{name}</span>
+              <span className="nm">{disp.title}</span>
+              {!mobile && disp.badgeKind && disp.badgeText && (
+                <em className={cx("ns-tt-sched-tag", `is-${disp.badgeKind}`)}>{disp.badgeText}</em>
+              )}
               {u.outOfAxis && e.time && <span className="oob-t">{e.time}</span>}
             </button>
           );
@@ -525,15 +657,36 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
 
   const cols = packs.map((p) => {
     const isToday = p.date === todayKey;
+    const createPreview =
+      createDrag?.active && createDrag.date === p.date
+        ? computeDragCreateRange(createDrag.anchorMin, createDrag.currentMin, dayStartHour)
+        : null;
     const ghostHere =
+      (createPreview
+        ? {
+            min: createPreview.startMin,
+            len: createPreview.durationMin,
+            timeLabel: `${clockText(createPreview.startMin) ?? ""}–${clockText(createPreview.endMin) ?? ""}`,
+            name: PLACEHOLDER_UI.fallbackName,
+            placeholder: true,
+          }
+        : null) ??
       (dragState?.active && dragState.hoverDate === p.date && dragState.hoverMin !== null
-        ? { min: dragState.hoverMin, len: dragState.estimateMin, name: dragState.target.name }
+        ? {
+            min: dragState.hoverMin,
+            len: dragState.estimateMin,
+            timeLabel: clockText(dragState.hoverMin) ?? "",
+            name: dragState.target.name,
+            placeholder: false,
+          }
         : null) ??
       (pickTarget && hoverSlot?.date === p.date && p.date >= todayKey
         ? {
             min: hoverSlot.min,
-            len: pickTarget.kind === "addadhoc" ? 60 : (pickTarget.item.estimateMin ?? 45),
-            name: pickTarget.kind === "addadhoc" ? ADHOC_TEXT.fallbackName : pickTarget.name,
+            len: pickTarget.kind === "addplaceholder" ? 60 : (pickTarget.item.estimateMin ?? 45),
+            timeLabel: clockText(hoverSlot.min) ?? "",
+            name: pickTarget.kind === "addplaceholder" ? PLACEHOLDER_UI.fallbackName : pickTarget.name,
+            placeholder: pickTarget.kind === "addplaceholder",
           }
         : null);
 
@@ -548,6 +701,7 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
           pickTarget && p.date >= todayKey && "is-picking",
         )}
         data-day={p.date}
+        onPointerDown={(e) => onColPointerDown(e, p.date)}
         onClick={(e) => onColClick(e, p.date)}
         onDoubleClick={(e) => onColDoubleClick(e, p.date)}
         onPointerMove={(e) => {
@@ -573,7 +727,17 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
           const it = adhoc ?? slot ?? p.items[b.key];
           if (!it) return null;
           const adDisp = adhoc ? adhocDisplayOf(pageWithNodes, adhoc) : null;
-          const name = adDisp ? adDisp.name : (nodes[it.nodeId]?.name ?? "？");
+          const node = nodes[it.nodeId];
+          const routeName = node?.route_id ? (routeById[node.route_id]?.name ?? null) : null;
+          const planDisp = !adhoc
+            ? planItemDisplay(
+                p.items[b.key] ?? { kind: it.kind, customTitle: null, seatedInto: null },
+                node,
+                routeName,
+              )
+            : null;
+          const name = adDisp ? adDisp.name : (planDisp?.title ?? "？");
+          const fullTitle = adDisp ? adDisp.name : (planDisp?.fullTitle ?? name);
           const rc = adDisp ? adDisp.color : routeColorOf(pageWithNodes, it.nodeId);
           const time = it.time ?? "";
           const top = ((b.startMin - axisMin) / 60) * H;
@@ -582,12 +746,13 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
           const short = height < shortH;
           const lc = Math.max(1, Math.floor((height - 19) / 14.3));
           const nx = time ? nextDayNote(time) : null;
-          const segNo = !adhoc && it.kind === "single" ? segNumberOf(nodes[it.nodeId], it.nodeId, slotsByNode[it.nodeId], slot ? slot.planId : "main") : null;
+          const segNo = !adhoc && it.kind === "single" ? segNumberOf(node, it.nodeId, slotsByNode[it.nodeId], slot ? slot.planId : "main") : null;
           const segTag = segNo && segNo.total > 1 ? SEG_TEXT.tag(segNo.n) : null;
           const isPicked = pickTarget?.kind === "block" && pickTarget.key === b.key;
           const past = !it.done && !it.skipped && isClockPast(p.date, time, now);
           const blockKind: "plan" | "slot" | "adhoc" = adhoc ? "adhoc" : slot ? "slot" : "plan";
-          const targetObj: Exclude<PickTarget, { kind: "addadhoc" }> = {
+          const estMin = !b.noEstimate ? dur : (it.estimateMin ?? null);
+          const targetObj: Exclude<PickTarget, { kind: "addplaceholder" }> = {
             kind: "block",
             date: p.date,
             key: b.key,
@@ -615,6 +780,7 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
               className={cx(
                 "ns-tg-blk",
                 adhoc && "is-adhoc",
+                planDisp?.isPlaceholder && "is-placeholder",
                 short && "short",
                 it.done && "done",
                 it.skipped && "skipped",
@@ -624,8 +790,8 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
               )}
               data-row-key={b.key}
               style={style}
-              title={`${time}${nx ? `（${nx}）` : ""}・${it.estimateMin ? fmtDur(it.estimateMin * MIN) : "長度未定"}　${name}${adhoc ? "（臨時班次）" : ""}`}
-              onPointerDown={startDrag(targetObj, it.estimateMin ?? 45)}
+              title={`${time}${nx ? `（${nx}）` : ""}・${estMin ? fmtDur(estMin * MIN) : "長度未定"}　${fullTitle}`}
+              onPointerDown={startDrag(targetObj, estMin ?? 45)}
               onClick={(ev) => {
                 ev.stopPropagation();
                 if (swallowRef.current) return;
@@ -649,6 +815,9 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
                 {time}
                 {adhoc && <em className="ns-tt-sched-tag is-adhoc">{ADHOC_TEXT.tag}</em>}
                 {!adhoc && segTag && <em className="ns-tt-sched-tag is-seg">{segTag}</em>}
+                {!adhoc && !segTag && planDisp?.badgeKind && planDisp.badgeText && planDisp.badgeKind !== "range" && (
+                  <em className={cx("ns-tt-sched-tag", `is-${planDisp.badgeKind}`)}>{planDisp.badgeText}</em>
+                )}
                 {nx && !short && !mobile && <span className="nx">{nx}</span>}
               </span>
               <span className="bn">{name}</span>
@@ -663,7 +832,7 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
 
         {ghostHere && (
           <div
-            className="ns-tt-sched-ghost"
+            className={cx("ns-tt-sched-ghost", ghostHere.placeholder && "is-placeholder")}
             style={{
               top: ((ghostHere.min - axisMin) / 60) * H,
               height: Math.max((ghostHere.len / 60) * H, minH),
@@ -673,7 +842,7 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
             }}
             aria-hidden="true"
           >
-            <span className="ns-tt-num">{clockText(ghostHere.min)}</span>
+            <span className="ns-tt-num">{ghostHere.timeLabel}</span>
             <b>{ghostHere.name}</b>
           </div>
         )}
@@ -686,8 +855,8 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
       {pickTarget && (
         <div className="ns-tt-wk-pickbar">
           <span className="ns-tt-wk-picktxt">
-            {pickTarget.kind === "addadhoc"
-              ? ADHOC_TEXT.pickAdd
+            {pickTarget.kind === "addplaceholder"
+              ? PLACEHOLDER_UI.pickAdd
               : pickTarget.kind === "untimed"
                 ? `已選「${pickTarget.name}」——點下方任意時段排入時刻`
                 : `已選「${pickTarget.name}」（${pickTarget.time}）——點新時段改時刻，或再點一次開面板`}
@@ -707,37 +876,17 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
               </button>
             )}
             {pickTarget.kind === "block" && (
-              <>
-                <button
-                  type="button"
-                  className="ns-tt-opt is-solid"
-                  onClick={() => {
-                    const { date, blockKind, key } = pickTarget;
-                    setPickTarget(null);
-                    void switchToDay(date, { kind: blockKind, key });
-                  }}
-                >
-                  單日對照與詳情 ›
-                </button>
-                {pickTarget.blockKind === "adhoc" && (
-                  <button
-                    type="button"
-                    className="ns-tt-opt is-solid"
-                    onClick={() => {
-                      const { date, key } = pickTarget;
-                      setPickTarget(null);
-                      void (async () => {
-                        await useTimetableStore.getState().setDayKey(date);
-                        await useTimetableScheduleStore.getState().load();
-                        const row = await useTimetableScheduleStore.getState().convertAdhocToTicket(key);
-                        if (row) void openTicket(row.id, shell);
-                      })();
-                    }}
-                  >
-                    轉為正式車票
-                  </button>
-                )}
-              </>
+              <button
+                type="button"
+                className="ns-tt-opt is-solid"
+                onClick={() => {
+                  const { date, blockKind, key } = pickTarget;
+                  setPickTarget(null);
+                  void switchToDay(date, { kind: blockKind, key });
+                }}
+              >
+                單日對照與詳情 ›
+              </button>
             )}
             <button type="button" className="ns-tt-opt" onClick={() => setPickTarget(null)}>
               {TT_TEXT.schedPickCancel}
@@ -757,11 +906,11 @@ export function ScheduleWeekGrid({ page }: { page: SchedulePage }) {
                 <span>未定時</span>
                 <button
                   type="button"
-                  className={"ns-tt-sched-adhoc-btn is-compact" + (pickTarget?.kind === "addadhoc" ? " is-pick" : "")}
-                  onClick={() => setPickTarget(pickTarget?.kind === "addadhoc" ? null : { kind: "addadhoc" })}
-                  title="在週時段任意位置放下臨時班次"
+                  className={"ns-tt-sched-adhoc-btn is-compact" + (pickTarget?.kind === "addplaceholder" ? " is-pick" : "")}
+                  onClick={() => setPickTarget(pickTarget?.kind === "addplaceholder" ? null : { kind: "addplaceholder" })}
+                  title="在週時段任意位置放下預留席車票（或直接在空白時段上下拖拉／雙擊）"
                 >
-                  ＋臨時
+                  {PLACEHOLDER_UI.addBtnCompact}
                 </button>
               </div>
               {bandCells}

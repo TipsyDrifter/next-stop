@@ -90,6 +90,8 @@ import { LinkPicker, LinkRow } from "../parts/LinkPicker";
 import { TT_TAG_BLOCK } from "../../../domain/timetableTags";
 import { useTagStore } from "../../../store/tagStore";
 import { EntityTagField } from "../../common/EntityTagField";
+import { DurationPicker } from "../../common/DurationPicker";
+import { applySpanDurationMin, spanDurationMin } from "../../common/timespan/TimeSpanDurationFields";
 import { blockTagEditOf } from "../../../data/timetableTagCarry";
 import { useShell } from "../../mobile/useShell";
 import { useBackLayer } from "../../mobile/backStack";
@@ -679,27 +681,48 @@ export function BlockPanel({ onDone }: PanelProps) {
           <span className="ns-tt-runnote">{TT_TEXT.runningNoEnd}</span>
         </Row>
       ) : (
-      <Row k="到着" time>
-        <Stepper
-          value={end}
-          lo={start + MIN}
-          hi={endHi}
-          onChange={setEndClamped}
-          refDay={refDay}
-          label="到着時刻"
-          handleRef={endClock}
-          autoFocus={desk && !!cont}
-        />
-        {snapNext !== null && (
-          <Opt solid dropDraft on={end === snapNext} onClick={() => setEndClamped(snapNext)}>
-            {toNow ? "接到現在" : "接下一塊"}
-          </Opt>
-        )}
-      </Row>
+        <>
+          <Row k="到着" time>
+            <Stepper
+              value={end}
+              lo={start + MIN}
+              hi={endHi}
+              onChange={setEndClamped}
+              refDay={refDay}
+              label="到着時刻"
+              handleRef={endClock}
+              autoFocus={desk && !!cont}
+            />
+            {snapNext !== null && (
+              <Opt solid dropDraft on={end === snapNext} onClick={() => setEndClamped(snapNext)}>
+                {toNow ? "接到現在" : "接下一塊"}
+              </Opt>
+            )}
+          </Row>
+          <Row k="時長" top>
+            <DurationPicker
+              value={spanDurationMin(start, end)}
+              onChange={(m) => {
+                if (m === null) return;
+                const next = applySpanDurationMin(
+                  { startMs: start, endMs: end },
+                  m,
+                  { lo: startLo, hiEnd: endHi, shiftStartIfCapped: true },
+                );
+                setStart(next.startMs);
+                setEnd(next.endMs);
+              }}
+              allowNull={false}
+              compact
+              liveCommit
+              ariaLabel="時長"
+            />
+          </Row>
+        </>
       )}
       {live && (
         <>
-          <EstimateRow value={estValue} onChange={setEstDraft} />
+          <EstimateRow value={estValue} onChange={setEstDraft} startMs={start} refDay={refDay} />
           {fallback && (
             <p className="ns-tt-panel-sub ns-tt-est-fallback">
               {fallback.source === "task"

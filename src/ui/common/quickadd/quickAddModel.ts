@@ -9,22 +9,24 @@
  */
 // 帶 .ts 副檔名、只 import 純函式模組：scripts/tests/quick-add-model.test.ts 以 node 直接載入
 import { allowedChildKinds, KIND_LABEL, type NodeKind, type Priority } from "../../../domain/node.ts";
+import { formatDateRangeBadge, isRangeCoveringDay, normalizeDateRange } from "../../../domain/dateRange.ts";
 import type { AttachTarget } from "../../../domain/notes.ts";
-import type { QuickAddParse, QuickTokenKind } from "../../../domain/quickAdd.ts";
+import { placeholderTicketTitle, type QuickAddParse, type QuickTokenKind } from "../../../domain/quickAdd.ts";
 
 /** 掛到哪（＝AttachPicker 的值，討論 5 擴充支援掛到 ticket）；routeId null＝無路線 */
 export type QuickDest = Omit<AttachTarget, "nodeKind"> & { nodeKind: AttachTarget["nodeKind"] | "ticket" };
 export const NO_DEST: QuickDest = { routeId: null, nodeId: null, nodeKind: null };
 
-/** 掛到路線（或支線）時建成什麼：列車＝路線底下的列車；車票＝掛這條路線標籤的臨時車票 */
-export type RouteKind = "train" | "ticket";
+/** 掛到路線（或支線）時建成什麼：車票＝掛路線的車票（或支線下直屬車票）；支線＝路線或支線底下的主題支線 */
+export type RouteKind = "ticket" | "branch";
 
-/** chips 的六格（也是挑選器的 key） */
-export type QuickChipKey = "dest" | "date" | "time" | "due" | "priority" | "tags";
+/** chips 的七格（也是挑選器的 key；第三梯操作 6 補上 station） */
+export type QuickChipKey = "dest" | "station" | "date" | "time" | "due" | "priority" | "tags";
 
 /** 每格 chip 改值時要從文字裡拿掉的片段種類（幾點那格管開始＋長度兩種） */
 export const CHIP_TOKENS: Readonly<Record<QuickChipKey, readonly QuickTokenKind[]>> = {
   dest: ["dest"],
+  station: [],
   date: ["date"],
   time: ["time", "length"],
   due: ["due"],
@@ -35,7 +37,9 @@ export const CHIP_TOKENS: Readonly<Record<QuickChipKey, readonly QuickTokenKind[
 /** chip 設的值；欄位不存在＝這格沒用 chip 設（看文字、再看預設） */
 export interface QuickChips {
   dest?: QuickDest;
+  stationId?: string | null;
   scheduledOn?: string | null;
+  scheduledEnd?: string | null;
   scheduledTime?: string | null;
   estimateMin?: number | null;
   dueOn?: string | null;
@@ -48,10 +52,14 @@ export interface QuickChips {
 /** 呼叫端給的預設（今日＝無路線＋今天；路線圖＝這條路線＋無日期；串流＝那一天；行內編輯＝既有欄位值） */
 export interface QuickDefaults {
   dest: QuickDest;
+  stationId?: string | null;
   scheduledOn: string | null;
+  scheduledEnd?: string | null;
   scheduledTime?: string | null;
   estimateMin?: number | null;
   dueOn?: string | null;
+  /** 初始是否啟用「締切同乘車日」（如行內編輯既有 `due_on === scheduled_on` 車票） */
+  syncDueWithScheduled?: boolean;
   priority?: Priority | null;
   tags?: readonly string[];
   /** 乘車日空著時 chip 寫「無日期」（今日 Shift+Enter、手機今日）；false＝空著就是空著（路線圖：列車本來就不一定排日子） */
@@ -61,11 +69,19 @@ export interface QuickDefaults {
 /** 合起來的結果：送出時寫進去的值 */
 export interface QuickValues {
   name: string;
+  /** 實際建立名稱：一般票取 `name`；預留席未填標題時取路線／荷札預設標題 */
+  effectiveName: string;
+  /** 4A 免標題預留席：未填標題但具備 @路線／#荷札 ＋ 時間／日期／區間訊號 */
+  isPlaceholder: boolean;
   dest: QuickDest;
+  stationId: string | null;
   scheduledOn: string | null;
+  scheduledEnd: string | null;
   scheduledTime: string | null;
   estimateMin: number | null;
   dueOn: string | null;
+  /** 締切是否與乘車日同步（由 `=` 語法或膠囊開啟） */
+  syncDueWithScheduled: boolean;
   priority: Priority | null;
   tags: string[];
   /** 「設過」的格（從文字認出來或點 chip 改過）＝chip 亮起 */
@@ -73,7 +89,7 @@ export interface QuickValues {
 }
 
 /**
- * 三層合一。`nodeKindOf` 把文字 @路線/列車 認出來的節點 id 換成種類（列車或車廂；查不到當列車）。
+ * 三層合一。`nodeKindOf` 把文字 @路線/子項 認出來的節點 id 換成種類（支線／列車／車廂／車票；查不到當列車）。
  * `positional`（大綱位置型草稿列）：掛到由位置決定，不看 @。
  */
 export function mergeQuick(
@@ -82,6 +98,7 @@ export function mergeQuick(
   defaults: QuickDefaults,
   nodeKindOf: (id: string) => QuickDest["nodeKind"],
   positional = false,
+  destNameOf?: (dest: QuickDest) => string | null,
 ): QuickValues {
   const on = new Set<QuickChipKey>();
   const pick = <T>(key: QuickChipKey, chip: T | undefined, typed: T | undefined, base: T): T => {
@@ -105,34 +122,141 @@ export function mergeQuick(
       : undefined;
   const typedTime = parse.scheduledTime;
   const timeOn = chips.scheduledTime !== undefined || chips.estimateMin !== undefined;
+
+  // 乘車日與期間區間：chip ＞ 文字語法 ＞ 預設，統一經 normalizeDateRange 正規化
+  let resolvedScheduled: string | null;
+  let resolvedScheduledEnd: string | null;
+  const dateChipTouched = chips.scheduledOn !== undefined || chips.scheduledEnd !== undefined;
+  if (dateChipTouched) {
+    const norm = normalizeDateRange(chips.scheduledOn ?? null, chips.scheduledEnd ?? null);
+    resolvedScheduled = norm.scheduledOn;
+    resolvedScheduledEnd = norm.scheduledEnd;
+    on.add("date");
+  } else if (parse.scheduledOn !== undefined) {
+    const norm = normalizeDateRange(parse.scheduledOn, parse.scheduledEnd ?? null);
+    resolvedScheduled = norm.scheduledOn;
+    resolvedScheduledEnd = norm.scheduledEnd;
+    on.add("date");
+  } else {
+    const norm = normalizeDateRange(defaults.scheduledOn, defaults.scheduledEnd ?? null);
+    resolvedScheduled = norm.scheduledOn;
+    resolvedScheduledEnd = norm.scheduledEnd;
+  }
+
+  // 締切與同乘車日：chip 明確指定 ＞ 文字語法（`=`／`〆=` vs `〆日期`）＞ 預設（區間票同乘車日對齊訖日或起日）
+  const syncAnchor = resolvedScheduledEnd ?? resolvedScheduled;
+  let syncDue = false;
+  let resolvedDue: string | null;
+  if (chips.syncDueWithScheduled !== undefined) {
+    syncDue = chips.syncDueWithScheduled;
+    if (syncDue) {
+      resolvedDue = syncAnchor;
+      on.add("due");
+    } else if (chips.dueOn !== undefined) {
+      resolvedDue = chips.dueOn;
+      if (resolvedDue !== null) on.add("due");
+    } else if (parse.dueSameAsScheduled) {
+      syncDue = true;
+      resolvedDue = syncAnchor;
+      on.add("due");
+    } else if (parse.dueOn !== undefined) {
+      resolvedDue = parse.dueOn;
+      on.add("due");
+    } else {
+      resolvedDue = null;
+    }
+  } else if (chips.dueOn !== undefined) {
+    resolvedDue = chips.dueOn;
+    if (resolvedDue !== null) on.add("due");
+  } else if (parse.dueSameAsScheduled) {
+    syncDue = true;
+    resolvedDue = syncAnchor;
+    on.add("due");
+  } else if (parse.dueOn !== undefined) {
+    resolvedDue = parse.dueOn;
+    on.add("due");
+  } else if (defaults.syncDueWithScheduled) {
+    syncDue = true;
+    resolvedDue = syncAnchor;
+  } else {
+    resolvedDue = defaults.dueOn ?? null;
+  }
+
+  const resolvedDest = pick("dest", chips.dest, typedDest, defaults.dest);
+  let resolvedStationId: string | null = null;
+  if (chips.stationId !== undefined) {
+    resolvedStationId = chips.stationId;
+    if (resolvedStationId !== null) on.add("station");
+  } else if (resolvedDest.routeId && resolvedDest.routeId === defaults.dest.routeId && defaults.stationId) {
+    resolvedStationId = defaults.stationId;
+  }
+
+  const resolvedTime = timeOn
+    ? (chips.scheduledTime ?? null)
+    : typedTime !== undefined
+      ? typedTime
+      : (defaults.scheduledTime ?? null);
+  const resolvedEstimate = timeOn
+    ? (chips.estimateMin ?? null)
+    : parse.estimateMin !== undefined
+      ? parse.estimateMin
+      : (defaults.estimateMin ?? null);
+
+  let resolvedTags: string[] = [];
+  if (chips.tags !== undefined) {
+    resolvedTags = [...chips.tags];
+    if (resolvedTags.length) on.add("tags");
+  } else if (parse.tags.length) {
+    resolvedTags = Array.from(new Set([...(defaults.tags ?? []), ...parse.tags.map((t) => t.name)]));
+    on.add("tags");
+  } else if (defaults.tags?.length) {
+    resolvedTags = [...defaults.tags];
+  }
+
+  const trimmedName = parse.name.trim();
+  const hasExplicitScheduleOrTime =
+    Boolean(parse.isPlaceholder) ||
+    dateChipTouched ||
+    parse.scheduledOn !== undefined ||
+    parse.scheduledEnd !== undefined ||
+    resolvedScheduledEnd !== null ||
+    timeOn ||
+    typedTime !== undefined ||
+    parse.estimateMin !== undefined ||
+    resolvedTime !== null ||
+    resolvedEstimate !== null;
+  const hasCategory = Boolean(resolvedDest.routeId) || resolvedTags.length > 0;
+  const isPlaceholder = !trimmedName && hasCategory && hasExplicitScheduleOrTime;
+  const effectiveName = trimmedName
+    ? trimmedName
+    : isPlaceholder
+      ? (parse.placeholderTitle ??
+        placeholderTicketTitle({
+          routeName: destNameOf?.(resolvedDest) ?? null,
+          tagNames: resolvedTags,
+        }))
+      : "";
+
   const v: QuickValues = {
     name: parse.name,
-    dest: pick("dest", chips.dest, typedDest, defaults.dest),
-    scheduledOn: pick("date", chips.scheduledOn, parse.scheduledOn, defaults.scheduledOn),
-    scheduledTime: timeOn ? (chips.scheduledTime ?? null) : typedTime !== undefined ? typedTime : (defaults.scheduledTime ?? null),
-    estimateMin: timeOn ? (chips.estimateMin ?? null) : parse.estimateMin !== undefined ? parse.estimateMin : (defaults.estimateMin ?? null),
-    dueOn: pick("due", chips.dueOn, parse.dueOn, defaults.dueOn ?? null),
+    effectiveName,
+    isPlaceholder,
+    dest: resolvedDest,
+    stationId: resolvedStationId,
+    scheduledOn: resolvedScheduled,
+    scheduledEnd: resolvedScheduledEnd,
+    scheduledTime: resolvedTime,
+    estimateMin: resolvedEstimate,
+    dueOn: resolvedDue,
+    syncDueWithScheduled: syncDue,
     priority: pick("priority", chips.priority, parse.priority, defaults.priority ?? null),
-    tags: [],
+    tags: resolvedTags,
     on,
   };
   if (timeOn || typedTime !== undefined || parse.estimateMin !== undefined) {
     if (v.scheduledTime !== null || v.estimateMin !== null) on.add("time");
   }
-  if (chips.tags !== undefined) {
-    v.tags = [...chips.tags];
-    if (v.tags.length) on.add("tags");
-  } else if (parse.tags.length) {
-    v.tags = Array.from(new Set([...(defaults.tags ?? []), ...parse.tags.map((t) => t.name)]));
-    on.add("tags");
-  } else if (defaults.tags?.length) {
-    v.tags = [...defaults.tags];
-  }
-  // 清掉的值不算「設過」（chip 清成無日期也還是亮：那是主人的明確選擇，收件匣）
-  if (chips.syncDueWithScheduled && parse.dueOn === undefined) {
-    v.dueOn = v.scheduledOn;
-    on.add("due");
-  } else if (v.dueOn === null) {
+  if (!syncDue && v.dueOn === null) {
     on.delete("due");
   }
   if (v.priority === null) on.delete("priority");
@@ -145,30 +269,30 @@ export interface QuickTarget {
   parentId: string | null;
   /** 臨時車票的路線標籤 */
   routeTagId: string | null;
-  /** 掛到路線（或支線）＝可在「列車｜車票」之間選 */
+  /** 掛到路線（或支線）＝可在「車票｜支線」之間選（僅路線大綱顯示切換鈕） */
   canChoose: boolean;
 }
 
-/** 掛到 → 建成什麼（契約 §一 A「掛到決定建成什麼」；種類跟 allowedChildKinds 走） */
-export function resolveQuickTarget(dest: QuickDest, routeKind: RouteKind): QuickTarget {
+/** 掛到 → 建成什麼（操作 2：路線與支線下可在「車票｜支線」間切換；無路線／列車／車廂／車票下固定建車票） */
+export function resolveQuickTarget(dest: QuickDest, routeKind: RouteKind = "ticket"): QuickTarget {
   if (!dest.routeId) return { kind: "ticket", parentId: null, routeTagId: null, canChoose: false };
   const parentId = dest.nodeId ?? dest.routeId;
   const parentKind: NodeKind = dest.nodeId ? (dest.nodeKind && dest.nodeKind !== "route" ? dest.nodeKind : "train") : "route";
   if (parentKind === "ticket") return { kind: "ticket", parentId, routeTagId: null, canChoose: false };
   const allowed = allowedChildKinds(parentKind);
-  // 丁 D-主-245：支線底下列車與車票都能直接放 ⇒ 兩種任選（車票就掛在支線底下，不是路線標籤）
-  if (allowed.includes("ticket") && allowed.includes("train")) {
-    return routeKind === "ticket"
-      ? { kind: "ticket", parentId, routeTagId: null, canChoose: true }
-      : { kind: "train", parentId, routeTagId: null, canChoose: true };
+  const canBranch = allowed.includes("branch");
+  if (canBranch) {
+    if (routeKind === "branch") {
+      return { kind: "branch", parentId, routeTagId: null, canChoose: true };
+    }
+    // 支線底下直接掛車票（D-主-245）；路線頂層建掛路線標籤的車票（加子項時自動升格列車）
+    if (allowed.includes("ticket")) {
+      return { kind: "ticket", parentId, routeTagId: null, canChoose: true };
+    }
+    return { kind: "ticket", parentId: null, routeTagId: dest.routeId, canChoose: true };
   }
   if (allowed.includes("ticket")) return { kind: "ticket", parentId, routeTagId: null, canChoose: false };
-  // 路線／支線：底下放列車；或建成掛這條路線標籤的臨時車票（現行規則：車票不直接掛在路線底下）
-  const inner: NodeKind | undefined = allowed.includes("train") ? "train" : allowed.find((k) => k !== "station");
-  if (!inner || routeKind === "ticket") {
-    return { kind: "ticket", parentId: null, routeTagId: dest.routeId, canChoose: !!inner };
-  }
-  return { kind: inner, parentId, routeTagId: null, canChoose: true };
+  return { kind: "ticket", parentId: null, routeTagId: dest.routeId, canChoose: false };
 }
 
 /** 票根的長相：徽章字、徽章虛線、票根小字、票種（右上角） */
@@ -181,7 +305,13 @@ export interface QuickStubLook {
 
 const BADGE: Partial<Record<NodeKind, string>> = { train: "列", car: "廂", ticket: "票", branch: "支" };
 
-export function stubLook(t: Pick<QuickTarget, "kind" | "parentId" | "routeTagId">): QuickStubLook {
+export function stubLook(t: Pick<QuickTarget, "kind" | "parentId" | "routeTagId">, isPlaceholder = false): QuickStubLook {
+  if (t.kind === "branch") {
+    return { badge: "支", dashed: true, lineName: "支線", fare: "支線" };
+  }
+  if (isPlaceholder) {
+    return { badge: "預", dashed: true, lineName: "預留席", fare: "預留席" };
+  }
   if (t.kind === "ticket" && !t.parentId && !t.routeTagId) {
     return { badge: "臨", dashed: true, lineName: "無路線", fare: "臨時券" };
   }
@@ -221,13 +351,18 @@ export function dayText(key: string): string {
   return `${m}/${d}（${WEEK[new Date(y, m - 1, d).getDay()]}）`;
 }
 
-/** 乘車日 chip 的字：今天／明天／後天＋其餘 M/D（週X） */
+/** 乘車日 chip 的字：今天／明天／後天＋其餘 M/D（週X）；若有區間訖日則印「M/D–M/D」 */
 export function dateChipText(key: string, today: string): string {
   const diff = Math.round((Date.UTC(...ymd(key)) - Date.UTC(...ymd(today))) / 86_400_000);
   if (diff === 0) return "今天";
   if (diff === 1) return "明天";
   if (diff === 2) return "後天";
   return dayText(key);
+}
+
+export function dateRangeChipText(start: string, end: string | null | undefined, today: string): string {
+  if (end && end > start) return formatDateRangeBadge(start, end);
+  return dateChipText(start, today);
 }
 
 function ymd(key: string): [number, number, number] {
@@ -251,26 +386,43 @@ export const INBOX_NOTE = "已放進收件匣——到旅客筆記整理";
  */
 export function leaveNote(
   here: QuickHere,
-  v: { scheduledOn: string | null; target: QuickTarget; routeId: string | null },
+  v: { scheduledOn: string | null; scheduledEnd?: string | null; target: QuickTarget; routeId: string | null },
   routeName: (id: string) => string | null,
 ): string | null {
   const inbox = v.target.kind === "ticket" && !v.target.parentId && !v.target.routeTagId && !v.scheduledOn;
+  const hasRange = Boolean(v.scheduledOn && v.scheduledEnd && v.scheduledEnd > v.scheduledOn);
   const elsewhere = (): string => {
     if (inbox) return INBOX_NOTE;
+    if (hasRange && v.scheduledOn && v.scheduledEnd) {
+      return `已排入期間 ${formatDateRangeBadge(v.scheduledOn, v.scheduledEnd)}`;
+    }
     if (v.scheduledOn) return `已排到 ${dayText(v.scheduledOn)}`;
     const name = v.routeId ? routeName(v.routeId) : null;
     return name ? `已建到「${name}」` : "已建好";
   };
   switch (here.kind) {
     case "today":
+      if (hasRange && v.scheduledOn && v.scheduledEnd) {
+        return isRangeCoveringDay({ scheduled_on: v.scheduledOn, scheduled_end: v.scheduledEnd }, here.dateKey)
+          ? null
+          : elsewhere();
+      }
       return v.scheduledOn === here.dateKey ? null : elsewhere();
     case "day":
+      if (hasRange && v.scheduledOn && v.scheduledEnd) {
+        return isRangeCoveringDay({ scheduled_on: v.scheduledOn, scheduled_end: v.scheduledEnd }, here.day)
+          ? null
+          : elsewhere();
+      }
       return v.scheduledOn === here.day ? null : elsewhere();
     case "route": {
       if (v.routeId === here.routeId) return null;
       if (inbox) return INBOX_NOTE;
       const name = v.routeId ? routeName(v.routeId) : null;
       if (name) return `已建到「${name}」`;
+      if (hasRange && v.scheduledOn && v.scheduledEnd) {
+        return `已排入期間 ${formatDateRangeBadge(v.scheduledOn, v.scheduledEnd)}`;
+      }
       return v.scheduledOn ? `已排到 ${dayText(v.scheduledOn)}` : "已建好";
     }
     case "none":

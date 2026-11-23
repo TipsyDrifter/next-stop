@@ -11,7 +11,7 @@
  *   ├ Row「實際」             自動對照當天同路線／支線或同分類的時間塊＋共計＋差多少
  *   └ Actions                 刪除｜轉為正式車票｜▶ 発車（今天）
  */
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MIN, fmtClock, fmtDur, msOf } from "../../../domain/timetable";
 import { SCHED_TINY_MS, canScheduleDay } from "../../../domain/timetableSchedule";
 import { clockMinutes, clockRange, clockText } from "../../../lib/date";
@@ -22,6 +22,10 @@ import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useNow } from "../useNow";
 import { ClockInput } from "../../common/ClockInput";
+import { DurationPicker } from "../../common/DurationPicker";
+import { Select } from "../../common/Select";
+import { applySpanDurationMin, spanDurationMin } from "../../common/timespan/TimeSpanDurationFields";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { CategoryGrid } from "../parts/CategoryGrid";
 import { RouteRoundel, useLiveBranches, useRouteById } from "../parts/LinkPicker";
 import { RT_UI, SEG_UI } from "../schedule/routineModel";
@@ -44,8 +48,20 @@ export function AdhocPanel({ onDone, shell = "mobile" }: PanelProps & { shell?: 
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
   const linkInfo = useTimetableStore((s) => s.linkInfo);
   const h = useUiStore((s) => s.dayStartHour);
+  const liveLines = useNodeStore((s) => s.liveLines);
   const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const liveBranches = useLiveBranches(liveRoutes);
+  const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, liveLines), [liveRoutes, liveLines]);
+  const branchesByRoute = useMemo(() => {
+    const m = new Map<string, typeof liveBranches>();
+    for (const b of liveBranches) {
+      if (!b.route_id) continue;
+      const list = m.get(b.route_id);
+      if (list) list.push(b);
+      else m.set(b.route_id, [b]);
+    }
+    return m;
+  }, [liveBranches]);
   const routeById = useRouteById();
   const now = useNow(30_000);
   const all = useScheduleCompare(now);
@@ -185,48 +201,80 @@ export function AdhocPanel({ onDone, shell = "mobile" }: PanelProps & { shell?: 
               }}
             />
           </Row>
-          <Row k={RT_UI.start} time>
-            <ClockInput variant="compact" value={start.shown} lo={lo} hi={hi} onChange={start.change} label={RT_UI.start} refDay={item.date} />
-          </Row>
-          <Row k={RT_UI.end} time>
-            <ClockInput variant="compact" value={end.shown} lo={lo} hi={hiEnd} onChange={end.change} label={RT_UI.end} refDay={item.date} />
-          </Row>
-          <Row k="路線／支線" top>
-            <div className="ns-tt-chips ns-tt-adhoc-routes">
-              {liveRoutes.map((r) => {
-                const on = item.routeId === r.id && item.branchNodeId === null;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className={"ns-tt-opt" + (on ? " is-on" : "")}
-                    style={{ "--c": r.color ?? "var(--ns-tt-cat-8)" } as CSSProperties}
-                    aria-pressed={on}
-                    onClick={() => void edit(on ? { routeId: null, nodeId: null } : { routeId: r.id, nodeId: null })}
+          {(() => {
+            const shownEnd =
+              end.shown !== eMs ? end.shown : start.shown !== sMs ? Math.min(hiEnd, start.shown + Math.max(MIN, eMs - sMs)) : eMs;
+            return (
+              <>
+                <Row k={RT_UI.start} time>
+                  <ClockInput variant="compact" value={start.shown} lo={lo} hi={hi} onChange={start.change} label={RT_UI.start} refDay={item.date} />
+                </Row>
+                <Row k={RT_UI.end} time>
+                  <ClockInput variant="compact" value={shownEnd} lo={start.shown + MIN} hi={hiEnd} onChange={end.change} label={RT_UI.end} refDay={item.date} />
+                </Row>
+                <Row k="時長" top>
+                  <DurationPicker
+                    value={spanDurationMin(start.shown, shownEnd)}
+                    onChange={(m) => {
+                      if (m === null) return;
+                      const next = applySpanDurationMin({ startMs: start.shown, endMs: shownEnd }, m, { lo, hiEnd });
+                      end.change(next.endMs);
+                    }}
+                    allowNull={false}
+                    compact
+                    liveCommit
+                    ariaLabel="班次時長"
+                  />
+                </Row>
+              </>
+            );
+          })()}
+          <Row k="路線／支線">
+            {(() => {
+              const curVal = item.branchNodeId ? `b:${item.branchNodeId}` : item.routeId ? `r:${item.routeId}` : "";
+              const inLive =
+                !curVal ||
+                (item.branchNodeId
+                  ? liveBranches.some((b) => b.id === item.branchNodeId)
+                  : liveRoutes.some((r) => r.id === item.routeId));
+              return (
+                <span className="ns-select-wrap ns-tt-adhoc-select">
+                  <Select
+                    className="techo-input"
+                    aria-label="路線／支線"
+                    value={curVal}
+                    onChange={(val) => {
+                      if (!val) {
+                        void edit({ routeId: null, nodeId: null });
+                      } else if (val.startsWith("r:")) {
+                        void edit({ routeId: val.slice(2), nodeId: null });
+                      } else if (val.startsWith("b:")) {
+                        const bid = val.slice(2);
+                        const b = liveBranches.find((x) => x.id === bid) ?? nodes[bid];
+                        void edit({ routeId: b?.route_id ?? null, nodeId: bid });
+                      }
+                    }}
                   >
-                    <RouteRoundel route={r} />
-                    {r.name}
-                  </button>
-                );
-              })}
-              {liveBranches.map((b) => {
-                const r = b.route_id ? (routeById[b.route_id] ?? null) : null;
-                const on = item.branchNodeId === b.id;
-                return (
-                  <button
-                    key={b.id}
-                    type="button"
-                    className={"ns-tt-opt" + (on ? " is-on" : "")}
-                    style={{ "--c": r?.color ?? "var(--ns-tt-cat-8)" } as CSSProperties}
-                    aria-pressed={on}
-                    onClick={() => void edit(on ? { routeId: null, nodeId: null } : { routeId: b.route_id, nodeId: b.id })}
-                  >
-                    <RouteRoundel route={r} />
-                    {r ? `${r.name} › ${b.name}` : b.name}
-                  </button>
-                );
-              })}
-            </div>
+                    <option value="">不綁定路線</option>
+                    {!inLive && curVal && <option value={curVal}>{fallbackTitle}</option>}
+                    {routeGroups.map((g) => (
+                      <optgroup key={g.lineId ?? "other"} label={g.header}>
+                        {g.routes.flatMap((r) => [
+                          <option key={`r:${r.id}`} value={`r:${r.id}`}>
+                            {r.code ? `${r.code} ${r.name}` : r.name}
+                          </option>,
+                          ...(branchesByRoute.get(r.id) ?? []).map((b) => (
+                            <option key={`b:${b.id}`} value={`b:${b.id}`}>
+                              {`　› ${b.name}（支線）`}
+                            </option>
+                          )),
+                        ])}
+                      </optgroup>
+                    ))}
+                  </Select>
+                </span>
+              );
+            })()}
           </Row>
           <Row k="分類" top>
             <div className="ns-tt-rtp-cats">

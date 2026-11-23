@@ -440,7 +440,8 @@
 [data-shell="mobile"] .ns-tk-ms-sec + .ns-tk-ms-sec { border-top: 1px dashed var(--color-line); margin-top: 6px; }
 [data-shell="mobile"] .ns-tk-ms-lbl { margin: 0; padding: 12px 2px 7px; font-size: 10px; letter-spacing: .34em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-ms-sub { margin: 0; padding: 2px 2px 5px; font-size: var(--fs-micro); letter-spacing: .2em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-ms-sub ~ .ns-tk-ms-sub { padding-top: 10px; }
+[data-shell="mobile"] .ns-tk-ms-sub ~ .ns-tk-ms-sub,
+[data-shell="mobile"] .ns-tk-mchips + .ns-tk-ms-sub { padding-top: 10px; }
 [data-shell="mobile"] .ns-tk-mchips { display: flex; flex-wrap: wrap; gap: 6px; }
 [data-shell="mobile"] .ns-tk-mchips.is-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; margin: 0 calc(-1 * var(--m-gutter)); padding: 0 var(--m-gutter) 2px; }
 [data-shell="mobile"] .ns-tk-mchips.is-scroll::-webkit-scrollbar { display: none; }
@@ -724,6 +725,10 @@
   width: 17px; height: 17px; flex: none; font-size: 7.5px; /* 字面值：小圓牌字照原型（票券家族） */
 }
 [data-shell="mobile"] .ns-tk-mf-ritem { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+[data-shell="mobile"] .ns-tk-mf-rgroup {
+  padding: 10px var(--m-gutter) 4px; font-size: var(--fs-micro); font-weight: 500;
+  letter-spacing: .12em; color: var(--color-ink-faint); border-top: 1px dashed var(--color-line); margin-top: 2px;
+}
 [data-shell="mobile"] .ns-tk-m-fsum {
   display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
   margin: 0 0 var(--sp-3);

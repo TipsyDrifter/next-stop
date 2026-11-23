@@ -38,7 +38,6 @@ import {
   DoneToggleChip,
   QuickAddLauncher,
   QuickAddRow,
-  resolveQuickTarget,
   type QuickDefaults,
   type QuickDest,
   type RouteKind,
@@ -54,10 +53,12 @@ import { useSelectionStore } from "../../store/selectionStore";
 import { useBoardStore } from "../../store/boardStore";
 import { BoardGroupChip, RouteBoard } from "../board/RouteBoard";
 import { ROUTE_LAYOUT_PANEL, RouteLayoutTabs } from "../board/RouteViewTabs";
-import { useRouteBoard } from "../board/useRouteBoard";
+import { NO_STATION_COL, useRouteBoard } from "../board/useRouteBoard";
 import { SelectionBar } from "../common/selection/SelectionBar";
+import { dismissOnBlankClick } from "../common/selection/desktopSelection";
 import { DepotBanner } from "../depot/DepotBanner";
 import { PARKED_ADD_WHY } from "../../domain/depot";
+import { StationTrackBar } from "./StationTrackBar";
 import "./outline.css";
 
 const STATION_LANDS_ON = ["station"] as const;
@@ -144,15 +145,9 @@ function newMenuItems(o: {
   ];
 }
 
-/** 路線圖的建票列預設：掛到＝這條路線（或聚焦那一節）、不排日子（列車不一定排日子；乘車日 chip 空著） */
-const composerDefaultsCache = new WeakMap<QuickDest, QuickDefaults>();
-function composerDefaults(dest: QuickDest): QuickDefaults {
-  let d = composerDefaultsCache.get(dest);
-  if (!d) {
-    d = { dest, scheduledOn: null };
-    composerDefaultsCache.set(dest, d);
-  }
-  return d;
+/** 路線圖的建票列預設：掛到＝這條路線（或聚焦那一節）、單站篩選中自動帶入該站、不排日子 */
+function composerDefaults(dest: QuickDest, stationId: string | null): QuickDefaults {
+  return { dest, stationId, scheduledOn: null };
 }
 
 /** 建票列開著的那一次（seq 換＝重掛＝照新的預設開） */
@@ -247,7 +242,12 @@ export function Outline() {
   const showBoard = routeLayout === "board";
   const boardKeysRef = useRef<((e: KeyboardEvent<HTMLElement>) => void) | null>(null);
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.target instanceof Element && e.target.closest(".ns-pagehead, .ns-qa-li, .ns-qa-compact, .ns-qa-inline, .ns-qa-pop, .wa")) return;
+    if (
+      e.target instanceof Element &&
+      e.target.closest(".ns-pagehead, .ns-stbar, .ns-stbar-filter-banner, .ns-qa-li, .ns-qa-compact, .ns-qa-inline, .ns-qa-pop, .wa")
+    ) {
+      return;
+    }
     if (showBoard) boardKeysRef.current?.(e);
     else outlineKeys(e);
   };
@@ -296,6 +296,7 @@ export function Outline() {
     occurrences: c.currentOccurrences,
     group: boardGroup,
     hideDone: c.hideDone,
+    filterStationId: c.stationFilter,
   });
   const [boardAddSeq, setBoardAddSeq] = useState(0);
 
@@ -328,7 +329,7 @@ export function Outline() {
     c.zoom && (zoomKind === "branch" || zoomKind === "train" || zoomKind === "car")
       ? { routeId, nodeId: c.zoom.id, nodeKind: zoomKind }
       : { routeId, nodeId: null, nodeKind: "route" };
-  const topMakesTrain = resolveQuickTarget(topDest, "train").kind === "train";
+  const topMakesTrain = !c.zoom || c.zoom.kind === "branch";
   const openComposer = (dest: QuickDest, routeKind: RouteKind) =>
     setComposer((cur) => ({ dest, routeKind, seq: (cur?.seq ?? 0) + 1 }));
   /** 頁首「新增車票」：掛到選中那班列車或車廂（選中車票＝它所在的那班）；沒選＝目前範圍＋車票 */
@@ -351,18 +352,20 @@ export function Outline() {
   };
   const addTrain = () => {
     toOutline();
-    openComposer(topDest, "train");
+    setComposer(null);
+    containerRef.current?.focus();
+    c.addTrainDraft();
   };
   /**
-   * v1.31（Bug 1）：新建葉節點預設＝車票（長出子項才自動升格列車／車廂）——清單尾常駐列與空狀態跟著 domain 的預設子種類走；
-   * 建票列裡照樣有「列車｜車票」可切。domain 還說列車（舊規則）就維持「新增列車…」。
+   * v1.31（Bug 1）＋操作 2：新建葉節點預設＝車票（長出子項才自動升格列車／車廂）；
+   * 路線大綱的建票列提供「車票｜支線」分段鈕可隨時切換。
    */
   const leafIsTicket = leafKindFor(c.zoom?.kind ?? "route") === "ticket";
   const addLeaf = () => {
     toOutline();
-    openComposer(topDest, leafIsTicket || !topMakesTrain ? "ticket" : "train");
+    openComposer(topDest, "ticket");
   };
-  const leafWord = leafIsTicket || !topMakesTrain ? "車票" : "列車";
+  const leafWord = "車票";
   const closeComposer = (byKeyboard: boolean) => {
     setComposer(null);
     if (byKeyboard) containerRef.current?.focus();
@@ -389,6 +392,8 @@ export function Outline() {
   const ticketPct = head.pct;
   // 紀念章的進度弧＝到站站數÷車站數（車庫與回顧 D-主-222：跟今日頁同一個意思；大綱完成率在頁首統計那一行）
   const routeStations = stations.filter((s) => s.parent_id === c.routeId);
+  const routeStationMap = new Map(routeStations.map((s) => [s.id, s]));
+  const defaultStationForAdd = c.stationFilter && c.stationFilter !== NO_STATION_COL ? c.stationFilter : null;
   const routePct = routeStations.length
     ? Math.round((routeStations.filter((s) => s.arrived_on).length / routeStations.length) * 100)
     : 0;
@@ -448,6 +453,18 @@ export function Outline() {
           title="這條路線還沒有列車"
           desc={`按 ${capsOfHotkey("outline.add.sibling")} 新增第一班列車，底下可再細分車廂與車票。`}
           action={{ label: "新增列車", icon: <IconPlus />, onClick: c.startFirstDraft }}
+        />
+      );
+    } else if (c.stationFilter !== null && c.doneHidden === 0) {
+      const filterStName = c.stationFilter === NO_STATION_COL ? null : routeStationMap.get(c.stationFilter)?.name;
+      empty = (
+        <EmptyState
+          tone="first"
+          stamp={EMPTY_STAMP}
+          title={c.stationFilter === NO_STATION_COL ? "目前沒有未排站的項目" : `「${filterStName ?? "這一站"}」還沒有項目`}
+          desc="可直接新增項目歸入本站，或點「顯示全部」把現有支線、列車或車票拖曳到上方站點。"
+          action={c.parked ? undefined : { label: `新增${leafWord}`, icon: <IconPlus />, onClick: addLeaf }}
+          secondary={{ label: "顯示全部項目", onClick: () => c.setStationFilter(null) }}
         />
       );
     } else {
@@ -517,7 +534,7 @@ export function Outline() {
   ) : undefined;
 
   return (
-    <section ref={containerRef} tabIndex={0} onKeyDown={onKeyDown} aria-label="路線大綱" className="page ns-outline">
+    <section ref={containerRef} tabIndex={0} onKeyDown={onKeyDown} onClick={dismissOnBlankClick} aria-label="路線大綱" className="page ns-outline">
       <div className="sheet">
         <div ref={headRef} className="ns-outline-head">
           <PageHeader
@@ -594,6 +611,17 @@ export function Outline() {
             </>
           )}
         </RouteLayoutTabs>
+        {c.route && (
+          <div className={showBoard ? undefined : "ns-rm-read"}>
+            <StationTrackBar
+              route={c.route}
+              tree={c.tree}
+              occurrences={c.currentOccurrences}
+              parked={c.parked}
+              onOpenStationCard={(id, anchor) => stationCard.open(id, anchor)}
+            />
+          </div>
+        )}
         {nextStation && !c.zoom && nextStationAims.length > 0 && (
           <div className={showBoard ? undefined : "ns-rm-read"}>
             <AimsBand aimKey={stationKeyOf(nextStation.id)} heading="下一站方針" />
@@ -701,7 +729,15 @@ export function Outline() {
                 if (r.type === "draft") {
                   if (!draft || !c.draftHandlers) return null;
                   return (
-                    <DraftRow key={`draft:${draft.parentId}:${draft.afterId ?? "$end"}`} depth={r.depth} kind={draft.kind} accent={accent} handlers={c.draftHandlers} />
+                    <DraftRow
+                      key={`draft:${draft.parentId}:${draft.afterId ?? "$end"}`}
+                      depth={r.depth}
+                      kind={draft.kind}
+                      routeId={routeId}
+                      defaultStationId={defaultStationForAdd}
+                      accent={accent}
+                      handlers={c.draftHandlers}
+                    />
                   );
                 }
                 const node = c.tree.byId[r.id];
@@ -725,6 +761,7 @@ export function Outline() {
                     key={r.id}
                     node={node}
                     parentKind={parentKind}
+                    stationName={node.station_id ? (routeStationMap.get(node.station_id)?.name ?? null) : null}
                     branchStats={branchStats}
                     depth={r.depth}
                     hasChildren={(c.tree.childrenOf[r.id]?.length ?? 0) > 0}
@@ -760,7 +797,7 @@ export function Outline() {
               {composer ? (
                 <QuickAddRow
                   key={composer.seq}
-                  defaults={composerDefaults(composer.dest)}
+                  defaults={composerDefaults(composer.dest, defaultStationForAdd)}
                   here={{ kind: "route", routeId }}
                   routeKind={composer.routeKind}
                   onClose={closeComposer}

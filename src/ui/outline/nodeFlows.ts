@@ -71,7 +71,7 @@ export async function suspendNodeFlow(id: string, skip?: boolean): Promise<void>
 export async function completeNodeFlow(
   id: string,
   onFresh?: (id: string) => (() => void) | void,
-  opts?: { retractCard?: boolean },
+  _opts?: { retractCard?: boolean },
 ): Promise<void> {
   if (isSettling(id)) return;
   const t = ns().tree;
@@ -91,7 +91,7 @@ export async function completeNodeFlow(
     return;
   }
   if (occ ? occ.status === "done" : n.status === "done") {
-    if (opts?.retractCard) retractCardOf(id);
+    retractCardOf(id);
     await ns().setCompleted(id, false);
     return;
   }
@@ -99,7 +99,7 @@ export async function completeNodeFlow(
     const after = onFresh?.(id);
     await ns().setCompleted(id, true, cascade ? true : undefined);
     if (after) after();
-    if (isTaskKind(n.kind)) ui().setCompleteCardFor(id);
+    if (isTaskKind(n.kind) || n.kind === "ticket") ui().setCompleteCardFor(id);
   };
   const open = canHaveChildren(n.kind) ? openDescendantCount(t, id) : 0;
   if (open > 0) {

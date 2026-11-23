@@ -162,6 +162,8 @@ export function DepartPanel({ onDone }: PanelProps) {
           <EstimateRow
             value={est}
             onChange={setEst}
+            startMs={at}
+            refDay={refDay}
             extra={
               <button
                 type="button"
@@ -171,11 +173,10 @@ export function DepartPanel({ onDone }: PanelProps) {
                   toggleEst(false);
                 }}
               >
-                {est !== null ? "不預估" : "收起"}
+                {estOn ? "不預估" : "收起"}
               </button>
             }
           />
-          {estOn && <p className="ns-tt-panel-sub ns-tt-est-eta is-num">預計 {fmtClock(at + (est as number) * MIN)} 到着</p>}
         </Expand>
       ) : (
         <div className="ns-tt-row is-fold">

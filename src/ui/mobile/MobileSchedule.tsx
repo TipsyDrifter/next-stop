@@ -75,6 +75,7 @@ import { useDragReorder, type DropPlace, type Verdict } from "../common/dragReor
 import { sheetDeferItems } from "../schedule/streamModel";
 import { SETTLED_DEFER_MSG } from "./useMobileToday";
 import { MobileSelectionBar } from "./MobileSelectionBar";
+import { dismissSelectionOnBlankClick } from "../common/selection/desktopSelection";
 import { isSelecting, pressSelect, tapSelect, usePressedSwipe, usePruneSelection, useScopeSelection, type SwipePair } from "./mobileSelect";
 import { IconChevron, IconPlus } from "../common/icons";
 import { MobileQuickAdd, NO_DEST, type QuickDefaults, type QuickHere } from "../common/quickadd";
@@ -563,6 +564,7 @@ export function MobileSchedule() {
           className={"m-sch-stream" + (isTime ? " is-under" : "")}
           ref={streamRef}
           onScroll={onScroll}
+          onClick={dismissSelectionOnBlankClick}
           tabIndex={-1}
           aria-label="行程表列表"
           aria-hidden={isTime || undefined}
@@ -653,6 +655,7 @@ export function MobileSchedule() {
           card={sheetView.card}
           today={today}
           onDefer={(d) => actions.defer(sheetView.target, d)}
+          onDeferRange={(s, e) => actions.deferRange(sheetView.target, s, e)}
           onSkip={() => {
             if (sheetView.target.kind === "entry") actions.suspend(sheetView.target.row);
           }}

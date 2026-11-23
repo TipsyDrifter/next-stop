@@ -43,6 +43,7 @@ import { useUiStore } from "../../../store/uiStore";
 import { ManagerList, ManagerRow, type PopMenuItem } from "../../common/ManagerRow";
 import { ClockInput } from "../../common/ClockInput";
 import { DateChip } from "../../common/DateChip";
+import { DurationPicker } from "../../common/DurationPicker";
 import { EmptyState } from "../../common/EmptyState";
 import { IconChevron, IconClose, IconPlus } from "../../common/icons";
 import { indexOfAnchor, useDragReorder, type DropPlace } from "../../common/dragReorder";
@@ -780,9 +781,10 @@ function SegRow({
   const len = endMin(it) - startMin(it);
   const catName = cat?.name ?? "分類不在了";
   const name = it.n ?? catName;
+  const [durOpen, setDurOpen] = useState(false);
   return (
     <li
-      className={"ns-tt-rtmgr-seg" + (overlap ? " is-overlap" : "")}
+      className={"ns-tt-rtmgr-seg" + (overlap ? " is-overlap" : "") + (durOpen ? " is-duropen" : "")}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onLeave();
       }}
@@ -821,12 +823,11 @@ function SegRow({
             onChange={(ms) => {
               const s = frame.toText(ms);
               if (!s || s === it.s) return;
-              // 開始推到結束之後 ⇒ 結束跟著走、長度不變（夾在這一天的終點）
+              // 操作 10（D-FB-3）：改開始時刻平移結束時刻，保留既有段落時長（夾在這一天的終點）
               const sm = clockMinutes(s) ?? 0;
-              if (sm >= endMin(it)) {
-                const e = clockText(Math.min(sm + Math.max(len, 15), frame.maxEnd));
-                if (e && (clockMinutes(e) ?? 0) > sm) return onPatch({ s, e });
-              }
+              const keepLen = len > 0 ? len : 60;
+              const e = clockText(Math.min(sm + keepLen, frame.maxEnd));
+              if (e && (clockMinutes(e) ?? 0) > sm) return onPatch({ s, e });
               onPatch({ s });
             }}
           />
@@ -840,7 +841,7 @@ function SegRow({
             variant="compact"
             label={`「${name}」結束`}
             value={frame.toMs(it.e)}
-            lo={frame.lo + MIN}
+            lo={frame.toMs(it.s) + MIN}
             hi={frame.hiEnd}
             refDay={frame.refDay}
             dateLabel={false}
@@ -852,7 +853,16 @@ function SegRow({
             }}
           />
         </span>
-        <span className="ns-tt-rtmgr-len ns-tt-num">{len > 0 ? fmtDur(len * MIN) : ""}</span>
+        <button
+          type="button"
+          className={"ns-tt-rtmgr-len is-btn ns-tt-num" + (durOpen ? " is-on" : "")}
+          aria-expanded={durOpen}
+          aria-label={`「${name}」時長 ${len > 0 ? fmtDur(len * MIN) : ""}（點選調整）`}
+          title="調整這段時長"
+          onClick={() => setDurOpen((v) => !v)}
+        >
+          {len > 0 ? fmtDur(len * MIN) : "設時長"}
+        </button>
         {/* 手機沒有滑過提示：重疊的原因直接寫在這一段（桌機靠赭色＋滑過；讀屏讀開始框的名字） */}
         {overlap && (
           <span className="ns-tt-rtmgr-olap" aria-hidden="true">
@@ -863,6 +873,23 @@ function SegRow({
       <button type="button" className="ns-iconbtn is-dim ns-tt-rtmgr-x" aria-label={`刪「${name}」這一段`} title="刪這段" onClick={onRemove}>
         <IconClose />
       </button>
+      {durOpen && (
+        <div className="ns-tt-rtmgr-dur">
+          <DurationPicker
+            value={Math.max(1, len)}
+            onChange={(m) => {
+              if (m === null) return;
+              const sm = startMin(it);
+              const e = clockText(Math.min(sm + m, frame.maxEnd));
+              if (e && e !== it.e && (clockMinutes(e) ?? 0) > sm) onPatch({ e });
+            }}
+            allowNull={false}
+            compact
+            liveCommit
+            ariaLabel={`「${name}」時長`}
+          />
+        </div>
+      )}
     </li>
   );
 }

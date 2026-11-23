@@ -36,6 +36,8 @@
 [data-shell="mobile"] .m-tms-note { margin: 0; font-size: var(--fs-sm); line-height: 1.6; color: var(--color-ink-soft); }
 [data-shell="mobile"] .m-tms-note.is-wrap { color: var(--accent); }
 [data-shell="mobile"] .m-tms-grp { display: grid; gap: var(--sp-2); }
+[data-shell="mobile"] .m-tms-endhead { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+[data-shell="mobile"] .m-tms-endseed { justify-self: start; }
 [data-shell="mobile"] .m-tms-sum {
   margin: 0; padding: var(--sp-2) var(--sp-3);
   border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);

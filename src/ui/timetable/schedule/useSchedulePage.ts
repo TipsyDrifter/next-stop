@@ -7,16 +7,19 @@
  * - 拖曳、點選、面板開關都在這裡收成幾支動作，兩殼只管排版。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ADHOC_TEXT, addSegNode, isAddAdhoc, scheduleSpansOf, useTimetableScheduleStore, useScheduleCompare, type AdhocItem } from "../../../store/timetableScheduleStore";
+import { ADHOC_TEXT, SEG_DEFAULT_MIN, addSegNode, scheduleSpansOf, useTimetableScheduleStore, useScheduleCompare, type AdhocItem } from "../../../store/timetableScheduleStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore";
+import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
+import { canScheduleDay } from "../../../domain/timetableSchedule";
 import { categoryColorCss, msOf } from "../../../domain/timetable";
 import { compareRoutineItem, routineSummaryText, type RoutineCompare } from "../../../domain/timetableRoutine";
-import { addDays, clockText, dayWindow, type ClockText } from "../../../lib/date";
+import { addDays, clockMinutes, clockText, dayWindow, type ClockText } from "../../../lib/date";
 import { useNow } from "../useNow";
 import { useRouteById } from "../parts/LinkPicker";
 import { SCHED_UI } from "./scheduleModel";
+import { PLACEHOLDER_UI, isAddPlaceholder } from "./scheduleSeatModel";
 
 export type ScheduleShell = "desktop" | "mobile";
 
@@ -48,6 +51,8 @@ export function useSchedulePage(shell: ScheduleShell) {
   const todayKey = useTimetableStore((s) => s.todayKey);
   const sheet = useTimetableStore((s) => s.sheet);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const runOverrides = useNodeStore((s) => s.runOverrides);
+  const rangeTickets = useNodeStore((s) => s.rangeTickets);
   const routeById = useRouteById();
   const now = useNow(30_000);
   const cmp = useScheduleCompare(now);
@@ -64,6 +69,11 @@ export function useSchedulePage(shell: ScheduleShell) {
       if (s?.kind === "plan" || s?.kind === "slot" || s?.kind === "adhoc" || s?.kind === "routine") useTimetableStore.getState().closeSheet();
     };
   }, []);
+
+  // 4B／4C：逐班覆寫（本班填空／待辦入座）或期間自由券更新時，同步重算日程投影
+  useEffect(() => {
+    void useTimetableScheduleStore.getState().load();
+  }, [runOverrides, rangeTickets]);
 
   // ⑦：「第 N 段」要知道每張單發票在別天還有沒有段 ⇒ 這一天出現的票各讀一次它的第二段起（plan store 之後自己跟著寫入與同步重讀）
   useEffect(() => {
@@ -130,18 +140,131 @@ export function useSchedulePage(shell: ScheduleShell) {
     return new Set(openRoutineId ? (routineCmp.get(openRoutineId)?.blockIds ?? []) : []);
   }, [activeKey, cmp.cmp, openRoutineId, routineCmp]);
 
-  /** 點位置／拖放：還沒排的票＝排時刻；第二段起＝換位置；臨時班次＝換位置或新增；「再排一段」＝在這裡加一段（⑦） */
-  const place = useCallback((key: string, min: number): void => {
-    const t = clockText(min) as ClockText | null;
-    if (!t) return;
+  /** 4A：在時間軸指定時刻（或拖拉區間）建立雙邊互通的「預留席車票」，自動同步至今日頁與時刻表日程 */
+  const createPlaceholderAt = useCallback(
+    async (
+      startHm: ClockText,
+      opts?: {
+        date?: string;
+        durationMin?: number;
+        routeId?: string | null;
+        name?: string | null;
+        openAfter?: boolean;
+        switchToDayMode?: boolean;
+      },
+    ) => {
+      const st = useTimetableScheduleStore.getState();
+      const targetDate = opts?.date ?? st.date;
+      const h = useUiStore.getState().dayStartHour;
+      const tToday = useTimetableStore.getState().todayKey;
+      if (!canScheduleDay(targetDate, tToday)) {
+        useUiStore.getState().showToast({ message: TT_TEXT.schedPast });
+        return null;
+      }
+      const sMin = clockMinutes(startHm);
+      if (sMin === null) return null;
+      const dur = Math.max(15, Math.min(1440, Math.round(opts?.durationMin ?? SEG_DEFAULT_MIN)));
+      const endHm = clockText(Math.min(sMin + dur, h * 60 + 1440)) ?? startHm;
+      const routeId = opts?.routeId ?? null;
+      const routeName = routeId ? (routeById[routeId]?.name ?? null) : null;
+      const name = (opts?.name?.trim() || routeName || PLACEHOLDER_UI.fallbackName).trim();
+
+      const row = await useNodeStore.getState().createNode({
+        kind: "ticket",
+        name,
+        parentId: null,
+        routeTagId: routeId,
+        scheduledOn: targetDate,
+        scheduledTime: startHm,
+        estimateMin: dur,
+        dayStartHour: h,
+        isPlaceholder: true,
+      });
+      if (!row) return null;
+      if (isAddPlaceholder(useTimetableScheduleStore.getState().picked)) {
+        useTimetableScheduleStore.getState().pick(null);
+      }
+
+      useUiStore.getState().showToast({
+        message: PLACEHOLDER_UI.added(startHm, endHm),
+        actionLabel: TT_TEXT.undo,
+        onAction: () => {
+          void useNodeStore.getState().deleteNode(row.id);
+        },
+      });
+
+      if (opts?.switchToDayMode) {
+        await useTimetableStore.getState().setDayKey(targetDate);
+        useTimetableScheduleStore.getState().setScheduleMode("day");
+      }
+      await useTimetableScheduleStore.getState().load();
+      if (opts?.openAfter !== false) {
+        useTimetableStore.getState().openSheet({ kind: "plan", key: `${targetDate}-${row.id}` });
+      }
+      return row;
+    },
+    [routeById],
+  );
+
+  /** 4C Mode B：將選中的待辦車票直接入座至某張預留席／定期班次空位 */
+  const seatTicketInto = useCallback(async (slotKey: string, ticketNodeId: string): Promise<boolean> => {
     const st = useTimetableScheduleStore.getState();
-    const add = addSegNode(key);
-    if (isAddAdhoc(key)) void st.addAdhocAt(t);
-    else if (add !== null) void st.addSegment(add, t);
-    else if (st.adhocs[key]) void st.moveAdhoc(key, t);
-    else if (st.slots[key]) void st.moveSlot(key, t);
-    else void st.placeAt(key, t);
+    const slotItem = st.items[slotKey];
+    if (!slotItem) return false;
+    const tToday = useTimetableStore.getState().todayKey;
+    if (!canScheduleDay(slotItem.date, tToday)) {
+      useUiStore.getState().showToast({ message: TT_TEXT.schedPast });
+      return false;
+    }
+    const slotNode = st.nodes[slotItem.nodeId];
+    const ticketNode = st.nodes[ticketNodeId] ?? useNodeStore.getState().today.byId[ticketNodeId];
+    const slotName = slotNode?.name ?? PLACEHOLDER_UI.fallbackName;
+    const ticketName = ticketNode?.name ?? "待辦車票";
+
+    const res = await useNodeStore.getState().seatTicketIntoSlot(slotItem.nodeId, slotItem.date, ticketNodeId);
+    if (!res.ok) return false;
+    if (st.picked) st.pick(null);
+    await st.load();
+    useUiStore.getState().showToast({
+      message: PLACEHOLDER_UI.seated(ticketName, slotName),
+      actionLabel: TT_TEXT.undo,
+      onAction: () => {
+        void useNodeStore
+          .getState()
+          .releaseSeatedSlot(slotItem.nodeId, slotItem.date)
+          .then(() => useTimetableScheduleStore.getState().load());
+      },
+    });
+    return true;
   }, []);
+
+  /** 點位置／拖放：還沒排的票＝排時刻（期間自由券自動經 planTimeWrite 收斂為當日單日票）；第二段起＝換位置；「＋ 預留席」＝建立預留席車票；「再排一段」＝加一段 */
+  const place = useCallback(
+    (key: string, min: number): void => {
+      const t = clockText(min) as ClockText | null;
+      if (!t) return;
+      const st = useTimetableScheduleStore.getState();
+      const add = addSegNode(key);
+      if (isAddPlaceholder(key)) {
+        void createPlaceholderAt(t, { durationMin: SEG_DEFAULT_MIN, openAfter: true });
+        return;
+      }
+      if (add !== null) {
+        void st.addSegment(add, t);
+        return;
+      }
+      if (st.adhocs[key]) {
+        void st.moveAdhoc(key, t);
+        return;
+      }
+      if (st.slots[key]) {
+        void st.moveSlot(key, t);
+        return;
+      }
+      void st.placeAt(key, t);
+    },
+    [createPlaceholderAt],
+  );
 
   const openPlan = useCallback((key: string): void => {
     setSel(null);
@@ -201,6 +324,8 @@ export function useSchedulePage(shell: ScheduleShell) {
     activeBlocks,
     dayTag,
     place,
+    createPlaceholderAt,
+    seatTicketInto,
     openPlan,
     stepDay,
     toToday,

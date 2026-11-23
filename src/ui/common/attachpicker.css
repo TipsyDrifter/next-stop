@@ -39,11 +39,18 @@
 /* hover 與鍵盤游標同一種底；目前的值＝選中字（§2.10） */
 .ns-notes-nodelist li > button:hover, .ns-notes-nodelist li > button.kb { background: var(--sel-bg); }
 .ns-notes-nodelist li > button.cur { color: var(--sel-fg); }
-/* 種類字（支／列／廂）：虛線圓圈、路線色（行內 style 給 color） */
+/* 種類字（支／列／廂：虛線圓圈；票：實線圓圈；路線色由行內 style 給 color） */
 .ns-notes-nodelist .kind {
   font-family: var(--font-display); font-weight: 600; font-size: var(--fs-micro); width: 18px; height: 18px;
   border: 1.2px dashed currentColor; border-radius: var(--radius-pill); display: grid; place-items: center; flex: none;
 }
+.ns-notes-nodelist .kind.is-ticket { border-style: solid; }
+/* 第一層幹線分組標頭（討論 5：幹線・○○／其他） */
+.ns-notes-nodelist .ns-attach-linehead {
+  padding: 8px 6px 3px; font-size: var(--fs-micro); font-weight: 500; letter-spacing: .12em;
+  color: var(--color-ink-faint); border-top: 1px dashed var(--color-line); margin-top: 4px; cursor: default;
+}
+.ns-notes-nodelist .ns-attach-linehead:first-child { border-top: 0; margin-top: 0; padding-top: 2px; }
 .ns-notes-nodelist .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-notes-nodelist .path { margin-left: auto; color: var(--color-ink-faint); letter-spacing: .04em; flex: none; }
 .ns-notes-nodelist .back { color: var(--color-ink-soft); letter-spacing: .08em; }
@@ -101,6 +108,13 @@
   border: 1.2px dashed currentColor;
   font-family: var(--font-display); font-weight: 600; font-size: 10px; /* 票券尺寸：照原型 */
 }
+[data-shell="mobile"] .ns-notes-mnode .kind.is-ticket,
+[data-shell="mobile"] .ns-notes-mnode-group .kind.is-ticket { border-style: solid; }
+[data-shell="mobile"] .ns-mattach-linehead {
+  padding: 10px var(--m-gutter) 4px; font-size: var(--fs-micro); font-weight: 500; letter-spacing: .12em;
+  color: var(--color-ink-faint); border-top: 1px dashed var(--color-line); margin-top: 4px;
+}
+[data-shell="mobile"] .ns-mattach-linehead:first-child { border-top: 0; margin-top: 0; padding-top: 6px; }
 /* 不可選的種類＝灰字群組頭（例：掛進列車時的支線） */
 [data-shell="mobile"] .ns-notes-mnode-group {
   display: flex; align-items: center; gap: 10px;

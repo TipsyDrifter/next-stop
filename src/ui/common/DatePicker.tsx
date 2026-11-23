@@ -36,11 +36,18 @@ import {
 } from "react";
 import { matches } from "../shell/hotkeys";
 import { createPortal } from "react-dom";
+import {
+  DATE_RANGE_PRESET_LABEL,
+  dateRangePreset,
+  formatDateRangeBadge,
+  type DateRangePreset,
+} from "../../domain/dateRange";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { placeBelow, tabStops, useOutsideDismiss } from "./anchorPop";
 import { DayGrid } from "./DayGrid";
-import { isPickableDay } from "./datePickRules";
+import { Segmented } from "./Segmented";
+import { isPickableDay, stepRangePick } from "./datePickRules";
 import "./datepicker.css";
 
 /** 一顆快選 chip */
@@ -50,18 +57,47 @@ export interface DateQuick {
   day: string;
 }
 
+/** 一顆區間快選 chip（第四梯 4B · D-FB-7：週末／本週／下週／本月） */
+export interface DateRangeQuick {
+  label: string;
+  from: string;
+  to: string;
+}
+
+const RANGE_PRESET_ORDER: readonly DateRangePreset[] = ["weekend", "thisWeek", "nextWeek", "thisMonth"];
+
+export function dateRangeQuickSet(today: string, weekStart: 0 | 1 = 1): DateRangeQuick[] {
+  return RANGE_PRESET_ORDER.map((p) => {
+    const r = dateRangePreset(p, today, weekStart);
+    return { label: DATE_RANGE_PRESET_LABEL[p], from: r.from, to: r.to };
+  });
+}
+
+const RANGE_MODE_OPTS = [
+  { value: "single" as const, label: "單日" },
+  { value: "range" as const, label: "區間" },
+];
+
 export interface DatePickerProps {
   /** 小標（也是 dialog 的 aria-label） */
   label: string;
   /** 目前的日子（日期欄初值；`markValue` 時同日的 chip 亮起）；null／省略＝空 */
   value?: string | null;
+  /** 期間自由券訖日（有值且 > value 時顯示區間連帶；僅 allowRange 時使用） */
+  endValue?: string | null;
   /** YYYY-MM-DD；含 */
   min?: string;
   /** YYYY-MM-DD；含 */
   max?: string;
   /** 快選 chip（例：明天／後天／下週一；今天／昨天／前天） */
   quick?: readonly DateQuick[];
+  /** 是否允許切換「單日｜區間」並顯示週末／本週／下週／本月區間快選（第四梯 4B） */
+  allowRange?: boolean;
+  /** 自訂區間快選（省略且 allowRange=true 時預設用週末／本週／下週／本月） */
+  rangeQuick?: readonly DateRangeQuick[];
   onPick(day: string): void;
+  /** 區間選取回呼（end === null 表示選了單日） */
+  onPickRange?(start: string, end: string | null): void;
   onClose(): void;
   /** true＝絕對定位的浮動卡（霧面票面，位置由呼叫端的 class 給 top／left）；false＝內嵌在版面裡的一塊 */
   float?: boolean;
@@ -96,10 +132,14 @@ export { isPickableDay };
 export function DatePicker({
   label,
   value,
+  endValue,
   min,
   max,
   quick,
+  allowRange = false,
+  rangeQuick,
   onPick,
+  onPickRange,
   onClose,
   float = false,
   markValue = false,
@@ -113,6 +153,16 @@ export function DatePicker({
   anchor,
 }: DatePickerProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
+  const effToday = today ?? todayKey(dayStartHour);
+  const hasRangeVal = Boolean(value && endValue && endValue > value);
+  const [mode, setMode] = useState<"single" | "range">(() => (allowRange && hasRangeVal ? "range" : "single"));
+  const [draftStart, setDraftStart] = useState<string | null>(null);
+  const effRangeQuick = allowRange
+    ? (rangeQuick ?? dateRangeQuickSet(effToday, weekStart)).filter(
+        (rq) => (!min || rq.to >= min) && (!max || rq.from <= max),
+      )
+    : [];
   const rootRef = useRef<HTMLDivElement>(null);
   const anchored = !!anchor;
   useOutsideDismiss(rootRef, onClose, anchor);
@@ -207,7 +257,30 @@ export function DatePicker({
     }
   };
 
-  const cls = ["ns-datepick", (float || anchored) && "float", anchored && "anchored", !quick?.length && "bare", className]
+  const handleDayPick = (day: string) => {
+    if (allowRange && mode === "range") {
+      const step = stepRangePick(draftStart, day);
+      if (step.kind === "start") {
+        setDraftStart(step.draftStart);
+        return;
+      }
+      setDraftStart(null);
+      if (onPickRange) onPickRange(step.start, step.end);
+      else onPick(step.start);
+      return;
+    }
+    setDraftStart(null);
+    if (allowRange && onPickRange) onPickRange(day, null);
+    else onPick(day);
+  };
+
+  const cls = [
+    "ns-datepick",
+    (float || anchored) && "float",
+    anchored && "anchored",
+    !quick?.length && !effRangeQuick.length && !allowRange && "bare",
+    className,
+  ]
     .filter(Boolean)
     .join(" ");
   const style: CSSProperties | undefined = anchored
@@ -215,17 +288,37 @@ export function DatePicker({
     : undefined;
   const card = (
     <div ref={rootRef} className={cls} role="dialog" aria-label={label} onKeyDown={onKeyDown} style={style}>
-      <div className="ns-datepick-label">{label}</div>
+      {allowRange ? (
+        <div className="ns-datepick-head">
+          <div className="ns-datepick-label">{label}</div>
+          <Segmented<"single" | "range">
+            compact
+            options={RANGE_MODE_OPTS}
+            value={mode}
+            onChange={(next) => {
+              setMode(next);
+              setDraftStart(null);
+            }}
+            aria-label="單日或期間區間"
+          />
+        </div>
+      ) : (
+        <div className="ns-datepick-label">{label}</div>
+      )}
       <div className="ns-datepick-chips">
         {quick?.map((q) => {
-          const on = markValue && value === q.day;
+          const on = markValue && !hasRangeVal && value === q.day;
           return (
             <button
               key={q.label}
               type="button"
               className={"ns-datepick-chip" + (on ? " on" : "")}
               aria-pressed={markValue ? on : undefined}
-              onClick={() => onPick(q.day)}
+              onClick={() => {
+                setDraftStart(null);
+                if (allowRange && onPickRange) onPickRange(q.day, null);
+                else onPick(q.day);
+              }}
             >
               {q.label}
               <span className="sub">{shortDayKey(q.day)}</span>
@@ -233,16 +326,50 @@ export function DatePicker({
           );
         })}
       </div>
+      {effRangeQuick.length > 0 && (
+        <div className="ns-datepick-chips" role="group" aria-label="期間區間快選">
+          {effRangeQuick.map((rq) => {
+            const on = value === rq.from && endValue === rq.to;
+            return (
+              <button
+                key={rq.label}
+                type="button"
+                className={"ns-datepick-chip" + (on ? " on" : "")}
+                aria-pressed={on}
+                onClick={() => {
+                  setDraftStart(null);
+                  if (onPickRange) onPickRange(rq.from, rq.to);
+                  else onPick(rq.from);
+                }}
+              >
+                {rq.label}
+                <span className="sub">{formatDateRangeBadge(rq.from, rq.to)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {allowRange && mode === "range" && (
+        <div className="ns-datepick-rangehint" aria-live="polite">
+          {draftStart
+            ? `已選起日 ${shortDayKey(draftStart)} — 請點訖日（再點同日＝單日）`
+            : hasRangeVal && value && endValue
+              ? `目前區間：${formatDateRangeBadge(value, endValue)}（點任一日重選起訖）`
+              : "先點起日，再點訖日"}
+        </div>
+      )}
       <DayGrid
         variant="desk"
         value={value}
-        today={today ?? todayKey(dayStartHour)}
+        endValue={allowRange ? endValue : null}
+        draftStart={allowRange && mode === "range" ? draftStart : null}
+        today={effToday}
         min={min}
         max={max}
         marks={marks}
         marksLabel={marksLabel}
         onMonthChange={onMonthChange}
-        onPick={onPick}
+        onPick={handleDayPick}
       />
       {onClear && (
         <div className="ns-datepick-foot">

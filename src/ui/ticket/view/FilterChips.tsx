@@ -11,9 +11,10 @@
  *
  * 另 export `SortButton`：右端常駐「排序」（當月直篩寫 `listSort`，跨月搜尋寫 `resultSort`）。
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { useTagStore } from "../../../store/tagStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
@@ -395,17 +396,20 @@ function RoutePop({
   onPatch,
   onClose,
   routes,
+  lines,
 }: {
   f: EntryFilter;
   onPatch(p: Partial<EntryFilter>): void;
   onClose(): void;
   routes: readonly NodeRow[];
+  lines: readonly NodeRow[];
 }) {
   const pick = (id: string | null | "none") => {
     onPatch({ routeId: id });
     onClose();
   };
-  const live = routes.filter((r) => r.deleted_at === null);
+  const live = useMemo(() => routes.filter((r) => r.deleted_at === null), [routes]);
+  const groups = useMemo(() => groupRoutesByLine(live, lines), [live, lines]);
   return (
     <FPop label="路線" onClose={onClose}>
       <p className="hd">路線</p>
@@ -417,11 +421,16 @@ function RoutePop({
         未選路線
       </Opt>
       {live.length > 0 && <div className="sep" />}
-      {live.map((r) => (
-        <Opt key={r.id} on={f.routeId === r.id} onPick={() => pick(r.id)}>
-          <TkRoundel route={r} />
-          {r.name}
-        </Opt>
+      {groups.map((g) => (
+        <Fragment key={g.lineId ?? "other"}>
+          <p className="hd">{g.header}</p>
+          {g.routes.map((r) => (
+            <Opt key={r.id} on={f.routeId === r.id} onPick={() => pick(r.id)}>
+              <TkRoundel route={r} />
+              {r.name}
+            </Opt>
+          ))}
+        </Fragment>
       ))}
     </FPop>
   );
@@ -569,6 +578,7 @@ export function FilterChips({ inMonthSummary }: { inMonthSummary?: string | null
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const lines = useNodeStore((s) => s.lines);
   const routes = useNodeStore((s) => s.routes);
   const tagIndex = useTagStore((s) => s.index);
 
@@ -650,7 +660,7 @@ export function FilterChips({ inMonthSummary }: { inMonthSummary?: string | null
             {pop === "acct" && c.key === "acct" && <AcctPop f={effectiveFilter} searchOpen={searchOpen} onClose={close} />}
             {pop === "cat" && c.key === "cat" && <CatPop f={effectiveFilter} onPatch={onPatch} onClose={close} />}
             {pop === "kind" && c.key === "kind" && <KindPop f={effectiveFilter} onPatch={onPatch} onClose={close} />}
-            {pop === "route" && c.key === "route" && <RoutePop f={effectiveFilter} onPatch={onPatch} onClose={close} routes={routes} />}
+            {pop === "route" && c.key === "route" && <RoutePop f={effectiveFilter} onPatch={onPatch} onClose={close} routes={routes} lines={lines} />}
             {pop === "tag" && c.key === "tag" && <TagPop f={effectiveFilter} onPatch={onPatch} onClose={close} />}
           </span>
         );

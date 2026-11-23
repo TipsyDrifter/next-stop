@@ -1,38 +1,21 @@
 /**
- * PlanPanel——日程上點已排的卡開的小面板（④ 契約 §5.5、D-時-78、79、88；〈原型定案〉2、4；乙席；sheet `{ kind: "plan", key }`）。
- * 長相＝原型 v-h.js panelBody（.vh-pp）。兩殼共用本體：
- *   桌機＝貼在卡右邊的浮層（schedule/PlanPopover 包它；蓋在「差多少」欄上），手機＝MobileSheetHost 的 sheet（SheetPanel 的 plan 那一支）。
- *
- *   div.ns-tt-panel.ns-tt-plan
- *   ├ div.ns-tt-plan-h      路線圓牌（沒路線＝虛線「臨」）、路線名、「執行日 10/20（一）」或「定期券・每天 20:00」、本班／済／運休
- *   ├ Row「時刻」           ClockInput compact（−15｜可打字的框｜＋15；框下說明行＝這一天的日期、25:00 寫「＝隔天」、打錯說哪裡錯）｜発
- *   │                       過去的日子／運休＝只顯示時刻（＋「＝隔天 01:00」）
- *   ├ Row「預計」           fmtDur 或「沒填（畫 45 分虛線）」（預計照舊在側板改，契約 §1）
- *   ├ Row「實際」           連到的時間塊「10:25–11:40、…」＋「共 1h15m（2 塊）」＋差多少（fmtPlanDelta）
- *   ├ p.ns-tt-plan-teiki    定期券：「在這裡排＝只改這一班…」＋（覆寫過）「改回 20:00」＝clearRun
- *   └ Actions               清除時刻｜打開車票｜発車（只有今天、還沒済／運休，D-時-88；這張正在跑＝停用「運行中」）
- *
- * 寫入一律走 `timetableScheduleStore.placeAt`（守門、收據、撤回都在 store）；「改回」走 store 的 `revertRun`
- * （同一把鎖、同一套收據＋撤回，撤回＝planUndo）。誤點的單發票（`lateFrom`，D-時-80 改題）照樣能開：頭一行寫「誤點・原定 10/17」，
- * 時刻一寫＝執行日改到今天（placeAt 處理）；它還沒有這一天的時刻，所以不出「清除時刻」。発車＝先關面板再 `departFromPlan`（departFromTask 在面板開著時不發車）。
- * 輸入框：Enter 套用；失焦時按的是按鈕 ⇒ 丟掉草稿（不先寫再做按鈕的事），焦點真的離開才套用（修正席）。
- *
- * UI 丙-4 C5：自畫的 −15｜輸入框｜+15 換成全 App 那支 `ClockInput variant="compact"`（解析、範圍、打錯抖一下、跨天日期都是它的）。
- * - 值換算：時刻表的 `"HH:MM"`（營業日表記，25:00＝隔天 01:00）↔ 毫秒＝執行日 00:00 起算的分鐘；範圍＝`clockRange(日界線)`。
- * - 寫入節流：ClockInput 的 ±15 可以長按連跳，每一步都 `placeAt` 會撞同一把寫入鎖（忙著的那幾下被丟掉、框裡的數字亂跳）、
- *   還一步一個 toast。改成框裡先畫（`pend`），停手 COMMIT_MS 才寫一次；面板關掉時還沒寫的照寫（清除時刻除外，它自己蓋過去）。
- * - 「丟草稿」的鈕：面板的清除時刻／打開車票／発車／改回都帶 `data-tt-drop-draft`（ClockInput 失焦時看到就丟掉打到一半的字），
- *   保住上面那條「按按鈕不先寫草稿」；外框的 × 由 PlanPopover 帶。
+ * PlanPanel——日程上點已排的卡開的小面板（④ 契約 §5.5；第四梯 D-FB-7：預留席轉正／掛路線、Mode A 本班填空、Mode B 待辦入座與釋出）。
+ * 兩殼共用本體：桌機＝schedule/PlanPopover 貼在卡旁的浮層，手機＝MobileSheetHost 的 MSheet。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { nodeRepo } from "../../../data";
+import type { TaskRow } from "../../../domain/taskFilter";
 import { MIN, fmtClock, fmtDur, msOf } from "../../../domain/timetable";
 import { SCHED_TINY_MS, canScheduleDay } from "../../../domain/timetableSchedule";
 import { describeRule, parseRule } from "../../../domain/repeat";
-import { clockMinutes, clockRange, clockText, nextDayNote } from "../../../lib/date";
+import { placeholderTicketTitle } from "../../../domain/quickAdd";
+import { arrivalClock, clockMinutes, clockRange, clockText, nextDayNote } from "../../../lib/date";
+import { applyEndClock, CLOCK_SPAN_MAX_MIN } from "../../../domain/clockSpan";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
-import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
-import { SEG_UI, segTotalOf } from "../schedule/routineModel"; // ⑦ C 席
-import "../schedule/schedule7.css"; // ⑦ C 席：.ns-tt-segrow
+import { useTimetablePlanStore } from "../../../store/timetablePlanStore";
+import { useNodeStore } from "../../../store/nodeStore";
+import { SEG_UI, segTotalOf } from "../schedule/routineModel";
+import "../schedule/schedule7.css";
 import {
   addSegKey,
   canDepartPlan,
@@ -43,10 +26,21 @@ import {
 } from "../../../store/timetableScheduleStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useNow } from "../useNow";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { RouteRoundel, useRouteById } from "../parts/LinkPicker";
 import { SCHED_UI, deltaFull, mdw, toneOf } from "../schedule/scheduleModel";
+import {
+  PLACEHOLDER_UI,
+  canSeatIntoSlot,
+  isEligibleSeatCandidate,
+  isPlaceholderNode,
+  planItemDisplay,
+  sortSeatCandidates,
+} from "../schedule/scheduleSeatModel";
 import { openTicket } from "../schedule/openTicket";
 import { ClockInput } from "../../common/ClockInput";
+import { DurationPicker } from "../../common/DurationPicker";
+import { Select } from "../../common/Select";
 import { Actions, Row, Sub, type PanelProps } from "./controls";
 
 export interface PlanPanelProps extends PanelProps {
@@ -55,7 +49,6 @@ export interface PlanPanelProps extends PanelProps {
 }
 
 const STEP = 15;
-/** 停手多久才寫（ms）：長按連跳每 45–170ms 一步，停下來才寫一次 */
 const COMMIT_MS = 450;
 
 export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
@@ -69,49 +62,111 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
   const node = useTimetableScheduleStore((s) => (item ? s.nodes[item.nodeId] : undefined));
   const busy = useTimetableScheduleStore((s) => s.busy);
   const placeAt = useTimetableScheduleStore((s) => s.placeAt);
+  const setEstimate = useTimetableScheduleStore((s) => s.setEstimate);
   const revertRun = useTimetableScheduleStore((s) => s.revertRun);
+  const liveLines = useNodeStore((s) => s.liveLines);
+  const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const h = useUiStore((s) => s.dayStartHour);
   const routeById = useRouteById();
   const now = useNow(30_000);
   const all = useScheduleCompare(now);
   const c = all.cmp.get(key);
-  // ⑦（C 席）：這張票共幾段（第一段＋time_plans 的第二段起；useSchedulePage 已替這一天的票讀過）
   const segTotal = useTimetablePlanStore((s) => (item ? segTotalOf(item.nodeId, s.slotsByNode[item.nodeId]) : 1));
+
+  // Mode A 本班填空 ＆ 預留席轉正草稿
+  const [customDraft, setCustomDraft] = useState(item?.customTitle ?? "");
+  const [promoteDraft, setPromoteDraft] = useState("");
+  useEffect(() => {
+    setCustomDraft(item?.customTitle ?? "");
+  }, [item?.customTitle, key]);
+  useEffect(() => {
+    setPromoteDraft("");
+  }, [key]);
+
+  // Mode B 待辦入座挑選器狀態
+  const [seatOpen, setSeatOpen] = useState(false);
+  const [seatQuery, setSeatQuery] = useState("");
+  const [seatTasks, setSeatTasks] = useState<TaskRow[] | null>(null);
+  useEffect(() => {
+    setSeatOpen(false);
+    setSeatQuery("");
+    setSeatTasks(null);
+  }, [key]);
+
+  useEffect(() => {
+    if (!seatOpen || seatTasks !== null) return;
+    let alive = true;
+    nodeRepo
+      .listTasks()
+      .then((rows) => {
+        if (alive) setSeatTasks(rows);
+      })
+      .catch(() => {
+        if (alive) setSeatTasks([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [seatOpen, seatTasks]);
+
+  const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, liveLines), [liveRoutes, liveLines]);
+  const liveRouteIds = useMemo(() => new Set(liveRoutes.map((r) => r.id)), [liveRoutes]);
 
   // UI 丙-4 C5：時刻 ↔ 毫秒（執行日 00:00 起算；營業日表記 25:00＝隔天 01:00）
   const midnight = item ? new Date(`${item.date}T00:00:00`).getTime() : 0;
   const itemMs = item?.time ? midnight + (clockMinutes(item.time) ?? 0) * MIN : null;
-  /** 框裡已改、還沒寫進去的值（停手 COMMIT_MS 才寫）；寫成功後 item.time 換了就收掉 */
   const [pend, setPend] = useState<number | null>(null);
   const pendRef = useRef<number | null>(null);
   const commitT = useRef(0);
   const seq = useRef(0);
+  const [estPend, setEstPend] = useState<number | null | undefined>(undefined);
+  const estPendRef = useRef<number | null | undefined>(undefined);
+  const estCommitT = useRef(0);
+  const estSeq = useRef(0);
+
   const write = (ms: number, my: number): void => {
     const t = clockText(Math.round((ms - midnight) / MIN));
     if (!t) {
       if (seq.current === my) setPend(null);
       return;
     }
-    // 寫不進去（鎖著、守門擋下）⇒ 框退回原值；寫進去了等 item.time 換掉再收（不然重載前會閃回舊值）
     void placeAt(key, t).then((ok) => {
       if (!ok && seq.current === my) setPend(null);
     });
   };
+  const writeEst = (estMin: number | null, my: number): void => {
+    void setEstimate(key, estMin).then((ok) => {
+      if (!ok && estSeq.current === my) {
+        estPendRef.current = undefined;
+        setEstPend(undefined);
+      }
+    });
+  };
   const flushRef = useRef<() => void>(() => {});
   flushRef.current = () => {
-    if (!commitT.current) return;
-    window.clearTimeout(commitT.current);
-    commitT.current = 0;
-    if (pendRef.current !== null) write(pendRef.current, seq.current);
+    if (commitT.current) {
+      window.clearTimeout(commitT.current);
+      commitT.current = 0;
+      if (pendRef.current !== null) write(pendRef.current, seq.current);
+    }
+    if (estCommitT.current) {
+      window.clearTimeout(estCommitT.current);
+      estCommitT.current = 0;
+      if (estPendRef.current !== undefined) writeEst(estPendRef.current, estSeq.current);
+    }
   };
-  // 時刻從外面變了（寫完重載、拖、同步）而手上沒有等著寫的 ⇒ 框跟著 item
   useEffect(() => {
     if (!commitT.current) {
       pendRef.current = null;
       setPend(null);
     }
   }, [item?.time]);
-  // 面板關掉時還沒寫的照寫（清除時刻先把它取消了）
+  useEffect(() => {
+    if (!estCommitT.current) {
+      estPendRef.current = undefined;
+      setEstPend(undefined);
+    }
+  }, [item?.estimateMin]);
   useEffect(() => () => flushRef.current(), []);
 
   const catById = useTimetableStore((s) => s.catById);
@@ -121,15 +176,31 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
     if (!c || ttDay !== item?.date) return [];
     const ids = new Set(c.blockIds);
     const mine = dayBlocks.filter((r) => ids.has(r.id));
-    const pending = new Set(scheduleSpansOf(mine, { catById, longRunMaxMin, linkInfo }, now).filter((s) => s.pending).map((s) => s.id));
-    // 碎塊（已結束、整塊 < 60 秒）不列（差多少也不算它，D-時-44）；運行中的照列；待確認的照列、旁邊標「待確認」、不算進「（N 塊）」
+    const pending = new Set(
+      scheduleSpansOf(mine, { catById, longRunMaxMin, linkInfo }, now)
+        .filter((s) => s.pending)
+        .map((s) => s.id),
+    );
     return mine
       .filter((r) => r.ended_at === null || msOf(r.ended_at) - msOf(r.started_at) >= SCHED_TINY_MS)
       .sort((a, b) => msOf(a.started_at) - msOf(b.started_at))
       .map((r) => ({ row: r, pending: pending.has(r.id) }));
   }, [c, dayBlocks, ttDay, item?.date, catById, longRunMaxMin, linkInfo, now]);
 
-  // UI 丙-4 C4：退路只寫一句，不放「關閉」字鈕（規範 §4：不改東西只是關＝×／返回／點暗幕）
+  const seatCandidates = useMemo(() => {
+    if (!item || !seatTasks) return [];
+    const eligible = seatTasks.filter(
+      (r) =>
+        (!r.route_id || liveRouteIds.has(r.route_id)) &&
+        isEligibleSeatCandidate(r, item.nodeId, r.has_kids),
+    );
+    return sortSeatCandidates(eligible, {
+      preferredRouteId: node?.route_id ?? null,
+      targetDate: item.date,
+      query: seatQuery,
+    }).slice(0, 30);
+  }, [item, seatTasks, liveRouteIds, node?.route_id, seatQuery]);
+
   if (!item || !c) {
     return (
       <div className="ns-tt-panel ns-tt-plan">
@@ -142,21 +213,27 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
   const isPast = item.date < todayKey;
   const editable = canScheduleDay(item.date, todayKey) && !item.skipped;
   const route = node?.route_id ? (routeById[node.route_id] ?? null) : null;
+  const disp = planItemDisplay(item, node, route?.name);
+  const placeholder = isPlaceholderNode(node);
+  const canSeat = editable && canSeatIntoSlot(item, node);
   const rule = item.kind === "repeat" ? parseRule(node?.repeat_rule) : null;
   const ruleText = rule ? describeRule(rule) : "";
   const everyRun = node?.scheduled_time ?? null;
   const next = item.time ? nextDayNote(item.time) : null;
   const delta = deltaFull(item, c, isPast, TT_TEXT.schedSkipped);
   const live = running?.node_id === item.nodeId;
-  /** 算進「共 X（N 塊）」的塊數（待確認的列出來但不算） */
   const counted = blocks.filter((b) => !b.pending).length;
 
   const range = clockRange(h);
   const loMs = midnight + range.min * MIN;
   const hiMs = midnight + range.max * MIN;
-  // 還沒排時刻（理論上欄上的卡都有；防禦）：框從「現在」取整到 15 分起算，不先寫
-  const fallbackMs = Math.max(loMs, Math.min(hiMs, midnight + Math.round((now - midnight) / MIN / STEP) * STEP * MIN));
+  const fallbackMs = Math.max(
+    loMs,
+    Math.min(hiMs, midnight + Math.round((now - midnight) / MIN / STEP) * STEP * MIN),
+  );
   const shown = pend ?? itemMs ?? fallbackMs;
+  const effEst = estPend !== undefined ? estPend : (item.estimateMin ?? null);
+
   const change = (ms: number): void => {
     const my = ++seq.current;
     pendRef.current = ms;
@@ -167,16 +244,151 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
       write(ms, my);
     }, COMMIT_MS);
   };
-  const clear = (): void => {
-    // 等著寫的時刻作廢（不然關面板時先寫它、清除那一下撞鎖被丟掉）
+  const changeEst = (nextEst: number | null, immediate = false): void => {
+    const my = ++estSeq.current;
+    estPendRef.current = nextEst;
+    setEstPend(nextEst);
+    window.clearTimeout(estCommitT.current);
+    if (immediate) {
+      estCommitT.current = 0;
+      writeEst(nextEst, my);
+      return;
+    }
+    estCommitT.current = window.setTimeout(() => {
+      estCommitT.current = 0;
+      writeEst(nextEst, my);
+    }, COMMIT_MS);
+  };
+  const changeEnd = (endMs: number): void => {
+    const startText = clockText(Math.round((shown - midnight) / MIN));
+    const endText = clockText(Math.round((endMs - midnight) / MIN));
+    if (!startText || !endText) return;
+    const res = applyEndClock({ startHm: startText, durationMin: effEst }, endText, h);
+    if (res.ok && res.durationMin !== null) {
+      changeEst(res.durationMin, false);
+    }
+  };
+
+  /** Mode A：提交本班具體內容（定期班次） */
+  const commitCustomTitle = async (nextRaw?: string): Promise<void> => {
+    const val = (nextRaw !== undefined ? nextRaw : customDraft).trim();
+    const cur = (item.customTitle ?? "").trim();
+    if (val === cur) return;
+    const res = await useNodeStore.getState().setRunCustomTitle(item.nodeId, item.date, val || null);
+    if (res.ok) {
+      await useTimetableScheduleStore.getState().load();
+    }
+  };
+
+  /** 4A：預留席原地填入具體標題並轉為正式車票 */
+  const commitPromotePlaceholder = async (): Promise<void> => {
+    if (!node || !placeholder) return;
+    const trimmed = promoteDraft.trim();
+    if (!trimmed) return;
+    const prevName = node.name;
+    const res = await useNodeStore.getState().updateNode(node.id, {
+      name: trimmed,
+      is_placeholder: null,
+    });
+    if (!res.ok) return;
+    setPromoteDraft("");
+    await useTimetableScheduleStore.getState().load();
+    useUiStore.getState().showToast({
+      message: PLACEHOLDER_UI.promoted(trimmed),
+      actionLabel: TT_TEXT.undo,
+      onAction: () => {
+        void useNodeStore
+          .getState()
+          .updateNode(node.id, { name: prevName, is_placeholder: 1 })
+          .then(() => useTimetableScheduleStore.getState().load());
+      },
+    });
+  };
+
+  /** 4A：預留席切換掛載路線 */
+  const handlePlaceholderRouteChange = async (nextRouteId: string): Promise<void> => {
+    if (!node) return;
+    const rid = nextRouteId || null;
+    const ns = useNodeStore.getState();
+    const prevRouteName = route?.name ?? null;
+    const nextRoute = rid ? (routeById[rid] ?? null) : null;
+    const res = await ns.setRouteTag(node.id, rid);
+    if (!res.ok) return;
+    // 若標題仍是預設「預留席」或前一條路線名，自動跟著換成新路線名
+    if (node.name === PLACEHOLDER_UI.fallbackName || (prevRouteName && node.name === prevRouteName)) {
+      const autoName = placeholderTicketTitle({ routeName: nextRoute?.name ?? null });
+      await ns.updateNode(node.id, { name: autoName });
+    }
+    await useTimetableScheduleStore.getState().load();
+  };
+
+  /** Mode B：選擇一張待辦車票入座到此空位 */
+  const handlePickSeatCandidate = async (cand: TaskRow): Promise<void> => {
+    const slotNodeId = item.nodeId;
+    const dueOn = item.date;
+    const slotName = node?.name ?? PLACEHOLDER_UI.fallbackName;
+    const res = await useNodeStore.getState().seatTicketIntoSlot(slotNodeId, dueOn, cand.id);
+    if (!res.ok) return;
+    setSeatOpen(false);
+    await useTimetableScheduleStore.getState().load();
+    // 切換面板至入座後的那張待辦車票（因原空殼預留席已自動隱藏）
+    useTimetableStore.getState().openSheet({ kind: "plan", key: `${dueOn}-${cand.id}` });
+    useUiStore.getState().showToast({
+      message: PLACEHOLDER_UI.seated(cand.name, slotName),
+      actionLabel: TT_TEXT.undo,
+      onAction: () => {
+        void useNodeStore
+          .getState()
+          .releaseSeatedSlot(slotNodeId, dueOn)
+          .then(() => useTimetableScheduleStore.getState().load());
+      },
+    });
+  };
+
+  /** Mode B：釋出目前已入座的預留席 */
+  const handleReleaseSeat = async (): Promise<void> => {
+    const ref = item.seatedInto;
+    if (!ref) return;
+    const res = await useNodeStore.getState().releaseSeatedSlot(ref.slotNodeId, ref.dueOn);
+    if (!res.ok) return;
+    await useTimetableScheduleStore.getState().load();
+    useTimetableStore.getState().openSheet({ kind: "plan", key: `${item.date}-${ref.slotNodeId}` });
+    useUiStore.getState().showToast({
+      message: PLACEHOLDER_UI.released(ref.slotName),
+    });
+  };
+
+  const deletePlaceholder = (): void => {
+    if (!node) return;
     window.clearTimeout(commitT.current);
     commitT.current = 0;
+    window.clearTimeout(estCommitT.current);
+    estCommitT.current = 0;
+    onDone();
+    const targetId = node.id;
+    void useNodeStore.getState().deleteNode(targetId).then((ids) => {
+      if (ids.length > 0) {
+        useUiStore.getState().showToast({
+          message: PLACEHOLDER_UI.deleted,
+          actionLabel: TT_TEXT.undo,
+          onAction: () => {
+            void useNodeStore.getState().restoreNodes(ids);
+          },
+        });
+      }
+    });
+  };
+
+  const clear = (): void => {
+    window.clearTimeout(commitT.current);
+    commitT.current = 0;
+    window.clearTimeout(estCommitT.current);
+    estCommitT.current = 0;
     onDone();
     void placeAt(key, null);
   };
   const revert = (): void => {
     if (busy || !editable) return;
-    // store.revertRun：clearRun＋同一把鎖、同一套收據／撤回（舊覆寫在日界線外 ⇒ 不出撤回）、寫完重載
     void revertRun(key);
   };
   const open = (): void => {
@@ -187,23 +399,30 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
     onDone();
     departFromPlan(key);
   };
-
-  // ⑦（C 席）：再排一段＝收面板（等著寫的時刻照寫）、進挑位置
   const again = (): void => {
     onDone();
     useTimetableScheduleStore.getState().pick(addSegKey(item.nodeId));
   };
 
   const showDepart = isToday && canDepartPlan(item);
-  const actualNone =
-    item.done ? SCHED_UI.actualNone.doneNoTime : all.isFuture ? SCHED_UI.actualNone.future : isPast ? SCHED_UI.actualNone.past : SCHED_UI.actualNone.notStarted;
+  const canClearTime =
+    editable &&
+    !item.lateFrom &&
+    (item.kind === "repeat" || (node?.scheduled_time !== null && node?.scheduled_time !== undefined));
+  const actualNone = item.done
+    ? SCHED_UI.actualNone.doneNoTime
+    : all.isFuture
+      ? SCHED_UI.actualNone.future
+      : isPast
+        ? SCHED_UI.actualNone.past
+        : SCHED_UI.actualNone.notStarted;
 
   return (
     <div className="ns-tt-panel ns-tt-plan">
       <div className="ns-tt-plan-h">
         <RouteRoundel route={route} />
         <span className="ns-tt-plan-meta">
-          <b>{route?.name ?? SCHED_UI.temp}</b>
+          <b>{route?.name ?? (placeholder ? PLACEHOLDER_UI.tag : SCHED_UI.temp)}</b>
           <small>
             {item.kind === "repeat"
               ? SCHED_UI.repeatLine(ruleText, everyRun)
@@ -212,6 +431,15 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
                 : SCHED_UI.dateLine(mdw(item.date))}
           </small>
         </span>
+        {disp.badgeKind === "placeholder" && (
+          <em className="ns-tt-sched-tag is-placeholder">{PLACEHOLDER_UI.tag}</em>
+        )}
+        {disp.badgeKind === "seated" && (
+          <em className="ns-tt-sched-tag is-seated">{disp.badgeText}</em>
+        )}
+        {disp.badgeKind === "filled" && (
+          <em className="ns-tt-sched-tag is-filled">{disp.badgeText}</em>
+        )}
         {item.overridden && <em className="ns-tt-sched-tag">{TT_TEXT.schedRun}</em>}
         {item.skipped && <em className="ns-tt-sched-tag is-cancel">{TT_TEXT.schedSkipped}</em>}
         {item.done && (
@@ -220,6 +448,203 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
           </span>
         )}
       </div>
+
+      {/* 4A：預留席車票原地填入具體事項轉正 ＋ 路線指定 */}
+      {placeholder && editable && (
+        <>
+          <Row k="具體事項" top>
+            <div className="ns-tt-seat-box">
+              <div className="ns-tt-seat-inline">
+                <input
+                  className="ns-tt-rtp-name"
+                  value={promoteDraft}
+                  maxLength={80}
+                  placeholder="填入具體事項（Enter 轉為正式車票）"
+                  aria-label="填入具體事項"
+                  onChange={(e) => setPromoteDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void commitPromotePlaceholder();
+                    }
+                  }}
+                />
+                {promoteDraft.trim() !== "" && (
+                  <button
+                    type="button"
+                    className="ns-tt-opt is-solid"
+                    data-tt-drop-draft=""
+                    disabled={busy}
+                    onClick={() => void commitPromotePlaceholder()}
+                  >
+                    轉正
+                  </button>
+                )}
+              </div>
+            </div>
+          </Row>
+          {node?.parent_id === null && (
+            <Row k="路線">
+              <span className="ns-select-wrap ns-tt-adhoc-select">
+                <Select
+                  className="techo-input"
+                  aria-label="預留席路線"
+                  value={node.route_id ?? ""}
+                  onChange={(val) => void handlePlaceholderRouteChange(val)}
+                >
+                  <option value="">不掛路線</option>
+                  {routeGroups.map((g) => (
+                    <optgroup key={g.lineId ?? "other"} label={g.header}>
+                      {g.routes.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.code ? `${r.code} ${r.name}` : r.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </Select>
+              </span>
+            </Row>
+          )}
+        </>
+      )}
+
+      {/* 4C Mode A：定期班次「本班內容」填空 */}
+      {item.kind === "repeat" && editable && (
+        <Row k="本班內容" top>
+          <div className="ns-tt-seat-box">
+            <div className="ns-tt-seat-inline">
+              <input
+                className="ns-tt-rtp-name"
+                value={customDraft}
+                maxLength={80}
+                placeholder={`填寫本班具體事項（未填顯示「${node?.name ?? ""}」）`}
+                aria-label="本班內容"
+                onChange={(e) => setCustomDraft(e.target.value)}
+                onBlur={() => void commitCustomTitle()}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void commitCustomTitle();
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+              />
+              {item.customTitle && (
+                <button
+                  type="button"
+                  className="ns-tt-opt"
+                  data-tt-drop-draft=""
+                  disabled={busy}
+                  onClick={() => {
+                    setCustomDraft("");
+                    void commitCustomTitle("");
+                  }}
+                >
+                  還原原名
+                </button>
+              )}
+            </div>
+            <small className="ns-tt-seat-note">
+              只套用這一班，下一期自動恢復「{node?.name ?? ""}」
+            </small>
+          </div>
+        </Row>
+      )}
+
+      {/* 4C Mode B：目前已入座某預留席 ⇒ 顯示母預留資訊與一鍵「釋出預留席」 */}
+      {item.seatedInto && (
+        <Row k="預留席" top>
+          <div className="ns-tt-seat-active">
+            <span className="ns-tt-seat-active-txt">
+              已入座「{item.seatedInto.isRecurring ? `↻ ${item.seatedInto.slotName}` : item.seatedInto.slotName}」
+              {item.seatedInto.slotEstimateMin
+                ? ` · ${fmtDur(item.seatedInto.slotEstimateMin * MIN)}`
+                : ""}
+            </span>
+            {editable && (
+              <button
+                type="button"
+                className="ns-tt-opt is-solid"
+                data-tt-drop-draft=""
+                disabled={busy}
+                onClick={() => void handleReleaseSeat()}
+              >
+                釋出預留席
+              </button>
+            )}
+          </div>
+        </Row>
+      )}
+
+      {/* 4C Mode B：預留席／定期班次可「⇄ 配對待辦入座」 */}
+      {canSeat && (
+        <Row k="待辦入座" top>
+          <div className="ns-tt-seat-box">
+            <div className="ns-tt-seat-inline">
+              <button
+                type="button"
+                className={"ns-tt-opt" + (seatOpen ? " is-solid" : "")}
+                data-tt-drop-draft=""
+                aria-expanded={seatOpen}
+                onClick={() => setSeatOpen((v) => !v)}
+              >
+                {seatOpen ? "收起候選清單" : "⇄ 配對待辦入座"}
+              </button>
+              {!seatOpen && (
+                <small className="ns-tt-seat-note">讓既有車票坐進此時段，時數不重算</small>
+              )}
+            </div>
+            {seatOpen && (
+              <div className="ns-tt-seat-picker">
+                <input
+                  className="ns-tt-rtp-name"
+                  type="search"
+                  value={seatQuery}
+                  placeholder="搜尋要入座的待辦車票…"
+                  aria-label="搜尋要入座的待辦車票"
+                  onChange={(e) => setSeatQuery(e.target.value)}
+                />
+                <div className="ns-tt-seat-list" role="listbox" aria-label="可入座的待辦車票">
+                  {seatTasks === null ? (
+                    <span className="ns-tt-plan-faint">載入待辦車票中…</span>
+                  ) : seatCandidates.length === 0 ? (
+                    <span className="ns-tt-plan-faint">找不到可入座的待辦車票</span>
+                  ) : (
+                    seatCandidates.map((cand) => {
+                      const candRoute = cand.route_id ? routeById[cand.route_id] : undefined;
+                      return (
+                        <button
+                          key={cand.id}
+                          type="button"
+                          role="option"
+                          aria-selected={false}
+                          className="ns-tt-seat-opt"
+                          data-tt-drop-draft=""
+                          onClick={() => void handlePickSeatCandidate(cand)}
+                        >
+                          <i
+                            className="ns-tt-sched-rdot"
+                            style={{ "--rc": candRoute?.color ?? "var(--ns-tt-cat-8)" } as React.CSSProperties}
+                            aria-hidden="true"
+                          />
+                          <span className="nm">{cand.name}</span>
+                          {candRoute && <small className="rt">{candRoute.name}</small>}
+                          {cand.estimate_min ? (
+                            <small className="est ns-tt-num">{fmtDur(cand.estimate_min * MIN)}</small>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </Row>
+      )}
 
       {editable ? (
         <>
@@ -235,17 +660,58 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
             />
             <span className="ns-tt-plan-hatsu">発</span>
           </Row>
+          <Row k="結束" time={effEst !== null}>
+            {effEst !== null ? (
+              <>
+                <ClockInput
+                  variant="compact"
+                  value={shown + effEst * MIN}
+                  lo={shown + MIN}
+                  hi={shown + CLOCK_SPAN_MAX_MIN * MIN}
+                  onChange={changeEnd}
+                  label="結束時刻"
+                  refDay={item.date}
+                />
+                <span className="ns-tt-plan-hatsu">着</span>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="ns-tt-opt is-solid"
+                data-tt-drop-draft=""
+                disabled={busy}
+                onClick={() => changeEst(60, true)}
+              >
+                ＋ 設結束時刻
+              </button>
+            )}
+          </Row>
         </>
       ) : (
         <Row k={TT_TEXT.schedTimeLabel}>
-          <b className="ns-tt-num ns-tt-plan-ptime">{item.time ?? "—"}</b>
-          <span className="ns-tt-plan-hatsu">発</span>
+          <b className="ns-tt-num ns-tt-plan-ptime">
+            {item.time ?? "—"}
+            {item.time && item.estimateMin ? ` → ${arrivalClock(item.time, item.estimateMin) ?? ""} 着` : ""}
+          </b>
+          {!item.estimateMin && <span className="ns-tt-plan-hatsu">発</span>}
           {next && <small className="ns-tt-plan-pnx">{SCHED_UI.timeNext(next)}</small>}
         </Row>
       )}
 
-      <Row k={SCHED_UI.estimate}>
-        {item.estimateMin ? <span className="ns-tt-num">{fmtDur(item.estimateMin * MIN)}</span> : <span className="ns-tt-plan-faint">{SCHED_UI.noEstimate}</span>}
+      <Row k={SCHED_UI.estimate} top={editable}>
+        {editable ? (
+          <DurationPicker
+            value={effEst}
+            onChange={(m) => changeEst(m, true)}
+            compact
+            liveCommit
+            ariaLabel={SCHED_UI.estimate}
+          />
+        ) : item.estimateMin ? (
+          <span className="ns-tt-num">{fmtDur(item.estimateMin * MIN)}</span>
+        ) : (
+          <span className="ns-tt-plan-faint">{SCHED_UI.noEstimate}</span>
+        )}
       </Row>
 
       {!item.skipped && (
@@ -271,12 +737,17 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
         </Row>
       )}
 
-      {/* ⑦（C 席，D-時-162）：單發票才有「分段　共 N 段〔再排一段〕」；按了＝收面板、進挑位置（點預定欄放下＝addSlot） */}
-      {item.kind === "single" && editable && !item.lateFrom && (
+      {item.kind === "single" && !placeholder && editable && !item.lateFrom && (
         <Row k={SEG_UI.rowKey}>
           <span className="ns-tt-segrow">
             <span className="ns-tt-plan-faint">{SEG_UI.count(segTotal)}</span>
-            <button type="button" className="ns-tt-opt is-solid" data-tt-drop-draft="" disabled={busy} onClick={again}>
+            <button
+              type="button"
+              className="ns-tt-opt is-solid"
+              data-tt-drop-draft=""
+              disabled={busy}
+              onClick={again}
+            >
               {SEG_UI.again}
             </button>
           </span>
@@ -291,7 +762,13 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
             <>
               {SCHED_UI.teikiNote(`${ruleText}${everyRun ? " " + everyRun : ""}`)}
               {item.overridden && editable && (
-                <button type="button" className="ns-tt-opt is-ghostlink" data-tt-drop-draft="" disabled={busy} onClick={revert}>
+                <button
+                  type="button"
+                  className="ns-tt-opt is-ghostlink"
+                  data-tt-drop-draft=""
+                  disabled={busy}
+                  onClick={revert}
+                >
                   {SCHED_UI.revert(everyRun ?? "—")}
                 </button>
               )}
@@ -303,8 +780,25 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
       {!editable && !item.skipped && <p className="ns-tt-plan-ro">{SCHED_UI.readonly}</p>}
 
       <Actions>
-        {editable && !item.lateFrom && (
-          <button type="button" className="ns-btn btn-ghost is-aux" data-tt-drop-draft="" disabled={busy} onClick={clear}>
+        {placeholder && editable && (
+          <button
+            type="button"
+            className="ns-btn btn-ghost ns-btn-danger is-aux"
+            data-tt-drop-draft=""
+            disabled={busy}
+            onClick={deletePlaceholder}
+          >
+            刪除
+          </button>
+        )}
+        {canClearTime && (
+          <button
+            type="button"
+            className="ns-btn btn-ghost is-aux"
+            data-tt-drop-draft=""
+            disabled={busy}
+            onClick={clear}
+          >
             {TT_TEXT.schedClear}
           </button>
         )}
@@ -312,7 +806,14 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
           {TT_TEXT.schedOpenTicket}
         </button>
         {showDepart && (
-          <button type="button" className="ns-btn btn-seal" data-tt-drop-draft="" disabled={live} title={live ? TT_TEXT.alreadyRunning : undefined} onClick={depart}>
+          <button
+            type="button"
+            className="ns-btn btn-seal"
+            data-tt-drop-draft=""
+            disabled={live}
+            title={live ? TT_TEXT.alreadyRunning : undefined}
+            onClick={depart}
+          >
             {live ? SCHED_UI.runningNow : "発車"}
           </button>
         )}

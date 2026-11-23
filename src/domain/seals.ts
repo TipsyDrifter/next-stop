@@ -35,15 +35,27 @@ export interface SealFact {
 
 /* ───────── SQLite（$1＝窗的開始、$2＝窗的結束，UTC ISO；[start, end)） ───────── */
 
-/** (a) 節點的條件（`FROM nodes n`） */
+/** (a) 節點的條件（`FROM nodes n`；4C：已被有效入座頂替的單次預留席不重複計章） */
 export const SEAL_NODE_WHERE =
   "n.deleted_at IS NULL AND n.kind IN ('train','car','ticket') AND n.status = 'done' " +
-  "AND n.completed_at IS NOT NULL AND n.completed_at >= $1 AND n.completed_at < $2";
+  "AND n.completed_at IS NOT NULL AND n.completed_at >= $1 AND n.completed_at < $2 " +
+  "AND NOT (COALESCE(n.is_placeholder, 0) = 1 AND EXISTS (" +
+  "SELECT 1 FROM node_time_overrides nto_s JOIN nodes t ON t.id = nto_s.seated_node_id " +
+  "WHERE nto_s.node_id = n.id AND nto_s.due_on = COALESCE(n.scheduled_on, 'unscheduled') " +
+  "AND nto_s.deleted_at IS NULL AND nto_s.seated_node_id IS NOT NULL AND t.deleted_at IS NULL " +
+  "AND ((n.scheduled_on IS NULL AND t.scheduled_on IS NULL) OR (n.scheduled_on IS NOT NULL AND t.scheduled_on = n.scheduled_on))" +
+  "))";
 
-/** (b) 班次的條件（`FROM occurrences o JOIN nodes n ON n.id = o.node_id`） */
+/** (b) 班次的條件（`FROM occurrences o JOIN nodes n ON n.id = o.node_id`；4C：已被有效入座頂替的班次不重複計章） */
 export const SEAL_OCC_WHERE =
   "o.deleted_at IS NULL AND n.deleted_at IS NULL AND o.status = 'done' " +
-  "AND o.completed_at IS NOT NULL AND o.completed_at >= $1 AND o.completed_at < $2";
+  "AND o.completed_at IS NOT NULL AND o.completed_at >= $1 AND o.completed_at < $2 " +
+  "AND NOT EXISTS (" +
+  "SELECT 1 FROM node_time_overrides nto_s JOIN nodes t ON t.id = nto_s.seated_node_id " +
+  "WHERE nto_s.node_id = o.node_id AND nto_s.due_on = o.due_on " +
+  "AND nto_s.deleted_at IS NULL AND nto_s.seated_node_id IS NOT NULL " +
+  "AND t.deleted_at IS NULL AND t.scheduled_on = o.due_on" +
+  ")";
 
 /** (a) 一列＝`SealRow`（id, node_id, name, kind, route_id, at, mood, due_on） */
 export const SEAL_NODE_SQL =
@@ -51,10 +63,14 @@ export const SEAL_NODE_SQL =
   "FROM nodes n WHERE " +
   SEAL_NODE_WHERE;
 
-/** (b) 一列＝`SealRow` */
+/** (b) 一列＝`SealRow`（第四梯 4C：若有當班填空標題，足跡與済章顯示「填空標題（母定期名）」） */
 export const SEAL_OCC_SQL =
-  "SELECT o.id, o.node_id, n.name, n.kind, n.route_id, o.completed_at AS at, o.mood, o.due_on " +
-  "FROM occurrences o JOIN nodes n ON n.id = o.node_id WHERE " +
+  "SELECT o.id, o.node_id, " +
+  "CASE WHEN nto.custom_title IS NOT NULL AND nto.custom_title != '' THEN nto.custom_title || '（' || n.name || '）' ELSE n.name END AS name, " +
+  "n.kind, n.route_id, o.completed_at AS at, o.mood, o.due_on " +
+  "FROM occurrences o JOIN nodes n ON n.id = o.node_id " +
+  "LEFT JOIN node_time_overrides nto ON nto.node_id = o.node_id AND nto.due_on = o.due_on AND nto.deleted_at IS NULL " +
+  "WHERE " +
   SEAL_OCC_WHERE;
 
 /** 兩句 SELECT 回來的一列 */
@@ -91,6 +107,8 @@ export interface SealNodeSrc {
   completed_at: string | null;
   mood: SealFact["mood"];
   deleted_at: string | null;
+  scheduled_on?: string | null;
+  is_placeholder?: number | null;
 }
 export interface SealOccSrc {
   id: string;
@@ -104,13 +122,20 @@ export interface SealOccSrc {
 
 const inWin = (iso: string | null, w: IsoWindow): iso is string => !!iso && iso >= w.start && iso < w.end;
 
-/** (a)＋(b)：不排序、不去重（去重交給 `dedupeSeals`） */
-export function sealsInWindow(w: IsoWindow, nodes: readonly SealNodeSrc[], occurrences: readonly SealOccSrc[]): SealFact[] {
+/** (a)＋(b)：不排序、不去重（去重交給 `dedupeSeals`）；`customTitleOf` 供 Mode A 補上當班標題、`isSeatedSlot` 供 Mode B 排除已被入座頂替的空殼 */
+export function sealsInWindow(
+  w: IsoWindow,
+  nodes: readonly SealNodeSrc[],
+  occurrences: readonly SealOccSrc[],
+  customTitleOf?: (nodeId: string, dueOn: string) => string | null | undefined,
+  isSeatedSlot?: (nodeId: string, dueOn: string) => boolean,
+): SealFact[] {
   const out: SealFact[] = [];
   const byId = new Map<string, SealNodeSrc>();
   for (const n of nodes) byId.set(n.id, n);
   for (const n of nodes) {
     if (n.deleted_at !== null || n.status !== "done" || SEAL_KINDS.indexOf(n.kind) < 0 || !inWin(n.completed_at, w)) continue;
+    if (n.is_placeholder === 1 && isSeatedSlot?.(n.id, n.scheduled_on ?? "unscheduled")) continue;
     out.push({
       id: n.id,
       nodeId: n.id,
@@ -125,10 +150,12 @@ export function sealsInWindow(w: IsoWindow, nodes: readonly SealNodeSrc[], occur
   for (const o of occurrences) {
     const n = byId.get(o.node_id);
     if (!n || n.deleted_at !== null || o.deleted_at !== null || o.status !== "done" || !inWin(o.completed_at, w)) continue;
+    if (isSeatedSlot?.(n.id, o.due_on)) continue;
+    const custom = customTitleOf?.(n.id, o.due_on)?.trim();
     out.push({
       id: o.id,
       nodeId: n.id,
-      name: n.name,
+      name: custom ? `${custom}（${n.name}）` : n.name,
       kind: n.kind as SealFact["kind"],
       routeId: n.route_id,
       at: o.completed_at,

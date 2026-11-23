@@ -36,10 +36,22 @@ export function cardStatus(node: Pick<NodeRow, "status">, occ: OccurrenceLike | 
   return node.status === "done" ? "todo" : node.status;
 }
 
+export interface BoardCardsOptions {
+  /** 依車站時納入沒有子項的空支線（讓剛建好還沒排票的支線也能顯示並拖放歸站） */
+  includeEmptyBranches?: boolean;
+}
+
 /** 這一張現在在看板上看得到嗎（跳轉落點用；聚焦已清）：要是卡，而且沒被「隱藏済」收起來 */
-export function isVisibleCard<N extends BoardNode>(tree: BoardTree<N>, id: string, occ: OccurrenceLike | undefined, hideDone: boolean): boolean {
+export function isVisibleCard<N extends BoardNode>(
+  tree: BoardTree<N>,
+  id: string,
+  occ: OccurrenceLike | undefined,
+  hideDone: boolean,
+  options?: BoardCardsOptions,
+): boolean {
   const n = tree.byId[id];
-  if (!n || !isCardKind(n.kind) || (tree.childrenOf[id]?.length ?? 0) > 0) return false;
+  const allowed = n && (isCardKind(n.kind) || (!!options?.includeEmptyBranches && n.kind === "branch"));
+  if (!n || !allowed || (tree.childrenOf[id]?.length ?? 0) > 0) return false;
   return !(hideDone && isTaskDone(n, occ));
 }
 
@@ -67,14 +79,21 @@ export interface BoardCard<N extends BoardNode = BoardNode> {
 }
 
 /** 從這些根節點起攤平成大綱順序的卡；祖先路徑從 `crumb` 接下去 */
-export function boardCards<N extends BoardNode>(tree: BoardTree<N>, rootIds: readonly string[], crumb: readonly string[] = []): BoardCard<N>[] {
+export function boardCards<N extends BoardNode>(
+  tree: BoardTree<N>,
+  rootIds: readonly string[],
+  crumb: readonly string[] = [],
+  options?: BoardCardsOptions,
+): BoardCard<N>[] {
   const out: BoardCard<N>[] = [];
   const walk = (id: string, path: readonly string[]) => {
     const n = tree.byId[id];
     if (!n) return;
     const kids = tree.childrenOf[id] ?? [];
     if (!kids.length) {
-      if (isCardKind(n.kind)) out.push({ node: n, crumb: [...path] });
+      if (isCardKind(n.kind) || (options?.includeEmptyBranches && n.kind === "branch")) {
+        out.push({ node: n, crumb: [...path] });
+      }
       return;
     }
     for (const k of kids) walk(k, [...path, n.name]);
@@ -98,15 +117,73 @@ export function statusColumns<N extends BoardNode>(
   }));
 }
 
-/** 真正掛的車站：車站還在、而且跟票同一條路線才算（搬到別條路線、車站被刪＝當沒掛，資料不改，復原就回來） */
-export function effectiveStation(
-  node: Pick<NodeRow, "station_id" | "route_id">,
-  stations: ReadonlyMap<string, Pick<NodeRow, "parent_id">>,
+export interface InheritedStationResult {
+  stationId: string | null;
+  inheritedFrom: { id: string; name: string } | null;
+}
+
+export type StationParentNode = Pick<NodeRow, "id" | "parent_id" | "name" | "station_id" | "route_id"> &
+  Partial<Pick<NodeRow, "deleted_at" | "kind">>;
+
+export type StationLookupValue = Pick<NodeRow, "parent_id"> & Partial<Pick<NodeRow, "deleted_at">>;
+
+function validStationId(
+  stationId: string | null | undefined,
+  routeId: string | null,
+  stations: ReadonlyMap<string, StationLookupValue>,
 ): string | null {
-  const id = node.station_id;
-  if (!id) return null;
-  const s = stations.get(id);
-  return s && s.parent_id === node.route_id ? id : null;
+  if (!stationId || !routeId) return null;
+  const s = stations.get(stationId);
+  if (!s || (s.deleted_at !== undefined && s.deleted_at !== null)) return null;
+  return s.parent_id === routeId ? stationId : null;
+}
+
+function getTreeNode<T>(
+  byId: Readonly<Record<string, T>> | ReadonlyMap<string, T> | undefined,
+  id: string,
+): T | undefined {
+  if (!byId) return undefined;
+  return byId instanceof Map ? byId.get(id) : (byId as Readonly<Record<string, T | undefined>>)[id];
+}
+
+/**
+ * 真正掛的車站與繼承來源：
+ * - 節點自身 `station_id` 有效（車站存活且與節點同路線）⇒ `{ stationId, inheritedFrom: null }`
+ * - 若自身未掛或無效且傳入 `byId` ⇒ 沿 `parent_id` 祖先鏈向上尋找第一個有效車站（存活且屬同一 `route_id`），回傳繼承來源 `{ id, name }`
+ */
+export function inheritedStationOf(
+  node: Pick<NodeRow, "station_id" | "route_id"> & Partial<Pick<NodeRow, "id" | "parent_id" | "deleted_at">>,
+  stations: ReadonlyMap<string, StationLookupValue>,
+  byId?: Readonly<Record<string, StationParentNode>> | ReadonlyMap<string, StationParentNode>,
+): InheritedStationResult {
+  const own = validStationId(node.station_id, node.route_id, stations);
+  if (own) return { stationId: own, inheritedFrom: null };
+  if (!byId || !node.route_id) return { stationId: null, inheritedFrom: null };
+
+  const seen = new Set<string>();
+  if (node.id) seen.add(node.id);
+  let curId = node.parent_id ?? null;
+  while (curId && !seen.has(curId)) {
+    seen.add(curId);
+    const anc = getTreeNode(byId, curId);
+    if (!anc || (anc.deleted_at !== undefined && anc.deleted_at !== null)) break;
+    if (anc.kind === "route" || anc.kind === "line") break;
+    if (anc.route_id === node.route_id) {
+      const hit = validStationId(anc.station_id, node.route_id, stations);
+      if (hit) return { stationId: hit, inheritedFrom: { id: anc.id, name: anc.name } };
+    }
+    curId = anc.parent_id;
+  }
+  return { stationId: null, inheritedFrom: null };
+}
+
+/** 真正掛的車站：車站還在、而且跟票同一條路線才算（傳入 `byId` 時支援沿祖先鏈繼承支線／列車／車廂的掛站） */
+export function effectiveStation(
+  node: Pick<NodeRow, "station_id" | "route_id"> & Partial<Pick<NodeRow, "id" | "parent_id" | "deleted_at">>,
+  stations: ReadonlyMap<string, StationLookupValue>,
+  byId?: Readonly<Record<string, StationParentNode>> | ReadonlyMap<string, StationParentNode>,
+): string | null {
+  return inheritedStationOf(node, stations, byId).stationId;
 }
 
 export interface StationColumn<N extends BoardNode = BoardNode, S = NodeRow> {
@@ -115,14 +192,18 @@ export interface StationColumn<N extends BoardNode = BoardNode, S = NodeRow> {
   cards: BoardCard<N>[];
 }
 
-/** 依車站分欄：「還沒排站」一欄＋這條路線每一站（照車站順序、含已到站），欄內順序跟大綱 */
-export function stationColumns<N extends BoardNode & Pick<NodeRow, "station_id" | "route_id">, S extends Pick<NodeRow, "id" | "parent_id">>(
+/** 依車站分欄：「還沒排站」一欄＋這條路線每一站（照車站順序、含已到站），欄內順序跟大綱；傳入 `byId` 時依繼承車站歸欄 */
+export function stationColumns<
+  N extends BoardNode & Pick<NodeRow, "station_id" | "route_id">,
+  S extends Pick<NodeRow, "id" | "parent_id"> & Partial<Pick<NodeRow, "deleted_at">>,
+>(
   cards: readonly BoardCard<N>[],
   stations: readonly S[],
+  byId?: Readonly<Record<string, StationParentNode>> | ReadonlyMap<string, StationParentNode>,
 ): StationColumn<N, S>[] {
-  const byId = new Map(stations.map((s) => [s.id, s]));
+  const stationMap = new Map(stations.map((s) => [s.id, s]));
   const cols = new Map<string | null, BoardCard<N>[]>([[null, []], ...stations.map((s): [string, BoardCard<N>[]] => [s.id, []])]);
-  for (const c of cards) cols.get(effectiveStation(c.node, byId))!.push(c);
+  for (const c of cards) cols.get(effectiveStation(c.node, stationMap, byId))!.push(c);
   return [{ station: null, cards: cols.get(null)! }, ...stations.map((s) => ({ station: s, cards: cols.get(s.id)! }))];
 }
 

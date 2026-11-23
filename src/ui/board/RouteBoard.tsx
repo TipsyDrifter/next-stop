@@ -26,6 +26,13 @@ import { dragBatch, pickClick } from "../common/selection/desktopSelection";
 import { armOpenOnClick } from "../common/selection/openOnClick";
 import { SelectionBar } from "../common/selection/SelectionBar";
 import { useSelectable } from "../common/selection/useSelectable";
+import {
+  STATION_DROP_TYPE,
+  dropOnStation,
+  resolveActiveStationFilter,
+  stationTargetVerdict,
+  useRouteStationFilter,
+} from "../outline/StationTrackBar";
 import { dropOnRoute, routeTargetVerdict } from "../outline/useOutlineDrag";
 import { BoardCard } from "./BoardCard";
 import { BoardColumns } from "./BoardColumns";
@@ -35,7 +42,7 @@ import { boardCardMenu } from "./boardMenu";
 import { useBoardKeyboard, type KeyColumn } from "./useBoardKeyboard";
 import { useCardDefer } from "./useCardDefer";
 import { ROUTE_LAYOUT_PANEL } from "./RouteViewTabs";
-import { TOP_COL, type BoardColumnModel, useRouteBoard } from "./useRouteBoard";
+import { NO_STATION_COL, TOP_COL, type BoardColumnModel, useRouteBoard } from "./useRouteBoard";
 
 const PARKED_DRAG_WHY = "已收進車庫——要改先回到運行";
 
@@ -122,13 +129,18 @@ export function RouteBoard({ board, group, routeId, tree, zoom, parked, today, k
     onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3600),
     dragIds: (id) => dragBatch("board", id, order),
     resolve: (ids, place: DropPlace) => {
-      if (place.kind === "target") return place.type === "route" ? routeTargetVerdict(ids, place.target) : "這裡放不下";
+      if (place.kind === "target") {
+        if (place.type === "route") return routeTargetVerdict(ids, place.target);
+        if (place.type === STATION_DROP_TYPE) return stationTargetVerdict(ids, place.target, routeId, parked);
+        return "這裡放不下";
+      }
       if (group !== "train") return true;
       return trainDropVerdict({ id: topId, kind: topKind }, ids, place.col ?? TOP_COL, place.after, place.before);
     },
     onDrop: (ids, place) => {
       if (place.kind === "target") {
         if (place.type === "route") dropOnRoute(ids, place.target);
+        else if (place.type === STATION_DROP_TYPE) dropOnStation(ids, place.target, routeId);
         return;
       }
       moveTo(ids, place.col ?? TOP_COL, { after: place.after, before: place.before });
@@ -172,7 +184,16 @@ export function RouteBoard({ board, group, routeId, tree, zoom, parked, today, k
 
   const renderCard = (card: BoardCardModel<NodeRow>) => {
     const n = card.node;
-    const path = card.crumb.length ? card.crumb.join(" › ") : n.parent_id === null ? "臨時車票" : null;
+    const path =
+      n.kind === "branch"
+        ? card.crumb.length
+          ? `支線・${card.crumb.join(" › ")}`
+          : "支線（主題）"
+        : card.crumb.length
+          ? card.crumb.join(" › ")
+          : n.parent_id === null
+            ? "臨時車票"
+            : null;
     return (
       <BoardCard
         key={n.id}
@@ -185,7 +206,7 @@ export function RouteBoard({ board, group, routeId, tree, zoom, parked, today, k
         selected={selectedId === n.id}
         picked={!!picked?.includes(n.id)}
         fresh={freshId === n.id}
-        stampWhy={parked ? PARKED_ADD_WHY : undefined}
+        stampWhy={parked ? PARKED_ADD_WHY : n.kind === "branch" ? "支線是主題章節，不蓋済章" : undefined}
         onStamp={stamp}
         menu={() => boardCardMenu(n, { today, parked, order, openDefer: defer.open })}
         onPress={onPress}
@@ -236,10 +257,19 @@ export function RouteBoard({ board, group, routeId, tree, zoom, parked, today, k
   );
 }
 
-/** 一欄底部的建票列；依車站建好後把票掛到這一站 */
+/** 一欄底部的建票列；依車站或單站聚焦篩選時預設帶入該站（亦可從「車站」膠囊覆寫） */
 function AddRow({ column, routeId, zoom, onClose }: { column: BoardColumnModel; routeId: string; zoom: NodeRow | null; onClose(byKeyboard: boolean): void }) {
-  const stationId = column.station?.id ?? null;
-  const defaults = useMemo<QuickDefaults>(() => ({ dest: destOf(column, routeId, zoom), scheduledOn: null }), [column.key, routeId, zoom?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [rawFilter] = useRouteStationFilter(routeId);
+  const allStations = useNodeStore((s) => s.stations);
+  const activeFilter = resolveActiveStationFilter(rawFilter, allStations, routeId);
+  const defaultStationId =
+    column.station?.id ??
+    (column.key === NO_STATION_COL ? null : activeFilter && activeFilter !== NO_STATION_COL ? activeFilter : null);
+  const defaults = useMemo<QuickDefaults>(
+    () => ({ dest: destOf(column, routeId, zoom), stationId: defaultStationId, scheduledOn: null }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [column.key, routeId, zoom?.id, defaultStationId],
+  );
   return (
     <div className="ns-bd-add">
       <QuickAddRow
@@ -247,11 +277,9 @@ function AddRow({ column, routeId, zoom, onClose }: { column: BoardColumnModel; 
         defaults={defaults}
         here={{ kind: "route", routeId }}
         routeKind="ticket"
+        hideRouteKind
         placeholder="新增車票…"
         onClose={onClose}
-        onCreated={(row) => {
-          if (stationId) void useNodeStore.getState().updateNode(row.id, { station_id: stationId });
-        }}
       />
     </div>
   );

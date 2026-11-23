@@ -23,7 +23,9 @@ import { useTimetablePlanStore, type TimePlanRow } from "../../../store/timetabl
 import { useUiStore } from "../../../store/uiStore";
 import { ClockInput, clockDraftsOkIn, type ClockInputHandle } from "../../common/ClockInput";
 import { DateChip, dateChipText } from "../../common/DateChip";
+import { DurationPicker } from "../../common/DurationPicker";
 import { IconClose } from "../../common/icons";
+import { applySpanDurationMin, spanDurationMin } from "../../common/timespan/TimeSpanDurationFields";
 import { clockBounds, clockSeed, clockToMs, msToClock } from "../../panel/clockValue";
 import "./slots.css";
 
@@ -302,6 +304,28 @@ function SlotEditor({
           handleRef={endH}
           left={false}
           right={false}
+        />
+      </span>
+      <span className="ns-tt-tplans-dur">
+        <DurationPicker
+          value={spanDurationMin(sMs, eMs)}
+          onChange={(m) => {
+            if (m === null) return;
+            const d = live.current;
+            const a0 = clockToMs(d.s, d.day) ?? sMs;
+            const b0 = clockToMs(d.e, d.day) ?? eMs;
+            const next = applySpanDurationMin(
+              { startMs: a0, endMs: b0 },
+              m,
+              { lo, hiEnd: clockBounds(d.day, dayStartHour).hi + MIN },
+            );
+            const e = msToClock(next.endMs, d.day);
+            if (e !== null) setDraft({ ...d, e });
+          }}
+          allowNull={false}
+          compact
+          liveCommit
+          ariaLabel="分段時長"
         />
       </span>
       <span className="ns-tt-tplans-acts">

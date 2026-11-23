@@ -30,6 +30,7 @@
  */
 import { useRef, useState } from "react";
 import { arrivalClock, clockMinutes, clockRange, clockText, isClockPast, nowClockMinutes } from "../../lib/date";
+import { applyEndClock, CLOCK_SPAN_MAX_MIN } from "../../domain/clockSpan";
 import { mdw } from "../schedule/streamModel";
 import type { TicketCardModel } from "../schedule/ticketCard";
 import { ClockInput, type ClockInputHandle } from "../common/ClockInput";
@@ -140,6 +141,7 @@ export function MobileTimeSheet({
   const [min, setMin] = useState(initial);
   const [est, setEst] = useState<number | null>(card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null);
   const clock = useRef<ClockInputHandle>(null);
+  const endClock = useRef<ClockInputHandle>(null);
 
   /** ClockInput 的毫秒 → 營業日分鐘（夾在 [lo, hi] 裡，一定換得回來；萬一換不回來就留原值） */
   const minOf = (ms: number): number => {
@@ -158,16 +160,31 @@ export function MobileTimeSheet({
   const sumEst = mode === "rule" ? est : card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null;
   const arrive = sumEst !== null ? arrivalClock(time, sumEst) : null;
 
+  const applyRuleEndMs = (ms: number, startText = time, prevEst = est): number | null => {
+    const endText = msToClock(ms, dayDate);
+    if (!endText) return null;
+    const res = applyEndClock({ startHm: startText, durationMin: prevEst }, endText, dayStartHour);
+    return res.ok && res.durationMin !== null ? res.durationMin : null;
+  };
+
   const ruleTime = card.ruleTime;
 
   const commit = () => {
     // 框裡有沒打完的字：先套用（打錯＝還原＋抖一下，不送）
     let t = time;
+    let nextEst = est;
     const h = clock.current;
     if (h?.dirty()) {
       const v = h.flush();
       if (v === null) return;
       t = clockText(minOf(v)) ?? time;
+    }
+    const eh = endClock.current;
+    if (eh?.dirty()) {
+      const ev = eh.flush();
+      if (ev === null) return;
+      const calc = applyRuleEndMs(ev, t, nextEst);
+      if (calc !== null) nextEst = calc;
     }
     if (isEnd) {
       // end：結束−開始＝新長度（範圍已擋掉等於或早於開始）；沒變就直接關
@@ -182,12 +199,12 @@ export function MobileTimeSheet({
     }
     if (mode === "rule") {
       const timeSame = current === t;
-      const estSame = est === (card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null);
+      const estSame = nextEst === (card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null);
       if (timeSame && estSame) {
         onClose();
         return;
       }
-      onCommit(t, estSame ? undefined : est);
+      onCommit(t, estSame ? undefined : nextEst);
       return;
     }
     // run：選的就是每班時刻
@@ -259,10 +276,47 @@ export function MobileTimeSheet({
       )}
 
       {mode === "rule" && withLen && (
-        <div className="m-tms-grp">
-          <span className="techo-label">預計多久</span>
-          <DurationPicker value={est} onChange={setEst} liveCommit ariaLabel="預計多久" />
-        </div>
+        <>
+          <div className="m-tms-grp">
+            <div className="m-tms-endhead">
+              <span className="techo-label">結束時刻</span>
+              {est !== null && (
+                <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={() => setEst(null)}>
+                  不設結束
+                </button>
+              )}
+            </div>
+            {est !== null ? (
+              <ClockInput
+                variant="mobile"
+                quick={[]}
+                value={msOf(dayDate, min + est)}
+                lo={msOf(dayDate, min + 1)}
+                hi={msOf(dayDate, Math.max(dayRange.max, min + CLOCK_SPAN_MAX_MIN))}
+                onChange={(ms) => {
+                  const calc = applyRuleEndMs(ms);
+                  if (calc !== null) setEst(calc);
+                }}
+                label="結束時刻"
+                refDay={dayDate}
+                dateLabel="other"
+                handleRef={endClock}
+              />
+            ) : (
+              <button
+                type="button"
+                className="ns-btn btn-ghost ns-btn--sm m-tms-endseed"
+                onClick={() => setEst(END_SEED_MIN)}
+              >
+                ＋ 設結束時刻（預設 {arrivalClock(time, END_SEED_MIN) ?? ""} 着）
+              </button>
+            )}
+          </div>
+          <div className="m-tms-grp">
+            <span className="techo-label">預計多久</span>
+            <DurationPicker value={est} onChange={setEst} liveCommit ariaLabel="預計多久" />
+          </div>
+        </>
       )}
 
       {isEnd && startMin !== null ? (

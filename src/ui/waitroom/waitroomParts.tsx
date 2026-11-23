@@ -25,6 +25,7 @@ import type { NodeRow } from "../../domain/node";
 import type { TimeCategoryRow } from "../../domain/timetable";
 import { timetableRepo } from "../../data/timetableRepository";
 import { useTimetableStore } from "../../store/timetableStore";
+import { applySpanDurationMin, applySpanEndMs, applySpanStartMs, spanDurationMin } from "../common/timespan/TimeSpanDurationFields";
 import { realizeAsDiary, realizeAsRoute, realizeAsTicket, realizeAsTime } from "./waitroomActs";
 
 /** 籤：全部＋種類 id */
@@ -289,8 +290,22 @@ export function useRealizeDraft(w: WishRow, action: Exclude<WishAction, "entry">
     setCatId,
     timeCats,
     span,
-    setStart: (ms: number) => setSpan((s) => ({ start: ms, end: Math.max(s.end, ms) })),
-    setEnd: (ms: number) => setSpan((s) => ({ start: s.start, end: ms })),
+    durationMin: spanDurationMin(span.start, span.end),
+    setStart: (ms: number) =>
+      setSpan((s) => {
+        const next = applySpanStartMs({ startMs: s.start, endMs: s.end }, ms, { lo, hiEnd: hi });
+        return { start: next.startMs, end: next.endMs };
+      }),
+    setEnd: (ms: number) =>
+      setSpan((s) => {
+        const next = applySpanEndMs({ startMs: s.start, endMs: s.end }, ms, { lo, hiEnd: hi });
+        return { start: next.startMs, end: next.endMs };
+      }),
+    setDurationMin: (min: number) =>
+      setSpan((s) => {
+        const next = applySpanDurationMin({ startMs: s.start, endMs: s.end }, min, { lo, hiEnd: hi, shiftStartIfCapped: true });
+        return { start: next.startMs, end: next.endMs };
+      }),
     lo,
     hi,
     blocked,

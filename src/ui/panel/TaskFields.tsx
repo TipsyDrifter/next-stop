@@ -31,14 +31,20 @@ import {
 } from "./fields";
 import { FareRow, RepeatSection, TeikiStampRow, usePanelRepeat } from "./RepeatRuleEditor";
 import { LengthField, TimeSpanField } from "./TimeField";
-import { StationFieldRow } from "../board/StationField";
+import { StationFieldRow, useStationField } from "../board/StationField";
 import { Choice } from "./Choice";
 import { DateChip } from "../common/DateChip";
+import {
+  DesktopSeatPicker,
+  canActAsSeatSlot,
+  releaseSeatedFlow,
+} from "../common/seating";
+import "../common/seating/flexible-seating.css";
 import { MOODS } from "../complete/moods";
 import { todayKey } from "../../lib/date";
 import { fmtDateTime } from "./format";
 import { WorkLogList } from "./WorkLogList";
-import { useMoveTo } from "./MoveTo";
+import { LocationFieldRow, useMoveTo, useNodeLocationInfo } from "./MoveTo";
 import { lineNodeFields } from "../../lines/runtime";
 import type { NodeFieldSpec } from "../../lines/types";
 import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
@@ -55,9 +61,6 @@ import {
 import "./taskStatusSeals.css";
 
 /* 現況／優先順序的選項、定期券三態、検印怎麼畫：手機詳情頁同一份（./panelRules）；寫入流程在 outline/nodeFlows（D-主-82） */
-
-/** 路線標籤選擇器的「無路線」哨兵值（Segmented 的 value 必須是 string，不能用 null 當選項） */
-const NO_ROUTE = "__none__";
 
 /* 心情三燈的字與色：UI 丙-3 G1 起跟完成卡同一份（complete/moods.ts；§4 定案字＝順暢／還行／吃力，
    舊字「順利／普通／卡關」退役；存進資料庫的值 green／yellow／red 不變） */
@@ -194,12 +197,24 @@ function ScheduledChip({ node }: { node: NodeRow }) {
   return (
     <DateChip
       date={node.scheduled_on}
+      endDate={node.scheduled_end}
+      allowRange
       onPick={(v) => {
-        const syncDue = Boolean(node.scheduled_on && node.due_on === node.scheduled_on);
+        const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
         void updateNode(
           node.id,
-          syncDue && v ? { scheduled_on: v, due_on: v } : { scheduled_on: v },
+          syncDue && v ? { scheduled_on: v, scheduled_end: null, due_on: v } : { scheduled_on: v, scheduled_end: null },
           { backfill: true },
+        );
+      }}
+      onPickRange={(s, e) => {
+        const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
+        void updateNode(
+          node.id,
+          syncDue && s
+            ? { scheduled_on: s, scheduled_end: e, due_on: e ?? s }
+            : { scheduled_on: s, scheduled_end: e },
+          { backfill: !e },
         );
       }}
       allowPast
@@ -227,13 +242,84 @@ function ScheduleSection({
   lockedDate: boolean;
 }) {
   const updateNode = useNodeStore((s) => s.updateNode);
+  const runOverrides = useNodeStore((s) => s.runOverrides);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const [seatAnchor, setSeatAnchor] = useState<HTMLElement | null>(null);
+  const syncDueTarget = node.scheduled_end ?? node.scheduled_on;
+  const isDueSynced = Boolean(syncDueTarget && node.due_on === syncDueTarget);
+
+  // Mode B：這張單發票是否正入座於某個預留席，或本身是單發預留席
+  const seatedOvr = !lockedDate && node.scheduled_on
+    ? runOverrides.find((o) => !o.deleted_at && o.seated_node_id === node.id && o.due_on === node.scheduled_on)
+    : undefined;
+  const hostOvr = !lockedDate && node.is_placeholder && node.scheduled_on
+    ? runOverrides.find((o) => !o.deleted_at && o.node_id === node.id && o.due_on === node.scheduled_on && o.seated_node_id)
+    : undefined;
+  const canHostSeat = !lockedDate && canActAsSeatSlot(node, node.status === "done") && Boolean(node.scheduled_on);
+
   return (
     <>
       <SectionRule title="時刻" />
       <div className="fields">
         {/* 票種（收官磨光 Q1）：留在乘車日之前（手機詳情頁同位置） */}
         <FareRow node={node} repeat={repeat} />
+
+        <FieldRow label="預留席">
+          <button
+            type="button"
+            className={"ns-qa-chip" + (node.is_placeholder ? " is-on" : "")}
+            aria-pressed={Boolean(node.is_placeholder)}
+            title={
+              node.is_placeholder
+                ? "目前為預留席（虛線框）——點擊轉為一般車票，或直接修改上方標題自動轉正"
+                : "將這張票標為預留空位，可讓其他待辦車票拖入頂替"
+            }
+            onClick={() => void updateNode(node.id, { is_placeholder: node.is_placeholder ? null : 1 })}
+          >
+            <span className="k">{node.is_placeholder ? "預留席（點擊轉正式車票）" : "設為預留席"}</span>
+          </button>
+        </FieldRow>
+
+        {seatedOvr && (
+          <FieldRow label="入座席次">
+            <span className="ns-range-row-acts">
+              <span className="ns-seat-badge">已入座（{seatedOvr.due_on.slice(5).replace("-", "/")}）</span>
+              <button
+                type="button"
+                className="ns-seat-release"
+                onClick={() => void releaseSeatedFlow(seatedOvr.node_id, seatedOvr.due_on, node.id)}
+              >
+                釋出預留席
+              </button>
+            </span>
+          </FieldRow>
+        )}
+
+        {canHostSeat && node.scheduled_on && (
+          <FieldRow label="待辦入座">
+            {hostOvr?.seated_node_id ? (
+              <span className="ns-range-row-acts">
+                <span className="ns-seat-badge">已有車票入座</span>
+                <button
+                  type="button"
+                  className="ns-seat-release"
+                  onClick={() => void releaseSeatedFlow(node.id, node.scheduled_on!, hostOvr.seated_node_id ?? undefined)}
+                >
+                  釋出預留席
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="ns-seat-dropbtn"
+                aria-expanded={seatAnchor !== null}
+                onClick={(e) => setSeatAnchor(seatAnchor ? null : e.currentTarget)}
+              >
+                ⇄ 配對待辦入座…
+              </button>
+            )}
+          </FieldRow>
+        )}
 
         <div className="sched-group">
           <FieldRow label="乘車日">
@@ -268,15 +354,15 @@ function ScheduleSection({
                 clearable
                 label="締切日"
               />
-              {node.scheduled_on && (
+              {syncDueTarget && (
                 <button
                   type="button"
-                  className={"ns-qa-chip" + (node.due_on === node.scheduled_on ? " is-on" : "")}
-                  aria-pressed={node.due_on === node.scheduled_on}
-                  title="將締切日設為與乘車日同一天"
+                  className={"ns-qa-chip" + (isDueSynced ? " is-on" : "")}
+                  aria-pressed={isDueSynced}
+                  title="將締切日設為與乘車日（或期間訖日）同一天"
                   onClick={() =>
                     void updateNode(node.id, {
-                      due_on: node.due_on === node.scheduled_on ? null : node.scheduled_on,
+                      due_on: isDueSynced ? null : syncDueTarget,
                     })
                   }
                 >
@@ -287,6 +373,15 @@ function ScheduleSection({
           </FieldRow>
         </div>
       </div>
+      {seatAnchor && node.scheduled_on && (
+        <DesktopSeatPicker
+          slotId={node.id}
+          slotName={node.name}
+          dueOn={node.scheduled_on}
+          anchor={seatAnchor}
+          onClose={() => setSeatAnchor(null)}
+        />
+      )}
     </>
   );
 }
@@ -462,7 +557,6 @@ function TaskPanel({ node }: { node: NodeRow }) {
     (s) => s.workLogs[node.id]?.filter((l) => l.event === null).length ?? 0,
   );
   const { updateNode, remove, convert } = useNodeActions();
-  const move = useMoveTo(node);
   // 票種列與重複段共用一份草稿（收官磨光 Q1）
   const repeat = usePanelRepeat(node);
 
@@ -481,7 +575,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
     <div>
       <NameBlock
         node={node}
-        onRename={(name) => void updateNode(node.id, { name })}
+        onRename={(name) => void updateNode(node.id, { name, ...(node.is_placeholder ? { is_placeholder: null } : {}) })}
         sub={
           done && node.completed_at ? (
             <>
@@ -492,6 +586,8 @@ function TaskPanel({ node }: { node: NodeRow }) {
       />
 
       <SummarySection node={node} ariaLabel={`${KIND_LABEL[node.kind]}概要`} placeholder="補一句要做到什麼程度……" />
+
+      <LocationFieldRow node={node} />
 
       <SectionRule title="状態" />
       <div className="fields">
@@ -585,15 +681,11 @@ function TaskPanel({ node }: { node: NodeRow }) {
 
       <ActionsRow
         left={
-          <>
-            {/* 磨光⑤ B1：跨路線搬遷的入口（挑選器接在操作列下方） */}
-            {move.button}
-            {node.kind === "train" && (
-              <ActionButton ariaLabel="轉為支線" title="把這班列車改成支線" onClick={() => void convert(node, "branch")}>
-                轉為支線
-              </ActionButton>
-            )}
-          </>
+          node.kind === "train" ? (
+            <ActionButton ariaLabel="轉為支線" title="把這班列車改成支線" onClick={() => void convert(node, "branch")}>
+              轉為支線
+            </ActionButton>
+          ) : undefined
         }
         right={
           <ActionButton ariaLabel={`刪除${KIND_LABEL[node.kind]}`} tone="danger" onClick={() => remove(node)}>
@@ -601,7 +693,6 @@ function TaskPanel({ node }: { node: NodeRow }) {
           </ActionButton>
         }
       />
-      {move.picker}
     </div>
   );
 }
@@ -636,14 +727,12 @@ function MoodLights({ value, onChange }: { value: Mood | null; onChange: (m: Moo
 
 function TicketPanel({ node }: { node: NodeRow }) {
   const routes = useNodeStore((s) => s.routes);
-  const setRouteTag = useNodeStore((s) => s.setRouteTag);
   // 只數主人手寫的那幾則；系統事件（発券／入鋏／済）不算「記録」（整合席：WP4 開的接口）
   const logCount = useNodeStore(
     (s) => s.workLogs[node.id]?.filter((l) => l.event === null).length ?? 0,
   );
-  const showToast = useUiStore((s) => s.showToast);
-  const { updateNode, remove } = useNodeActions();
-  const move = useMoveTo(node);
+  const { updateNode, remove, convert } = useNodeActions();
+  const locInfo = useNodeLocationInfo(node);
   // 票種列與重複段共用一份草稿（收官磨光 Q1）
   const repeat = usePanelRepeat(node);
   /**
@@ -656,23 +745,16 @@ function TicketPanel({ node }: { node: NodeRow }) {
   const lockedDate = teiki || retired;
   const done = node.status === "done";
 
-  /**
-   * 臨時車票＝parent_id 為 null 的車票（a18–a21）。只有它能掛路線標籤（repository 會擋掉其他情形），
-   * 也只有它需要——樹裡的車票路線由祖先決定。
-   */
   const isTemp = node.parent_id === null;
   const tagRoute = node.route_id ? routes.find((r) => r.id === node.route_id) : undefined;
-
-  const tag = async (routeId: string | null) => {
-    const r = await setRouteTag(node.id, routeId);
-    if (!r.ok) showToast({ message: r.reason ?? "無法加上路線" }, 4000);
-  };
+  const canConvertToBranch =
+    node.route_id !== null && !tagRoute?.arrived_on && locInfo.parentKind !== "train" && locInfo.parentKind !== "car";
 
   return (
     <div>
       <NameBlock
         node={node}
-        onRename={(name) => void updateNode(node.id, { name })}
+        onRename={(name) => void updateNode(node.id, { name, ...(node.is_placeholder ? { is_placeholder: null } : {}) })}
         sub={
           done && node.completed_at ? (
             <>
@@ -695,31 +777,10 @@ function TicketPanel({ node }: { node: NodeRow }) {
 
       <SummarySection node={node} ariaLabel="車票概要" placeholder="補一句要做到什麼程度……" />
 
-      {isTemp && (
-        <>
-          <SectionRule title="路線" />
-          <div className="fields">
-            <FieldRow label="所屬路線">
-              {/* 選一條＝寫 route_id（line_id 由 repository 同步）；「無路線」＝清成 null。
-                  票根（上方 .panel-kind）與今日列的票根會立刻換成該路線的色。 */}
-              <Choice
-                value={node.route_id ?? NO_ROUTE}
-                options={[
-                  { value: NO_ROUTE, label: "無路線" },
-                  // 車庫與回顧 D-主-206 #15：只列還在跑的路線＋目前掛的那條（就算已收進車庫，也照樣顯示）
-                  ...routes
-                    .filter((r) => !r.arrived_on || r.id === node.route_id)
-                    .map((r) => ({ value: r.id, label: r.code ? `${r.code}・${r.name}` : r.name })),
-                ]}
-                onChange={(v) => void tag(v === NO_ROUTE ? null : v)}
-                ariaLabel="所屬路線"
-              />
-            </FieldRow>
-          </div>
-        </>
-      )}
+      {/* Bug 5：統一「掛在」路徑欄（取代舊版只給臨時票的平鋪所屬路線） */}
+      <LocationFieldRow node={node} info={locInfo} />
 
-      {/* 状態段（v1.31 D-1.31-4：車票同列車／車廂統一提供「推進狀態」與「結案印記（蓋済／途中下車）」，再接優先順序與車站／別線欄位） */}
+      {/* 状態段（v1.31 D-1.31-4 ＋ Bug 4 補齊車票心情欄與旅客筆記插槽） */}
       <SectionRule title="状態" />
       <div className="fields">
         <StatusAndSealFields node={node} />
@@ -734,28 +795,36 @@ function TicketPanel({ node }: { node: NodeRow }) {
         {/* ⑫：路線上有車站才出；臨時車票沒掛路線時不出 */}
         <StationFieldRow node={node} />
         <LineRows node={node} />
+        <FieldRow label="心情">
+          <MoodLights value={node.mood} onChange={(m) => void updateNode(node.id, { mood: m })} />
+        </FieldRow>
       </div>
 
       {/* 時刻段＝票種＋時段組（D-主-129；同列車／車廂面板）。票種、締切日＝收官磨光 Q1 雙端同等補上的；定期券＝每班時刻，逐班改在検印段的「本班」 */}
       <ScheduleSection node={node} repeat={repeat} lockedDate={lockedDate} />
 
-      {/* 重複＝獨立區段（M3 ④ WP3）；掛上規則票頭立刻變「定期券」，検印欄改蓋班次 */}
+      {/* 重複＝獨立區段（M3 ④ WP3；畫面 2：一般票隱藏，切定期券才展開） */}
       <RepeatSection node={node} repeat={repeat} />
 
       {teiki && <TeikiStampRow node={node} />}
 
-      {/* 工作日誌（D-③-4 甲：`L` 全列可用，車票面板補這一段）——直接掛既有 WorkLogList，
-          時刻戳＋手寫內文的樣式（＝「乘務記錄」那套版式）在 stamps.css，今日視圖按 `L` 記的那一句就落在這裡。
-          標題與列車／車廂面板同一個字：同一個側板位置只能有一個名字（件一 :1340 的 <h4>工作日誌</h4>）。 */}
+      {/* 工作日誌（D-③-4 甲：`L` 全列可用，車票面板補這一段） */}
       <SectionRule title="工作日誌" aside={logCount ? `${logCount} 則` : undefined} />
       <WorkLogList nodeId={node.id} />
 
       <ActionsRow
-        // 磨光⑤ B1：臨時車票＝掛進某班列車；樹內車票＝換一班列車或車廂；討論 5：樹內車票可新增子車票升格為列車／車廂
         left={
           <>
-            {move.button}
-            {!isTemp && !tagRoute?.arrived_on && (
+            {canConvertToBranch && (
+              <ActionButton
+                ariaLabel="轉為支線"
+                title="把這張車票改成支線（主題）"
+                onClick={() => void convert(node, "branch")}
+              >
+                轉為支線
+              </ActionButton>
+            )}
+            {node.route_id !== null && !tagRoute?.arrived_on && (
               <ActionButton
                 ariaLabel="新增子車票"
                 title="在此車票底下新增子車票，此車票將自動升格為列車或車廂"
@@ -782,7 +851,6 @@ function TicketPanel({ node }: { node: NodeRow }) {
           </ActionButton>
         }
       />
-      {move.picker}
     </div>
   );
 }
@@ -792,14 +860,14 @@ function TicketPanel({ node }: { node: NodeRow }) {
 function BranchPanel({ node }: { node: NodeRow }) {
   const tree = useNodeStore((s) => s.tree);
   const { updateNode, remove, convert } = useNodeActions();
-  const move = useMoveTo(node);
+  const locInfo = useNodeLocationInfo(node);
   const n = descendantCount(tree, node.id);
 
   return (
     <div>
       <NameBlock
         node={node}
-        onRename={(name) => void updateNode(node.id, { name })}
+        onRename={(name) => void updateNode(node.id, { name, ...(node.is_placeholder ? { is_placeholder: null } : {}) })}
         sub={
           n > 0 ? (
             <>
@@ -811,20 +879,22 @@ function BranchPanel({ node }: { node: NodeRow }) {
 
       <SummarySection node={node} ariaLabel="支線概要" placeholder="這條支線負責什麼……" />
 
-      {/* 別線欄位列（插槽 nodeFields）：概要下自成一塊；沒有線登記支線欄位＝不出 DOM */}
-      {lineFieldsFor(node).length > 0 && (
-        <div className="fields">
-          <LineRows node={node} />
-        </div>
-      )}
+      <LocationFieldRow node={node} info={locInfo} />
+
+      {/* 第三梯 Bug 3：支線亦可掛載車站（底下子樹自動繼承）＋別線欄位列 */}
+      <BranchExtraFields node={node} />
 
       <ActionsRow
         left={
           <>
-            {move.button}
             <ActionButton ariaLabel="轉為列車" title="把這條支線改成一班列車（任務）" onClick={() => void convert(node, "train")}>
               轉為列車
             </ActionButton>
+            {!locInfo.hasKids && (
+              <ActionButton ariaLabel="轉為車票" title="把這條空支線改成一張車票" onClick={() => void convert(node, "ticket")}>
+                轉為車票
+              </ActionButton>
+            )}
           </>
         }
         right={
@@ -833,7 +903,18 @@ function BranchPanel({ node }: { node: NodeRow }) {
           </ActionButton>
         }
       />
-      {move.picker}
+    </div>
+  );
+}
+
+function BranchExtraFields({ node }: { node: NodeRow }) {
+  const hasStation = useStationField(node) !== null;
+  const hasLineFields = lineFieldsFor(node).length > 0;
+  if (!hasStation && !hasLineFields) return null;
+  return (
+    <div className="fields">
+      <StationFieldRow node={node} />
+      {hasLineFields && <LineRows node={node} />}
     </div>
   );
 }

@@ -14,11 +14,11 @@ import { todayKey } from "../../../lib/date";
 import { useUiStore } from "../../../store/uiStore";
 import { Segmented } from "../../common/Segmented";
 import {
+  ACTIVE_MODE_OPTIONS,
   END_OPTIONS,
   FREQ_OPTIONS,
   INTERVAL_UNIT,
   LAST_WEEKDAY_WHY,
-  MODE_OPTIONS,
   buildRule,
   intervalMax,
   mdwText,
@@ -46,6 +46,7 @@ export interface MobileRepeatSectionProps {
 export function MobileRepeatSection({ node, draft, push, open, onToggle, onPickDate }: MobileRepeatSectionProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const done = useDoneRuns(node);
+  if (draft.mode === "none") return null;
   const aside = repeatAside(draft, node.repeat_rule, done);
   const teiki = buildRule(draft) !== null;
 
@@ -63,7 +64,7 @@ export function MobileRepeatSection({ node, draft, push, open, onToggle, onPickD
           <div className="m-dt-row">
             <span className="m-dt-label">模式</span>
             <div className="m-dt-val">
-              <Segmented options={MODE_OPTIONS} value={draft.mode} onChange={(v) => push(switchMode(draft, v))} aria-label="重複方式" />
+              <Segmented options={ACTIVE_MODE_OPTIONS} value={draft.mode} onChange={(v) => push(switchMode(draft, v))} aria-label="重複方式" />
             </div>
           </div>
 
@@ -145,41 +146,37 @@ export function MobileRepeatSection({ node, draft, push, open, onToggle, onPickD
             </div>
           )}
 
-          {draft.mode !== "none" && (
-            <div className="m-dt-row">
-              <span className="m-dt-label">起算日</span>
-              <div className="m-dt-val">
-                {/* 起算日一定有值，不給清除；過去日照舊可挑（桌機同） */}
-                <button
-                  type="button"
-                  className="m-dt-pick"
-                  aria-label={`起算日：${mdwText(draft.start)}`}
-                  onClick={() => onPickDate("起算日", draft.start, (day) => push({ ...draft, start: day }))}
-                >
-                  <span>{mdwText(draft.start)}</span>
-                  <span className="m-dt-chev" aria-hidden="true">
-                    ›
-                  </span>
-                </button>
-              </div>
+          <div className="m-dt-row">
+            <span className="m-dt-label">起算日</span>
+            <div className="m-dt-val">
+              {/* 起算日一定有值，不給清除；過去日照舊可挑（桌機同） */}
+              <button
+                type="button"
+                className="m-dt-pick"
+                aria-label={`起算日：${mdwText(draft.start)}`}
+                onClick={() => onPickDate("起算日", draft.start, (day) => push({ ...draft, start: day }))}
+              >
+                <span>{mdwText(draft.start)}</span>
+                <span className="m-dt-chev" aria-hidden="true">
+                  ›
+                </span>
+              </button>
             </div>
-          )}
+          </div>
 
-          {draft.mode !== "none" && (
-            <div className="m-dt-row">
-              <span className="m-dt-label">結束</span>
-              <div className="m-dt-val">
-                <Segmented
-                  options={END_OPTIONS}
-                  value={draft.endMode}
-                  onChange={(v) => push(pickEnd(draft, v, todayKey(dayStartHour), done))}
-                  aria-label="結束條件"
-                />
-              </div>
+          <div className="m-dt-row">
+            <span className="m-dt-label">結束</span>
+            <div className="m-dt-val">
+              <Segmented
+                options={END_OPTIONS}
+                value={draft.endMode}
+                onChange={(v) => push(pickEnd(draft, v, todayKey(dayStartHour), done))}
+                aria-label="結束條件"
+              />
             </div>
-          )}
+          </div>
 
-          {draft.mode !== "none" && draft.endMode === "until" && (
+          {draft.endMode === "until" && (
             <div className="m-dt-row">
               <span className="m-dt-label">結束日</span>
               <div className="m-dt-val">
@@ -198,7 +195,7 @@ export function MobileRepeatSection({ node, draft, push, open, onToggle, onPickD
             </div>
           )}
 
-          {draft.mode !== "none" && draft.endMode === "count" && (
+          {draft.endMode === "count" && (
             <div className="m-dt-row">
               <span className="m-dt-label">次數</span>
               <div className="m-dt-val">

@@ -42,6 +42,9 @@ const NODES_COLS: &[(&str, bool)] = &[
     ("sort_key", false),
     // ⑫（0020）：車票掛車站；指到的車站不在了由讀取端當沒掛，引擎不管
     ("station_id", false),
+    // 第四梯（0024 D-FB-7）：期間自由券訖日與預留席旗標
+    ("scheduled_end", false),
+    ("is_placeholder", true),
     ("route_id", false),
     ("created_at", false),
     ("updated_at", false),
@@ -176,6 +179,8 @@ const NODE_TIME_OVERRIDES_COLS: &[(&str, bool)] = &[
     ("node_id", false),
     ("due_on", false),
     ("hhmm", false),
+    ("custom_title", false),
+    ("seated_node_id", false),
     ("created_at", false),
     ("updated_at", false),
     ("deleted_at", false),

@@ -21,9 +21,10 @@ import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore
 import { TagSheetPanel } from "./TagSheetPanel"; // ⑥ 乙席
 import { RoutineSegPanel } from "./RoutineSegPanel"; // ⑦ C 席
 import { SlotPanel } from "./SlotPanel"; // ⑦ C 席
-import { AdhocPanel } from "./AdhocPanel"; // 第三梯（討論 6）
+import { AdhocPanel } from "./AdhocPanel"; // 歷史相容（D-FB-7 起 UI 統一走預留席車票 PlanPanel）
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
 import { segName } from "../../../domain/timetableRoutine"; // ⑦ C 席
+import { planItemDisplay } from "../schedule/scheduleSeatModel";
 export type { PanelProps } from "./controls";
 export { BlockPanel, CategoryManagerPanel, DepartPanel, LongRunPanel, SplitPanel, TaskCategoryPanel, AdhocPanel };
 
@@ -66,10 +67,10 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
     case "pendingList": // ③ 乙席
       return pendingListTitle(sheet.goalId);
     case "plan": {
-      // ④ 乙席：標題＝車票名（日程的只讀 store 有節點表）
+      // ④ 乙席：標題＝車票名／本班填空內容／入座待辦名
       const st = useTimetableScheduleStore.getState();
       const it = st.items[sheet.key];
-      return (it && st.nodes[it.nodeId]?.name) || TT_TEXT.viewSchedule;
+      return (it && planItemDisplay(it, st.nodes[it.nodeId]).title) || TT_TEXT.viewSchedule;
     }
     case "slot": {
       // ⑦ C 席：車票第二段起＝車票名

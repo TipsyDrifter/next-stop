@@ -1,31 +1,27 @@
 /**
- * ScheduleGrid——日程的時間軸：預定｜刻度｜實績三欄（④ 契約 §5.1–§5.5；〈原型定案〉1、3、5；乙席）。兩殼共用 DOM。
- * 長相＝原型 v-h.js gridHtml（.vh-grid）→ 正式版 `div.ns-tt-sched-grid`（timetable.css §L）。
- *
- *   div.ns-tt-sched-grid[.is-ro|.is-picking|.is-dragging|.is-hl]（自己捲；手機、桌機都是整天一條、不整頁捲）
- *   ├ div.ns-tt-sched-ghead      sticky 欄頭「預定（差多少）｜｜實績」
- *   └ div.ns-tt-sched-gbody      高＝24 × 每小時（桌機 48px、手機 44px）
- *       ├ div.ns-tt-sched-pcol   預定欄（PlanColumn；點選排時刻時十字游標、滑過出金線）
- *       ├ div.ns-tt-sched-gut    刻度：每小時；24:00 以後「25:00」＋小字「深夜 1 時」（主線 hourTicks）；現在的時刻牌；
- *       │                        拖曳／點選的「14:15」標籤；滑過一張卡時的金線（預定開始 → 實際開始）
- *       ├ div.ns-tt-sched-acol   實績欄（ActualColumn）＋現在以後的淡斜紋
- *       └ div.ns-tt-sched-now    現在線（橫過三欄）
- *
- * ⑦（C 席）：那天有作息段 ⇒ 預定欄最左畫 RoutineStrip（桌機 80、手機 48px），欄頭多一格「作息」；沒有＝收掉、卡拿回全寬。
- * 進頁捲動：今天＝現在往上約 2.6 小時；其他天＝第一張預定往上 0.6 小時（沒有就 08:00）。每一天只捲一次，之後照使用者的位置。
- * UI 丙-4 D7：預定欄一張都沒有時的那句換成共用 EmptyState（inline）；照舊浮在欄中央、不吃指標（點下去仍落到欄上排時刻）。
+ * ScheduleGrid——日程的時間軸：預定｜刻度｜實績三欄（④ 契約 §5.1–§5.5；第四梯 D-FB-7：支援空白軸拖拉／雙擊直接建立預留席車票）。
  */
-import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 import { hourTicks } from "../../schedule/timeGridModel";
-import { clockText, nowClockMinutes } from "../../../lib/date";
+import { clockText, nowClockMinutes, type ClockText } from "../../../lib/date";
 import { fmtClock } from "../../../domain/timetable";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { EmptyState } from "../../common/EmptyState";
 import { ActualColumn } from "./ActualColumn";
-import { PlanColumn, type CardLayout } from "./PlanColumn";
+import { PlanColumn, type CardLayout, type CreateRangePreview } from "./PlanColumn";
 import { RoutineStrip } from "./RoutineStrip";
 import { RT_UI } from "./routineModel";
 import { SCHED_UI, minFrac, pct, snapFrac } from "./scheduleModel";
+import { computeDragCreateRange } from "./scheduleSeatModel";
 import type { SchedulePage } from "./useSchedulePage";
 import type { DragSrc, DragView } from "./useScheduleDrag";
 
@@ -41,9 +37,18 @@ export interface ScheduleGridProps {
   scrollRef: RefObject<HTMLDivElement | null>;
 }
 
-export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowClick, pcolRef, scrollRef }: ScheduleGridProps) {
-  const { date, dayStartHour, now, win, grid, isToday, isFuture, canEdit, picked, activeKey, cmp, items, slots, blocks } = page;
-  // ⑦（C 席）：這一天有作息段 ⇒ 預定欄最左一條窄帶（沒有＝收掉、卡拿回全寬）
+export function ScheduleGrid({
+  page,
+  layout,
+  hourPx,
+  drag,
+  onDragStart,
+  swallowClick,
+  pcolRef,
+  scrollRef,
+}: ScheduleGridProps) {
+  const { date, dayStartHour, now, win, grid, isToday, isFuture, canEdit, picked, activeKey, cmp, items, slots, blocks } =
+    page;
   const hasRoutine = (page.routineDay?.segs.length ?? 0) > 0;
   const H = hourPx;
   const dayPx = 24 * H;
@@ -52,6 +57,16 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
   const nightFrac = minFrac(1440, dayStartHour);
   /** 點選中、桌機滑鼠在預定欄上：金線跟著走 */
   const [pickHint, setPickHint] = useState<number | null>(null);
+  /** 第四梯 4A：空白處上下拖拉建立「預留席車票」的動態時段預覽 */
+  const [createRange, setCreateRange] = useState<CreateRangePreview | null>(null);
+  const blankDragRef = useRef<{
+    pointerId: number;
+    startY: number;
+    anchorMin: number;
+    active: boolean;
+    range: CreateRangePreview | null;
+  } | null>(null);
+  const swallowBlankUntilRef = useRef(0);
 
   /* ── 量：clientY → 分鐘 ── */
   const minAtY = (clientY: number): number | null => {
@@ -60,6 +75,80 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
     const r = pc.getBoundingClientRect();
     if (r.height <= 0) return null;
     return snapFrac((clientY - r.top) / r.height, dayStartHour);
+  };
+
+  /* ── 空白處上下拖拉建立預留席車票 ── */
+  useEffect(() => {
+    const onMove = (e: PointerEvent): void => {
+      const cur = blankDragRef.current;
+      if (!cur || e.pointerId !== cur.pointerId) return;
+      const dy = Math.abs(e.clientY - cur.startY);
+      if (!cur.active && dy < 8) return;
+      cur.active = true;
+      const pc = pcolRef.current;
+      if (!pc) return;
+      const r = pc.getBoundingClientRect();
+      if (r.height <= 0) return;
+      const rawMin = dayStartHour * 60 + ((e.clientY - r.top) / r.height) * 1440;
+      const range = computeDragCreateRange(cur.anchorMin, rawMin, dayStartHour);
+      cur.range = range;
+      setCreateRange(range);
+    };
+    const finish = (commit: boolean) => (e: PointerEvent): void => {
+      const cur = blankDragRef.current;
+      if (!cur || e.pointerId !== cur.pointerId) return;
+      blankDragRef.current = null;
+      if (!cur.active || !cur.range) {
+        setCreateRange(null);
+        return;
+      }
+      swallowBlankUntilRef.current = Date.now() + 320;
+      const finalRange = cur.range;
+      setCreateRange(null);
+      if (commit) {
+        const startHm = clockText(finalRange.startMin) as ClockText | null;
+        if (startHm) {
+          void page.createPlaceholderAt(startHm, {
+            durationMin: finalRange.durationMin,
+            openAfter: true,
+          });
+        }
+      }
+    };
+    const onUp = finish(true);
+    const onCancel = finish(false);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape" && blankDragRef.current?.active) {
+        e.preventDefault();
+        e.stopPropagation();
+        blankDragRef.current = null;
+        setCreateRange(null);
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [dayStartHour, page, pcolRef]);
+
+  const onPcolPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!canEdit || picked || drag || e.button !== 0 || e.pointerType !== "mouse") return;
+    if ((e.target as HTMLElement | null)?.closest(".ns-tt-sched-card, .ns-tt-rt")) return;
+    const m = minAtY(e.clientY);
+    if (m === null) return;
+    blankDragRef.current = {
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      anchorMin: m,
+      active: false,
+      range: null,
+    };
   };
 
   /* ── 進頁捲動（每一天一次；grid 載到那一天才捲） ── */
@@ -81,7 +170,7 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
 
   /* ── 滑過一張卡：刻度欄的金線（預定開始 → 實際開始） ── */
   let lag: { top: number; height: number; early: boolean } | null = null;
-  if (activeKey && !drag) {
+  if (activeKey && !drag && !createRange) {
     const b = blocks.find((x) => x.key === activeKey);
     const c = cmp.cmp.get(activeKey);
     if (b && c && c.startDeltaMin !== null && c.startDeltaMin !== 0) {
@@ -91,11 +180,11 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
     }
   }
 
-  const hintMin = drag ? drag.min : picked ? pickHint : null;
+  const hintMin = createRange ? createRange.startMin : drag ? drag.min : picked ? pickHint : null;
   const nowLbl = nowMin !== null ? fmtClock(now) : null;
 
   const onPcolClick = (e: ReactMouseEvent): void => {
-    if (swallowClick()) return;
+    if (swallowClick() || Date.now() < swallowBlankUntilRef.current) return;
     if (picked) {
       const m = minAtY(e.clientY);
       setPickHint(null);
@@ -106,21 +195,23 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
   };
 
   const onPcolDoubleClick = (e: ReactMouseEvent): void => {
-    if (!canEdit || picked) return;
+    if (!canEdit || picked || Date.now() < swallowBlankUntilRef.current) return;
     if ((e.target as HTMLElement | null)?.closest(".ns-tt-sched-card, .ns-tt-rt")) return;
     const m = minAtY(e.clientY);
     if (m === null) return;
-    const t = clockText(m);
-    if (t) void page.place("addadhoc", m);
+    const t = clockText(m) as ClockText | null;
+    if (t) void page.createPlaceholderAt(t, { durationMin: 60, openAfter: true });
   };
 
   const cls =
     "ns-tt-sched-grid" +
     (canEdit ? "" : " is-ro") +
     (picked ? " is-picking" : "") +
-    (drag ? " is-dragging" : "") +
-    (activeKey && (items[activeKey] || slots[activeKey] || page.adhocs[activeKey]) && !drag ? " is-hl" : "") +
-    (page.openRoutineId && !activeKey && !drag ? " is-hl" : "");
+    (drag || createRange ? " is-dragging" : "") +
+    (activeKey && (items[activeKey] || slots[activeKey] || page.adhocs[activeKey]) && !drag && !createRange
+      ? " is-hl"
+      : "") +
+    (page.openRoutineId && !activeKey && !drag && !createRange ? " is-hl" : "");
 
   return (
     <div className={cls} ref={scrollRef} style={{ "--ns-tt-sched-h": H + "px" } as CSSProperties}>
@@ -137,6 +228,7 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
         <div
           className={"ns-tt-sched-pcol is-" + layout + (hasRoutine ? " has-rt" : "")}
           ref={pcolRef}
+          onPointerDown={onPcolPointerDown}
           onClick={onPcolClick}
           onDoubleClick={onPcolDoubleClick}
           onPointerMove={(e) => {
@@ -151,9 +243,23 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
             </>
           )}
           {hasRoutine && <RoutineStrip page={page} hourPx={H} swallowClick={swallowClick} />}
-          <PlanColumn page={page} layout={layout} hourPx={H} drag={drag} onDragStart={onDragStart} swallowClick={swallowClick} minAtY={minAtY} />
-          {grid && grid.date === date && blocks.length === 0 && (
-            <EmptyState inline tone="first" className="ns-tt-sched-pempty" title={page.isPast ? SCHED_UI.emptyPast : TT_TEXT.schedEmpty} />
+          <PlanColumn
+            page={page}
+            layout={layout}
+            hourPx={H}
+            drag={drag}
+            createRange={createRange}
+            onDragStart={onDragStart}
+            swallowClick={swallowClick}
+            minAtY={minAtY}
+          />
+          {grid && grid.date === date && blocks.length === 0 && !createRange && (
+            <EmptyState
+              inline
+              tone="first"
+              className="ns-tt-sched-pempty"
+              title={page.isPast ? SCHED_UI.emptyPast : TT_TEXT.schedEmpty}
+            />
           )}
           {hintMin !== null && hintMin !== undefined && (
             <div className="ns-tt-sched-hint" style={{ top: pct(minFrac(hintMin, dayStartHour)) }} aria-hidden="true" />
@@ -164,7 +270,11 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
           {ticks.map((t) => {
             const near = nowMin !== null && Math.abs(t.min - nowMin) < 13;
             return (
-              <span key={t.h} className={"ns-tt-sched-hl" + (t.night ? " is-nite" : "") + (near ? " is-hidden" : "")} style={{ top: pct(minFrac(t.min, dayStartHour)) }}>
+              <span
+                key={t.h}
+                className={"ns-tt-sched-hl" + (t.night ? " is-nite" : "") + (near ? " is-hidden" : "")}
+                style={{ top: pct(minFrac(t.min, dayStartHour)) }}
+              >
                 <span className="ns-tt-num">{t.label}</span>
                 {t.sub && <small>{t.night && t.h > 24 ? `深夜 ${t.sub}` : t.sub}</small>}
               </span>
@@ -196,7 +306,11 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
             </>
           )}
           {(isFuture || (isToday && now < win.end)) && (
-            <div className="ns-tt-sched-fut" style={{ top: isFuture ? "0%" : pct((now - win.start) / (win.end - win.start)) }} aria-hidden="true">
+            <div
+              className="ns-tt-sched-fut"
+              style={{ top: isFuture ? "0%" : pct((now - win.start) / (win.end - win.start)) }}
+              aria-hidden="true"
+            >
               {isFuture && <span>{SCHED_UI.notYet}</span>}
             </div>
           )}
@@ -212,4 +326,3 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
     </div>
   );
 }
-

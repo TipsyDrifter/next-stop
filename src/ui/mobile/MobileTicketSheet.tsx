@@ -66,15 +66,23 @@
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { nodeRepo } from "../../data";
-import { KIND_LABEL, type NodeKind } from "../../domain";
+import { KIND_LABEL, type NodeKind, type NodeRow } from "../../domain";
+import { inheritedStationOf } from "../../domain/board";
 import { currentDest, moveTargetRule, type MoveDest } from "../../domain/moveTo";
 import type { AttachTarget } from "../../domain/notes";
 import { useNodeStore } from "../../store/nodeStore";
+import { useSelectionStore } from "../../store/selectionStore";
+import { stationItems } from "../board/boardMenu";
+import { routeStations } from "../board/useRouteBoard";
 import { MobileAttachPicker } from "../common/MobileAttachPicker";
+import type { AttachKind } from "../notes/useAttachOptions";
 import "../common/moveTo.css";
 import { MobileDatePicker } from "../common/MobileDatePicker";
+import { dateRangeQuickSet } from "../common/DatePicker";
 import { dateQuickSet } from "../common/DateChip";
 import { MSheet, MSheetItem } from "../common/MSheet";
+import { MobileSeatSheet, canActAsSeatSlot, releaseSeatedFlow } from "../common/seating";
+import { formatDateRangeBadge } from "../../domain/dateRange";
 import { useUiStore } from "../../store/uiStore";
 import { useMinuteTick } from "../schedule/useMinuteTick";
 import { MobileTimeSheet } from "./MobileTimeSheet";
@@ -83,7 +91,7 @@ import "./mobile-polish.css";
 import "./routemap/ticket-sheet.css";
 import { useMobileDetailStore } from "./detail/mobileDetailStore";
 import { copyTicketLink } from "../external/externalBridge";
-import { toggleStopoverFlow } from "../outline/nodeFlows";
+import { convertKindFlow, toggleStopoverFlow } from "../outline/nodeFlows";
 import { SETTLED_DEFER_MSG } from "./useMobileToday";
 import { mdw, sheetDeferItems } from "../schedule/streamModel";
 import type { TicketCardModel } from "../schedule/ticketCard";
@@ -100,6 +108,8 @@ export interface MobileTicketSheetProps {
   today: string;
   /** null＝清除乘車日 */
   onDefer(day: string | null): void;
+  /** 區間改期（4B 期間自由券）；省略時退回單日 onDefer(start) */
+  onDeferRange?(start: string | null, end: string | null): void;
   /** 定期券版：本班運休（true）／取消運休（false） */
   onSkip(skip: boolean): void;
   /** 每班／單發票的時刻（＋預計）；time=null＝不排時刻；estimateMin 為 undefined＝預計沒變（主線②） */
@@ -151,6 +161,7 @@ export function MobileTicketSheet({
   card,
   today,
   onDefer,
+  onDeferRange,
   onSkip,
   onSetTime,
   onSetRunTime,
@@ -173,21 +184,68 @@ export function MobileTicketSheet({
   const [picking, setPicking] = useState(false);
   /** 「幾點…」「每班時刻…」（rule）／「本班時刻…」（run）按下去：改畫時刻 sheet */
   const [timeMode, setTimeMode] = useState<"rule" | "run" | null>(null);
-  /** 「改名…」／「記乘務記錄…」／「同層新增…」／「新增車票…」按下去：改畫一行輸入子面板 */
-  const [textMode, setTextMode] = useState<"rename" | "log" | "sibling" | "ticket" | "branch" | null>(null);
+  /** 「改名…」／「記乘務記錄…」／「同層新增…」／「新增車票…」／「本班內容…」按下去：改畫一行輸入子面板 */
+  const [textMode, setTextMode] = useState<"rename" | "log" | "sibling" | "ticket" | "branch" | "runTitle" | null>(null);
+  /** 4C Mode B：配對待辦入座子面板 */
+  const [seatOpen, setSeatOpen] = useState(false);
   /** 「編排 ▾」展開了沒（每次開 sheet 都從收合開始） */
   const [arrangeOpen, setArrangeOpen] = useState(false);
   const arrangeId = useId();
   const arrangeRef = useRef<HTMLDivElement>(null);
+  // 操作 3（互斥）：開啟單張票卡 ⋯ 面板時自動退出多選
+  useEffect(() => {
+    if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
+  }, []);
   // 展開後把群組最後一列捲進視野（sheet 上限 60%，群組多半長在折線附近）
   useEffect(() => {
     if (arrangeOpen) arrangeRef.current?.lastElementChild?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [arrangeOpen]);
   /** 「移動到…」按下去：挑選器的 value（目前位置）；null＝沒在挑 */
   const [moveFrom, setMoveFrom] = useState<AttachTarget | null>(null);
+  /** 「車站…」按下去：子面板要用的節點與路線樹 */
+  const [stationPick, setStationPick] = useState<{ node: NodeRow; byId?: Record<string, NodeRow> } | null>(null);
+  const allStations = useNodeStore((s) => s.stations);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
   const now = useMinuteTick();
   const moveRule = onMove ? moveTargetRule(card.kind) : null;
+  const routeStList = !head && !card.readOnly && card.routeId ? routeStations(allStations, card.routeId) : [];
+
+  const startStationPick = async () => {
+    if (!card.routeId) return;
+    const s = useNodeStore.getState();
+    const node =
+      s.tree.byId[card.nodeId] ??
+      s.today.byId[card.nodeId] ??
+      s.calendar.nodes[card.nodeId] ??
+      (await nodeRepo.getNode(card.nodeId));
+    if (!node) return onClose();
+    let byId: Record<string, NodeRow> | undefined = s.routeId === card.routeId ? s.tree.byId : undefined;
+    if (!byId && node.parent_id && !s.routes.some((r) => r.id === node.parent_id)) {
+      const rows = await nodeRepo.listRouteTree(card.routeId).catch(() => [] as NodeRow[]);
+      if (rows.length) byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    }
+    setStationPick({ node, byId });
+  };
+
+  if (stationPick && card.routeId) {
+    return (
+      <MSheet list title="車站" overline={card.name} backId={backId} onClose={onClose}>
+        {stationItems([stationPick.node], card.routeId, undefined, stationPick.byId).map((it) => (
+          <MSheetItem
+            key={it.key}
+            onClick={() => {
+              onClose();
+              it.onSelect();
+            }}
+          >
+            {it.label}
+            {it.caps && <span className="m-tks-aside">{it.caps}</span>}
+          </MSheetItem>
+        ))}
+      </MSheet>
+    );
+  }
 
   /** 先問到父節點的種類才開挑選器（要標「目前位置」）；卡片只帶 nodeId，父節點從 repository 讀 */
   const startMove = async () => {
@@ -207,7 +265,7 @@ export function MobileTicketSheet({
       <MobileAttachPicker
         title={moveRule.label}
         depth={moveRule.depth}
-        kinds={moveRule.depth === "node" ? moveRule.kinds : undefined}
+        kinds={moveRule.depth === "node" ? (moveRule.kinds as readonly AttachKind[]) : undefined}
         routeSelectable={moveRule.routeSelectable}
         value={moveFrom}
         excludeId={card.nodeId}
@@ -221,14 +279,50 @@ export function MobileTicketSheet({
     );
   }
 
-  if (textMode === "rename" && onRename) {
+  const slotDueOn = card.railDate ?? card.scheduledOn ?? today;
+
+  if (seatOpen && slotDueOn) {
+    return (
+      <MobileSeatSheet
+        slotId={card.nodeId}
+        slotName={card.customTitle || card.name}
+        dueOn={slotDueOn}
+        backId={backId}
+        onClose={onClose}
+      />
+    );
+  }
+
+  if (textMode === "runTitle" && card.railDate) {
     return (
       <MobileTextSheet
-        title="改名"
+        title="本班內容"
+        name={`${card.name} · ${md(card.railDate)}`}
+        initial={card.customTitle ?? ""}
+        placeholder={`留空則顯示母定期名「${card.name}」`}
+        submitLabel="寫入本班"
+        inputLabel="本班具體內容"
+        allowEmpty
+        backId={backId}
+        onSubmit={(text) => {
+          void useNodeStore.getState().setRunCustomTitle(card.nodeId, card.railDate!, text || null);
+          onClose();
+        }}
+        onClose={onClose}
+      />
+    );
+  }
+
+  if (textMode === "rename" && onRename) {
+    const isPh = Boolean(card.isPlaceholder);
+    return (
+      <MobileTextSheet
+        title={isPh ? "填入具體內容" : "改名"}
         name={card.name}
-        initial={card.name}
-        submitLabel="改好了"
-        inputLabel={`${KIND_LABEL[card.kind]}的新名稱`}
+        initial={isPh ? "" : card.name}
+        placeholder={isPh ? `目前預留：${card.name}` : undefined}
+        submitLabel={isPh ? "轉正" : "改好了"}
+        inputLabel={isPh ? "填入具體待辦名稱" : `${KIND_LABEL[card.kind]}的新名稱`}
         backId={backId}
         onSubmit={(name) => {
           onRename(name);
@@ -336,14 +430,22 @@ export function MobileTicketSheet({
   if (picking) {
     return (
       <MobileDatePicker
-        title="選乘車日"
+        title="選乘車日／區間"
         value={card.scheduledOn}
+        endValue={card.scheduledEnd ?? null}
+        allowRange
+        rangeQuick={dateRangeQuickSet(today, weekStart)}
         today={today}
         quick={dateQuickSet("backward", today)}
         onPick={(d) => {
           onClose();
-          // 挑回現值不動（呼叫端的分流也會擋；這裡先擋，免得行程表那條路多吐一張收據）
-          if (d !== card.scheduledOn) onDefer(d);
+          // 挑回現值不動（若原本是區間票，改單日需照送以清掉 scheduled_end）
+          if (d !== card.scheduledOn || Boolean(card.scheduledEnd)) onDefer(d);
+        }}
+        onPickRange={(s, e) => {
+          onClose();
+          if (onDeferRange) onDeferRange(s, e);
+          else onDefer(s);
         }}
         // 清除乘車日（第二輪 #9）：收進日期面板的 foot（同桌機 DatePicker 的「清除」）；本來就沒排就不給
         onClear={
@@ -398,26 +500,43 @@ export function MobileTicketSheet({
       "未排"
     );
     schedule = (
-      <div className="m-tks-cells">
-        {card.railDate &&
-          cell(
-            "date",
-            "本班日期…",
-            md(card.railDate),
-            settled ? explain(card.suspended ? "運休中——先取消運休才能改日期" : SETTLED_DEFER_MSG) : () => setPicking(true),
-            `這一班改日期，目前 ${mdw(card.railDate)}`,
-            settled,
+      <>
+        <div className="m-tks-cells">
+          {card.railDate &&
+            cell(
+              "date",
+              "本班日期…",
+              md(card.railDate),
+              settled ? explain(card.suspended ? "運休中——先取消運休才能改日期" : SETTLED_DEFER_MSG) : () => setPicking(true),
+              `這一班改日期，目前 ${mdw(card.railDate)}`,
+              settled,
+            )}
+          {card.railDate && cell("run", "本班時刻…", runSub, () => setTimeMode("run"), "本班改時刻")}
+          {cell("rule", "每班時刻…", card.ruleTime !== null ? hm(card.ruleTime) : "未排", () => setTimeMode("rule"))}
+          {cell(
+            "skip",
+            card.suspended ? "取消運休" : "本班運休",
+            card.railDate ? md(card.railDate) : "目前班次",
+            run(() => onSkip(!card.suspended)),
+            card.railDate ? `${card.suspended ? "取消運休" : "本班運休"} ${mdw(card.railDate)}` : undefined,
           )}
-        {card.railDate && cell("run", "本班時刻…", runSub, () => setTimeMode("run"), "本班改時刻")}
-        {cell("rule", "每班時刻…", card.ruleTime !== null ? hm(card.ruleTime) : "未排", () => setTimeMode("rule"))}
-        {cell(
-          "skip",
-          card.suspended ? "取消運休" : "本班運休",
-          card.railDate ? md(card.railDate) : "目前班次",
-          run(() => onSkip(!card.suspended)),
-          card.railDate ? `${card.suspended ? "取消運休" : "本班運休"} ${mdw(card.railDate)}` : undefined,
+        </div>
+        {!settled && card.railDate && (
+          <div className="m-tks-pair">
+            <MSheetItem onClick={() => setTextMode("runTitle")}>
+              本班內容…
+              {card.customTitle && aside("已填")}
+            </MSheetItem>
+            <MSheetItem onClick={() => setSeatOpen(true)}>配對待辦入座…</MSheetItem>
+          </div>
         )}
-      </div>
+        {!settled && card.railDate && card.customTitle && (
+          <MSheetItem onClick={run(() => void useNodeStore.getState().setRunCustomTitle(card.nodeId, card.railDate!, null))}>
+            還原本班原名
+            {aside(card.name)}
+          </MSheetItem>
+        )}
+      </>
     );
   } else if (card.readOnly) {
     // 最後一道守門：定期券的歷史班次不出單發票那組項目（推遲／幾點…／清除乘車日）
@@ -428,6 +547,22 @@ export function MobileTicketSheet({
     const { first, monday } = sheetDeferItems(card.railDate, card.scheduledOn, today);
     // 格子只放得下兩三個字：「推遲到明天」「排到明天」＝明天；「往後推一天」（未來票，不是明天）＝晚一天。讀屏念原句
     const firstShort = first.label === "往後推一天" ? "晚一天" : "明天";
+    const pickSub =
+      card.scheduledOn && card.scheduledEnd
+        ? formatDateRangeBadge(card.scheduledOn, card.scheduledEnd)
+        : card.scheduledOn
+          ? md(card.scheduledOn)
+          : "未排";
+    const canSlot = canActAsSeatSlot(
+      {
+        repeat_rule: null,
+        is_placeholder: card.isPlaceholder ? 1 : null,
+        scheduled_on: card.scheduledOn,
+        scheduled_end: card.scheduledEnd ?? null,
+        status: "todo",
+      },
+      false,
+    );
     schedule = (
       <>
         <div className="m-tks-cells">
@@ -435,10 +570,10 @@ export function MobileTicketSheet({
           {cell("monday", "下週一", md(monday), run(() => onDefer(monday)), `下週一 ${mdw(monday)}`)}
           {cell(
             "pick",
-            "日期…",
-            card.scheduledOn ? md(card.scheduledOn) : "未排",
+            "日期／區間…",
+            pickSub,
             () => setPicking(true),
-            card.scheduledOn ? `選日期，目前 ${mdw(card.scheduledOn)}` : "選日期，目前未排",
+            card.scheduledOn ? `選日期或區間，目前 ${pickSub}` : "選日期或區間，目前未排",
           )}
           {/* D-主-81：小字＝時刻＋預計（「14:00・90 分」，同改版前右側小字的資訊量）；沒時刻＝「未排」 */}
           {cell(
@@ -456,6 +591,26 @@ export function MobileTicketSheet({
             card.ruleTime !== null ? `幾點，目前 ${card.ruleTime}${est !== null ? `・${est} 分` : ""}` : "幾點，目前未排",
           )}
         </div>
+        {card.scheduledEnd && (
+          <MSheetItem onClick={run(() => onDefer(today))}>
+            排今天（轉單日）
+            {aside(md(today))}
+          </MSheetItem>
+        )}
+        {card.seatedInto && (
+          <MSheetItem
+            onClick={run(() => void releaseSeatedFlow(card.seatedInto!.slotNodeId, card.seatedInto!.dueOn, card.nodeId))}
+          >
+            釋出預留席
+            {aside(card.seatedInto.slotName)}
+          </MSheetItem>
+        )}
+        {canSlot && !card.seatedInto && (
+          <MSheetItem onClick={() => setSeatOpen(true)}>
+            配對待辦入座…
+            {aside("頂替預留席")}
+          </MSheetItem>
+        )}
       </>
     );
   }
@@ -464,7 +619,7 @@ export function MobileTicketSheet({
   const textItems = [
     onRename && (
       <MSheetItem key="rename" onClick={() => setTextMode("rename")}>
-        改名…
+        {card.isPlaceholder ? "填入具體內容…" : "改名…"}
       </MSheetItem>
     ),
     onLog && (
@@ -518,6 +673,35 @@ export function MobileTicketSheet({
       ),
     );
     arrangeWords.push("層級");
+  }
+  const convertTo = (targetKind: NodeKind) => {
+    void (async () => {
+      const s = useNodeStore.getState();
+      const n = s.tree.byId[card.nodeId] ?? s.today.byId[card.nodeId] ?? s.calendar.nodes[card.nodeId] ?? (await nodeRepo.getNode(card.nodeId));
+      if (n) await convertKindFlow(n, targetKind);
+    })();
+  };
+  if (card.kind === "ticket" && card.routeId !== null) {
+    const s = useNodeStore.getState();
+    const cur = s.tree.byId[card.nodeId] ?? s.today.byId[card.nodeId] ?? s.calendar.nodes[card.nodeId];
+    const pKind = cur?.parent_id ? (s.routes.some((r) => r.id === cur.parent_id) ? "route" : s.tree.byId[cur.parent_id]?.kind) : null;
+    const toBranchWhy = pKind === "train" || pKind === "car" ? "列車或車廂裡不能放支線——請先移到路線或支線底下" : null;
+    arrange.push(
+      <MSheetItem key="to-branch" off={toBranchWhy !== null} onClick={toBranchWhy !== null ? explain(toBranchWhy) : run(() => convertTo("branch"))}>
+        轉為支線
+      </MSheetItem>,
+    );
+    arrangeWords.push("轉型");
+  } else if (card.kind === "branch") {
+    const kidLen = useNodeStore.getState().tree.childrenOf[card.nodeId]?.length ?? card.children?.total ?? 0;
+    if (kidLen === 0) {
+      arrange.push(
+        <MSheetItem key="to-ticket" onClick={run(() => convertTo("ticket"))}>
+          轉為車票
+        </MSheetItem>,
+      );
+      arrangeWords.push("轉型");
+    }
   }
 
   /* ── ④ 新增 ── */
@@ -582,6 +766,23 @@ export function MobileTicketSheet({
     ) : null;
   const quickMetaRow = [detailItem, stopoverItem, copyLink].filter(Boolean);
 
+  const stationItem = (() => {
+    if (!routeStList.length || !card.routeId) return null;
+    const s = useNodeStore.getState();
+    const cur = s.tree.byId[card.nodeId] ?? s.today.byId[card.nodeId] ?? s.calendar.nodes[card.nodeId];
+    const stMap = new Map(routeStList.map((st) => [st.id, st]));
+    const byId = s.routeId === card.routeId ? s.tree.byId : undefined;
+    const inh = cur ? inheritedStationOf(cur, stMap, byId) : { stationId: null, inheritedFrom: null };
+    const stName = inh.stationId ? (stMap.get(inh.stationId)?.name ?? null) : null;
+    const labelText = stName ? (inh.inheritedFrom ? `繼承・${stName}` : stName) : "未排";
+    return (
+      <MSheetItem onClick={() => void startStationPick()}>
+        車站…
+        {aside(labelText)}
+      </MSheetItem>
+    );
+  })();
+
   /* ── ⑤ 各線附加項 ── */
   const lineItems = lineTicketSheetItems().map(({ id, Item }) => (
     <Item key={id} nodeId={card.nodeId} name={card.name} close={onClose} />
@@ -595,6 +796,7 @@ export function MobileTicketSheet({
       {/* 唯讀的卡（定期券歷史班次）只留上面那一行說明，以下一項都不出（磨光① D-1） */}
       {!card.readOnly && (
         <>
+          {stationItem}
           {textItems.length === 2 ? <div className="m-tks-pair">{textItems}</div> : textItems}
           {flatArrange && arrange.length === 1 && arrange}
           {arrange.length > 0 && !(flatArrange && arrange.length === 1) && (

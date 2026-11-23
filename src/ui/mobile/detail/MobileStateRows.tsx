@@ -18,8 +18,10 @@ import { effectiveTime, isTimeOverridden } from "../../../domain/scheduledTime";
 import { lineNodeFields } from "../../../lines/runtime";
 import { autoProgress, descendantCount, isSettling, openDescendantCount, useNodeStore } from "../../../store/nodeStore";
 import { shortDayKey } from "../../common/DatePicker";
-import { NumberField } from "../../common/fields";
+import { CommitInput, NumberField } from "../../common/fields";
 import { Segmented } from "../../common/Segmented";
+import { releaseSeatedFlow } from "../../common/seating";
+import "../../common/seating/flexible-seating.css";
 import { changeStatusFlow, moveRunFlow, openKidsOf, panelStampFlow, panelSuspendFlow } from "../../outline/nodeFlows";
 import { fmtDateTime } from "../../panel/format";
 import { SealDone } from "../../stamps";
@@ -185,7 +187,17 @@ export function StatusRows({ node }: { node: NodeRow }) {
 
 /* ───────────── 検印（定期券本班專用） ───────────── */
 
-export function StampRows({ node, onRunTime, onRunDate }: { node: NodeRow; onRunTime: () => void; onRunDate: (railDate: string) => void }) {
+export function StampRows({
+  node,
+  onRunTime,
+  onRunDate,
+  onRunSeat,
+}: {
+  node: NodeRow;
+  onRunTime: () => void;
+  onRunDate: (railDate: string) => void;
+  onRunSeat?: (railDate: string, slotName: string) => void;
+}) {
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
   const v = stampViewOf(node, occ);
   // 只有「剛蓋」才播蓋章動畫（同桌機 .fresh）；取消時不播
@@ -229,9 +241,86 @@ export function StampRows({ node, onRunTime, onRunDate }: { node: NodeRow; onRun
           {v.suspended ? "取消運休" : "運休"}
         </button>
       </Row>
-      {/* 本班日期（同桌機 RunDateRow）＋本班時刻（同桌機 RunTimeRow）：班次日拿不到就不畫 */}
+      {/* 本班日期＋本班時刻＋本班填空與入座（第四梯 4C）：班次日拿不到就不畫 */}
       {v.railDate && <RunDateRow node={node} railDate={v.railDate} locked={v.done || v.suspended} onOpen={onRunDate} />}
       {v.railDate && <RunTimeRow node={node} railDate={v.railDate} onOpen={onRunTime} />}
+      {v.railDate && (
+        <RunContentAndSeatMobileRows
+          node={node}
+          railDate={v.railDate}
+          locked={v.done || v.suspended}
+          onRunSeat={onRunSeat}
+        />
+      )}
+    </>
+  );
+}
+
+function RunContentAndSeatMobileRows({
+  node,
+  railDate,
+  locked,
+  onRunSeat,
+}: {
+  node: NodeRow;
+  railDate: string;
+  locked: boolean;
+  onRunSeat?: (railDate: string, slotName: string) => void;
+}) {
+  const runOverrides = useNodeStore((s) => s.runOverrides);
+  const setRunCustomTitle = useNodeStore((s) => s.setRunCustomTitle);
+  const ovr = runOverrides.find((o) => !o.deleted_at && o.node_id === node.id && o.due_on === railDate);
+  const customTitle = ovr?.custom_title ?? "";
+  const seatedId = ovr?.seated_node_id ?? null;
+
+  return (
+    <>
+      <Row label="本班內容">
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+          <CommitInput
+            key={`${node.id}-${railDate}-${customTitle}`}
+            value={customTitle}
+            onCommit={(val) => void setRunCustomTitle(node.id, railDate, val.trim() || null)}
+            ariaLabel="本班填空內容"
+            placeholder={`只填 ${shortDayKey(railDate)} 本班內容…`}
+          />
+          {customTitle && !locked && (
+            <button
+              type="button"
+              className="ns-seat-release"
+              onClick={() => void setRunCustomTitle(node.id, railDate, null)}
+            >
+              還原
+            </button>
+          )}
+        </div>
+      </Row>
+      <Row label="本班入座">
+        {seatedId ? (
+          <div className="ns-range-row-acts">
+            <span className="ns-seat-badge">已有待辦車票入座</span>
+            {!locked && (
+              <button
+                type="button"
+                className="ns-seat-release"
+                onClick={() => void releaseSeatedFlow(node.id, railDate, seatedId)}
+              >
+                釋出預留席
+              </button>
+            )}
+          </div>
+        ) : locked ? (
+          <span className="m-dt-sub">本班已結案</span>
+        ) : (
+          <button
+            type="button"
+            className="ns-seat-dropbtn"
+            onClick={() => onRunSeat?.(railDate, customTitle || node.name)}
+          >
+            ⇄ 配對待辦入座…
+          </button>
+        )}
+      </Row>
     </>
   );
 }

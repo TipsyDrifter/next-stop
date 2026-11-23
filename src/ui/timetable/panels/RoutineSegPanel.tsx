@@ -24,6 +24,8 @@ import { useTimetablePlanStore, type RoutineSegPatch } from "../../../store/time
 import { useUiStore } from "../../../store/uiStore";
 import { useNow } from "../useNow";
 import { ClockInput } from "../../common/ClockInput";
+import { DurationPicker } from "../../common/DurationPicker";
+import { applySpanDurationMin, spanDurationMin } from "../../common/timespan/TimeSpanDurationFields";
 import { CategoryGrid } from "../parts/CategoryGrid";
 import { RT_UI } from "../schedule/routineModel";
 import { SCHED_UI } from "../schedule/scheduleModel";
@@ -55,7 +57,11 @@ export function RoutineSegPanel({ onDone }: PanelProps) {
     useTimetablePlanStore.getState().editPlan(day, id, patch);
   const start = useDebouncedClock(sMs, (ms) => {
     const t = toText(ms);
-    return t ? edit({ s: t }) : Promise.resolve(false);
+    if (!t || !seg) return Promise.resolve(false);
+    const durMs = Math.max(MIN, eMs - sMs);
+    const maxEndMs = midnight + (clockRange(h).max + 1) * MIN;
+    const nextEnd = toText(Math.min(maxEndMs, ms + durMs));
+    return nextEnd && nextEnd !== seg.e ? edit({ s: t, e: nextEnd }) : edit({ s: t });
   });
   const end = useDebouncedClock(eMs, (ms) => {
     const t = toText(ms);
@@ -183,12 +189,34 @@ export function RoutineSegPanel({ onDone }: PanelProps) {
                 if (cid !== seg.cat) void edit({ cat: cid });
               }} />
           </div>
-          <Row k={RT_UI.start} time>
-            <ClockInput variant="compact" value={start.shown} lo={lo} hi={hi} onChange={start.change} label={RT_UI.start} refDay={day} />
-          </Row>
-          <Row k={RT_UI.end} time>
-            <ClockInput variant="compact" value={end.shown} lo={lo} hi={hiEnd} onChange={end.change} label={RT_UI.end} refDay={day} />
-          </Row>
+          {(() => {
+            const shownEnd =
+              end.shown !== eMs ? end.shown : start.shown !== sMs ? Math.min(hiEnd, start.shown + Math.max(MIN, eMs - sMs)) : eMs;
+            return (
+              <>
+                <Row k={RT_UI.start} time>
+                  <ClockInput variant="compact" value={start.shown} lo={lo} hi={hi} onChange={start.change} label={RT_UI.start} refDay={day} />
+                </Row>
+                <Row k={RT_UI.end} time>
+                  <ClockInput variant="compact" value={shownEnd} lo={start.shown + MIN} hi={hiEnd} onChange={end.change} label={RT_UI.end} refDay={day} />
+                </Row>
+                <Row k="時長" top>
+                  <DurationPicker
+                    value={spanDurationMin(start.shown, shownEnd)}
+                    onChange={(m) => {
+                      if (m === null) return;
+                      const next = applySpanDurationMin({ startMs: start.shown, endMs: shownEnd }, m, { lo, hiEnd });
+                      end.change(next.endMs);
+                    }}
+                    allowNull={false}
+                    compact
+                    liveCommit
+                    ariaLabel="作息段時長"
+                  />
+                </Row>
+              </>
+            );
+          })()}
         </>
       ) : (
         <>

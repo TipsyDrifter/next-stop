@@ -14,8 +14,10 @@
  * 手機殼班第四輪（D-主-84）：新增、到站章、刪除＋復原的寫入搬到 ./routeFlows（手機路線詳情頁的車站段同一支）；改名、預定日照舊直接 updateNode。
  * 方針擴充（辛 §3 #7）：站名旁「方針 N」（沒寫＝淡淡的「方針」）開車站小卡；蓋章時那站有方針 ⇒ 提示附「回顧」（D-主-374）。
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { nodeRepo } from "../../data";
 import type { NodeRow } from "../../domain";
+import { buildStationTrack, type StationTrackStop } from "../../domain/stationTrack";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { moveWithUndo } from "../../store/batchActions";
@@ -32,10 +34,47 @@ import { StationAimButton, useStationAimLists, useStationCard } from "../weekAim
 
 export function StationList({ routeId }: { routeId: string }) {
   const stations = useNodeStore((s) => s.stations);
+  const treeRouteId = useNodeStore((s) => s.routeId);
+  const treeById = useNodeStore((s) => s.tree.byId);
+  const occurrences = useNodeStore((s) => s.currentOccurrences);
+  const route = useNodeStore((s) => s.routes.find((r) => r.id === routeId));
   const updateNode = useNodeStore((s) => s.updateNode);
 
   const list = useMemo(() => stations.filter((s) => s.parent_id === routeId), [stations, routeId]);
   const arrivedCount = list.filter((s) => s.arrived_on).length;
+
+  const [remoteRows, setRemoteRows] = useState<NodeRow[]>([]);
+  useEffect(() => {
+    if (treeRouteId === routeId || !list.length) {
+      setRemoteRows([]);
+      return;
+    }
+    let alive = true;
+    nodeRepo
+      .listRouteTree(routeId)
+      .then((rows) => {
+        if (alive) setRemoteRows(rows);
+      })
+      .catch(() => {
+        if (alive) setRemoteRows([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [treeRouteId, routeId, list.length]);
+
+  const stopById = useMemo(() => {
+    const nodes = treeRouteId === routeId ? Object.values(treeById) : remoteRows;
+    const track = buildStationTrack({
+      routeId,
+      stations: list,
+      nodes,
+      byId: treeRouteId === routeId ? treeById : undefined,
+      occurrences,
+      routeArrived: !!route?.arrived_on,
+    });
+    return new Map(track.stops.map((s) => [s.station.id, s]));
+  }, [routeId, list, treeRouteId, treeById, remoteRows, occurrences, route?.arrived_on]);
 
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -108,6 +147,7 @@ export function StationList({ routeId }: { routeId: string }) {
             <StationRow
               key={st.id}
               station={st}
+              stop={stopById.get(st.id)}
               fresh={freshId === st.id}
               onToggle={(seal) => toggleArrived(st, seal)}
               aimCount={aimsOf(st.id).length}
@@ -162,6 +202,7 @@ export function StationList({ routeId }: { routeId: string }) {
 
 interface StationRowProps {
   station: NodeRow;
+  stop?: StationTrackStop<NodeRow>;
   fresh: boolean;
   onToggle: (seal: HTMLElement) => void;
   /** 這站方針幾句（0＝淡淡的「方針」） */
@@ -198,11 +239,11 @@ function StationMore({ name, menu }: { name: string; menu: () => PopMenuItem[] }
   );
 }
 
-function StationRow({ station, fresh, onToggle, aimCount, onAims, onRename, onDate, onRemove, menu }: StationRowProps) {
+function StationRow({ station, stop, fresh, onToggle, aimCount, onAims, onRename, onDate, onRemove, menu }: StationRowProps) {
   const arrived = Boolean(station.arrived_on);
   return (
     <li className={`st ${arrived ? "arrived" : ""} ${fresh ? "fresh" : ""}`} data-drag-id={station.id}>
-      {/* 第一列：名稱（原型 .title）＋到站章＋刪除叉；第二列：.meta 預定日・着 日期 */}
+      {/* 第一列：名稱（原型 .title）＋到站章＋刪除叉；第二列：.meta 車票完成數・預定日・着 日期 */}
       <CommitInput value={station.name} onCommit={onRename} required ariaLabel="車站名稱" className="title" />
       <StationAimButton station={station} count={aimCount} onOpen={onAims} />
       {/* 到站章：到站＝朱色「着」（.late-seal 形制）；未到站＝不可見，hover 列才現身成虛線空章 */}
@@ -220,6 +261,14 @@ function StationRow({ station, fresh, onToggle, aimCount, onAims, onRename, onDa
         <XIcon />
       </button>
       <div className="meta">
+        {stop && (
+          <>
+            <span>
+              車票 {stop.ticketDone}/{stop.ticketTotal} 済
+            </span>
+            <span className="sep">・</span>
+          </>
+        )}
         <span>預定</span>
         <DateChip date={station.expected_on} onPick={onDate} allowPast clearable label="預定到站日" emptyText="未定" />
         {station.arrived_on && (

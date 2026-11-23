@@ -85,6 +85,7 @@ import { PageHeader } from "../common/PageHeader";
 import { DateNav } from "../common/DateNav";
 import { EmptyState } from "../common/EmptyState";
 import { IconBack, IconPlus } from "../common/icons";
+import { runOnBlankClick } from "../common/selection/desktopSelection";
 // 第②階段（②契約 §5.1）：頁首視圖切換／搜尋列／篩選 chips、月曆與統計視圖
 import { switchView, viewTabItems } from "./view/ViewSwitch";
 import { SearchBar, focusTicketSearch } from "./view/SearchBar";
@@ -633,7 +634,18 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   }
 
   return (
-    <main ref={mainRef} className="ns-tk-ledger techo-scroll is-compact" aria-label="帳簿" data-view={view}>
+    <main
+      ref={mainRef}
+      className="ns-tk-ledger techo-scroll is-compact"
+      aria-label="帳簿"
+      data-view={view}
+      onClick={(e) =>
+        runOnBlankClick(e, ".ns-tk-row, .ns-tk-acard, .ns-tk-subbar, .ns-tk-pop, .ns-tk-panel, .ns-tk-cal, .ns-tk-stats", () => {
+          const s = useTicketStore.getState();
+          if (s.panel.kind !== "none") s.requestEscape();
+        })
+      }
+    >
       <PageHeader
         variant="identity"
         className="ns-tk-pagehead"

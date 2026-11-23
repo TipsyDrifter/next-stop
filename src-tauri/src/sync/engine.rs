@@ -8128,7 +8128,8 @@ mod tests {
                 "estimate_min",
                 "progress",
                 "time_spent_min",
-                "today_position"
+                "today_position",
+                "is_placeholder"
             ]
         );
     }

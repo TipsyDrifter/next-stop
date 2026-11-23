@@ -25,9 +25,11 @@ export interface MobileTextSheetProps {
   submitLabel: string;
   /** 輸入框的無障礙名稱 */
   inputLabel: string;
+  /** 允許清空後送出（例：清空「本班內容」還原母定期原名） */
+  allowEmpty?: boolean;
   /** 返回層 id（⋯ sheet 的主人登記的那一層；同 id 合併） */
   backId?: string;
-  /** 已去頭尾空白、非空 */
+  /** 已去頭尾空白（allowEmpty=true 時可為空字串） */
   onSubmit(text: string): void;
   onClose(): void;
 }
@@ -39,13 +41,14 @@ export function MobileTextSheet({
   placeholder,
   submitLabel,
   inputLabel,
+  allowEmpty = false,
   backId,
   onSubmit,
   onClose,
 }: MobileTextSheetProps) {
   const [text, setText] = useState(initial);
   const composing = useRef(false);
-  const empty = !text.trim();
+  const empty = !allowEmpty && !text.trim();
 
   const submit = () => {
     if (empty) return;

@@ -33,6 +33,7 @@ import {
   type InboxOp,
   type InboxPopKind,
 } from "./NotesInbox";
+import { useInboxSelectStore } from "./InboxSelectionBar";
 import { NotesList } from "./NotesList";
 import { NoteContent, type NotePopKind } from "./NoteContent";
 import { DIARY_DAY_POP, NotesDiary, type DiaryApi, type DiaryPopKind } from "./NotesDiary";
@@ -199,6 +200,7 @@ export function NotesView() {
   const today = () => todayKey(useUiStore.getState().dayStartHour);
 
   const inboxOp = (it: InboxItem, op: InboxOp) => {
+    useInboxSelectStore.getState().clear();
     const st = useNotesStore.getState();
     if (st.inboxSelected?.id !== it.id) st.selectInbox(refOf(it));
     if (it.kind === "note") {
@@ -426,6 +428,11 @@ export function NotesView() {
         ref?.current?.select();
       },
       escape() {
+        if (useNotesStore.getState().section === "inbox" && useInboxSelectStore.getState().ids.length > 0) {
+          useInboxSelectStore.getState().clear();
+          focusList("inbox");
+          return true;
+        }
         if (pop) {
           setPop(null);
           focusList();
@@ -478,7 +485,41 @@ export function NotesView() {
   const diaryPop = pop && (pop.kind === "day" || pop.kind === "entrydate") ? { id: pop.id, kind: pop.kind } : null;
 
   return (
-    <div ref={rootRef} className="page ns-notes" tabIndex={-1} onKeyDown={onKeyDown}>
+    <div
+      ref={rootRef}
+      className="page ns-notes"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (
+          section === "inbox" &&
+          !e.nativeEvent.isComposing &&
+          e.keyCode !== 229 &&
+          !(e.target as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable='true']")
+        ) {
+          const order = items.map((x) => x.id);
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && order.length > 0) {
+            e.preventDefault();
+            setPop(null);
+            useInboxSelectStore.getState().setAll(order);
+            return;
+          }
+          if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && order.length > 0) {
+            e.preventDefault();
+            const delta = e.key === "ArrowDown" ? 1 : -1;
+            const cur = useNotesStore.getState().inboxSelected?.id ?? null;
+            const i = cur ? order.indexOf(cur) : -1;
+            const nextIdx = i < 0 ? (delta > 0 ? 0 : order.length - 1) : Math.min(order.length - 1, Math.max(0, i + delta));
+            const nextIt = items[nextIdx];
+            if (nextIt) {
+              useInboxSelectStore.getState().extendTo(nextIt.id, order, cur);
+              useNotesStore.getState().selectInbox(refOf(nextIt));
+            }
+            return;
+          }
+        }
+        onKeyDown(e);
+      }}
+    >
       {section === "tags" ? (
         <NotesTags apiRef={tagsApiRef} />
       ) : section === "diary" ? (

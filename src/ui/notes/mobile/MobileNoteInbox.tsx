@@ -19,7 +19,7 @@
  * 丁 D-主-237：段頂那一行右邊三顆選項 chip「全部／筆記／車票」＝桌機書封「篩選・種類」的手機版（同一份 `notesStore.inboxKind`）；
  *   兩種都有、或正在篩的時候才出現（只有一種時篩了也一樣）。
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type PointerEvent } from "react";
 import { useUiStore } from "../../../store/uiStore";
 import { useNotesStore, type InboxKind, type InboxRef } from "../../../store/notesStore";
 import { useTagStore } from "../../../store/tagStore";
@@ -33,6 +33,8 @@ import { EmptyState } from "../../common/EmptyState";
 import { MobileAttachPicker } from "../../common/MobileAttachPicker";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { SelectCheck } from "../../mobile/mobileSelect";
+import { useInboxSelectStore, usePruneInboxSelection } from "../InboxSelectionBar";
 import { NotesFilterBar } from "../NotesFilterBar";
 import { nextMonday, shortDay } from "./dayKeys";
 import { useBackLayer } from "../../mobile/backStack";
@@ -49,6 +51,46 @@ function hhmm(iso: string): string {
 
 type PopKind = "someday" | "attach" | "route" | "more";
 type Pop = { id: string; kind: PopKind } | null;
+
+function useCardLongPress(onHold: () => void) {
+  const timer = useRef<number>(0);
+  const startPos = useRef<{ x: number; y: number } | null>(null);
+  const fired = useRef(false);
+  const clear = () => {
+    if (timer.current) {
+      window.clearTimeout(timer.current);
+      timer.current = 0;
+    }
+    startPos.current = null;
+  };
+  return {
+    consumeHold: (): boolean => {
+      if (!fired.current) return false;
+      fired.current = false;
+      return true;
+    },
+    bind: {
+      onPointerDown: (e: PointerEvent<HTMLElement>) => {
+        if (e.pointerType === "mouse") return;
+        fired.current = false;
+        startPos.current = { x: e.clientX, y: e.clientY };
+        clear();
+        startPos.current = { x: e.clientX, y: e.clientY };
+        timer.current = window.setTimeout(() => {
+          timer.current = 0;
+          fired.current = true;
+          onHold();
+        }, 420);
+      },
+      onPointerMove: (e: PointerEvent<HTMLElement>) => {
+        const p = startPos.current;
+        if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) clear();
+      },
+      onPointerUp: clear,
+      onPointerCancel: clear,
+    },
+  };
+}
 
 export function MobileNoteInbox({ ready }: { ready: boolean }) {
   const inboxNotes = useNotesStore((s) => s.inboxNotes);
@@ -115,11 +157,27 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
     />
   );
 
-  const isSel = (it: Item) => !!selected && selected.kind === it.kind && selected.id === it.id;
+  const visibleIds = useMemo(() => items.map((it) => it.id), [items]);
+  usePruneInboxSelection(visibleIds);
+  const selIds = useInboxSelectStore((s) => s.ids);
+  const mobileMode = useInboxSelectStore((s) => s.mobileMode);
+  const selecting = mobileMode || selIds.length > 0;
+  const selSet = useMemo(() => new Set(selIds), [selIds]);
+
+  const isSel = (it: Item) => !selecting && !!selected && selected.kind === it.kind && selected.id === it.id;
   const toggle = (it: Item) => {
+    if (selecting) {
+      useInboxSelectStore.getState().toggle(it.id, visibleIds);
+      return;
+    }
     const ref: InboxRef = { kind: it.kind, id: it.id };
     selectInbox(isSel(it) ? null : ref);
     setPop(null);
+  };
+  const holdSelect = (it: Item) => {
+    selectInbox(null);
+    setPop(null);
+    useInboxSelectStore.getState().start(it.id);
   };
 
   return (
@@ -151,7 +209,20 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
       ) : (
         <>
           <p className="ns-notes-mlede">
-            待整理 <b>{total}</b> 則{kinds}
+            待整理 <b>{total}</b> 則
+            {kinds}
+            <button
+              type="button"
+              className="ns-notes-mselbtn"
+              aria-pressed={selecting}
+              onClick={() => {
+                selectInbox(null);
+                setPop(null);
+                useInboxSelectStore.getState().setMobileMode(!selecting);
+              }}
+            >
+              {selecting ? "完成" : "選取"}
+            </button>
           </p>
           {filterBar}
           <ul className="ns-notes-milist">
@@ -165,7 +236,10 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
                   stampDay={dayKeyOf(it.note.noted_at, dayStartHour)}
                   inboxSort={inboxSort}
                   sel={isSel(it)}
+                  selecting={selecting}
+                  picked={selSet.has(it.id)}
                   onToggle={() => toggle(it)}
+                  onHold={() => holdSelect(it)}
                 />
               ) : (
                 <TicketCard
@@ -175,7 +249,10 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
                   stampDay={dayKeyOf(it.ticket.created_at, dayStartHour)}
                   inboxSort={inboxSort}
                   sel={isSel(it)}
+                  selecting={selecting}
+                  picked={selSet.has(it.id)}
                   onToggle={() => toggle(it)}
+                  onHold={() => holdSelect(it)}
                   onPop={(kind) => setPop({ id: it.id, kind })}
                   more={pop?.id === it.id && pop.kind === "more"}
                   onCloseMore={() => setPop(null)}
@@ -199,7 +276,10 @@ function NoteCard({
   stampDay,
   inboxSort,
   sel,
+  selecting,
+  picked,
   onToggle,
+  onHold,
 }: {
   n: NoteListItem;
   at: string;
@@ -207,18 +287,33 @@ function NoteCard({
   stampDay: string;
   inboxSort: "updated" | "created";
   sel: boolean;
+  selecting: boolean;
+  picked: boolean;
   onToggle(): void;
+  onHold(): void;
 }) {
   const keepNote = useNotesStore((s) => s.keepNote);
   const deleteNote = useNotesStore((s) => s.deleteNote);
   const openPreviewFromNote = useNotesStore((s) => s.openPreviewFromNote);
   const noteToDiary = useNotesStore((s) => s.noteToDiary);
+  const hold = useCardLongPress(onHold);
   const lines = lineCount(n.body);
   const text = n.body.trim() ? n.body : (n.title ?? "");
   return (
-    <li className={"ns-notes-mitem" + (sel ? " is-sel" : "")}>
+    <li className={"ns-notes-mitem" + (sel ? " is-sel" : "") + (selecting ? " is-selecting" : "") + (picked ? " is-picked" : "")}>
       <div className="ns-notes-mslip">
-        <button type="button" className="ns-notes-mslip-body" aria-expanded={sel} onClick={onToggle}>
+        <button
+          type="button"
+          className="ns-notes-mslip-body"
+          aria-expanded={selecting ? undefined : sel}
+          aria-pressed={selecting ? picked : undefined}
+          onClick={() => {
+            if (hold.consumeHold()) return;
+            onToggle();
+          }}
+          {...hold.bind}
+        >
+          {selecting && <SelectCheck picked={picked} />}
           <UketsukeSeal day={stampDay} size={42} />
           <span className="ns-notes-mslip-text">{text}</span>
           <span className="ns-notes-mmeta">
@@ -265,7 +360,10 @@ function TicketCard({
   stampDay,
   inboxSort,
   sel,
+  selecting,
+  picked,
   onToggle,
+  onHold,
   onPop,
   more,
   onCloseMore,
@@ -275,7 +373,10 @@ function TicketCard({
   stampDay: string;
   inboxSort: "updated" | "created";
   sel: boolean;
+  selecting: boolean;
+  picked: boolean;
   onToggle(): void;
+  onHold(): void;
   onPop(kind: PopKind): void;
   /** 「更多」的動作清單開著（只會開在選中的那一張） */
   more: boolean;
@@ -286,10 +387,22 @@ function TicketCard({
   const openPicker = useTagStore((s) => s.openPicker);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
+  const hold = useCardLongPress(onHold);
   return (
-    <li className={"ns-notes-mitem" + (sel ? " is-sel" : "")}>
+    <li className={"ns-notes-mitem" + (sel ? " is-sel" : "") + (selecting ? " is-selecting" : "") + (picked ? " is-picked" : "")}>
       <article className="ns-notes-mtk">
-        <button type="button" className="ns-notes-mtk-face" aria-expanded={sel} onClick={onToggle}>
+        <button
+          type="button"
+          className="ns-notes-mtk-face"
+          aria-expanded={selecting ? undefined : sel}
+          aria-pressed={selecting ? picked : undefined}
+          onClick={() => {
+            if (hold.consumeHold()) return;
+            onToggle();
+          }}
+          {...hold.bind}
+        >
+          {selecting && <SelectCheck picked={picked} />}
           <span className="ns-notes-mtk-stub" aria-hidden>
             <span className="badge">臨</span>
           </span>
@@ -327,7 +440,15 @@ function TicketCard({
         )}
         {more && (
           <MSheet list title={t.name} onClose={onCloseMore} backId="notes.inbox.more" backKind="sheet">
-            <MSheetItem onClick={() => onPop("attach")}>掛進列車…</MSheetItem>
+            <MSheetItem
+              onClick={() => {
+                onCloseMore();
+                onHold();
+              }}
+            >
+              選取多則…
+            </MSheetItem>
+            <MSheetItem cut onClick={() => onPop("attach")}>掛進列車…</MSheetItem>
             <MSheetItem onClick={() => onPop("route")}>掛上路線…</MSheetItem>
             {/* 掛荷札（D-筆-48）：手機上沒日期沒路線的臨時票唯一的入口——與桌機側板的荷札欄對等 */}
             <MSheetItem

@@ -30,6 +30,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { capsOfHotkey } from "../shell/hotkeys";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
+import { isRangeTicket } from "../../domain/dateRange";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { dayCount, type DayCountItem } from "../../domain/dayCount";
 import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
@@ -42,6 +43,7 @@ import { lineTodayHotkey } from "../../lines/runtime";
 import { requestMoveTo } from "../common/moveTo";
 import { moveRunFlow, toggleStopoverFlow } from "../outline/nodeFlows";
 import { rowsOf, type PopMenuItem } from "../common/PopMenu";
+import { canActAsSeatSlot, releaseSeatedFlow } from "../common/seating";
 import type { TodayKeyActions } from "./useTodayKeyboard";
 import type { TodayRowActions } from "./TodayRow";
 import { useSelectionStore } from "../../store/selectionStore";
@@ -172,6 +174,14 @@ export interface TodayControllerApi {
   openDefer(id: string, anchor: HTMLElement | null): void;
   closeDefer(): void;
 
+  /** 4C：待辦入座挑選浮層目標（slotNodeId + dueOn + anchor） */
+  seatTarget: { slotId: string; slotName: string; dueOn: string; anchor: HTMLElement | null } | null;
+  openSeatPicker(slotId: string, slotName: string, dueOn: string, anchor: HTMLElement | null): void;
+  closeSeatPicker(): void;
+
+  /** 4B：期間自由券一鍵排進今天（收斂為單日並附復原 Toast） */
+  pullToToday(row: TodayRow): void;
+
   complete(id: string): void;
   createInboxTicket(): void;
 
@@ -215,6 +225,12 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
   const [draft, setDraftState] = useState<TodayDraft | null>(null);
   const [logTarget, setLogTarget] = useState<string | null>(null);
   const [deferTarget, setDeferTarget] = useState<DeferTarget | null>(null);
+  const [seatTarget, setSeatTarget] = useState<{
+    slotId: string;
+    slotName: string;
+    dueOn: string;
+    anchor: HTMLElement | null;
+  } | null>(null);
   const [freshId, setFreshId] = useState<string | null>(null);
   const draftRef = useRef<TodayDraft | null>(null);
   const setDraft = useCallback((d: TodayDraft | null) => {
@@ -320,6 +336,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     (id: string, anchor: HTMLElement | null) => {
       setDraft(null);
       setLogTarget(null);
+      setSeatTarget(null);
       // 再點同一枚 chip＝收起來（DeferPopover 的 outside-mousedown 會刻意放過 anchor，把 toggle 留給這裡）
       setDeferTarget((cur) => (cur?.id === id ? null : { id, anchor }));
       useUiStore.getState().select(id);
@@ -327,9 +344,45 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     [setDraft],
   );
 
-  /* ───────── 完成流（a6／D4：車票純蓋章、列車／車廂蓋章＋完成卡） ───────── */
+  const openSeatPicker = useCallback(
+    (slotId: string, slotName: string, dueOn: string, anchor: HTMLElement | null) => {
+      setDraft(null);
+      setLogTarget(null);
+      setDeferTarget(null);
+      setSeatTarget((cur) => (cur?.slotId === slotId ? null : { slotId, slotName, dueOn, anchor }));
+      useUiStore.getState().select(slotId);
+    },
+    [setDraft],
+  );
+
+  const closeSeatPicker = useCallback(() => {
+    setSeatTarget(null);
+    focusContainer();
+  }, [focusContainer]);
+
+  const findRow = (id: string): TodayRow | undefined =>
+    ns().today.byId[id] ?? ns().rangeTickets.find((r) => r.id === id);
+
+  const pullToToday = useCallback((r: TodayRow) => {
+    const key = st.current.dateKey;
+    const prevOn = r.scheduled_on;
+    const prevEnd = r.scheduled_end ?? null;
+    void ns()
+      .pullRangeTicketToToday(r.id, key)
+      .then((res) => {
+        if (res.ok) {
+          ui().showToast({
+            message: "已排進今天",
+            actionLabel: "復原",
+            onAction: () => void ns().updateNode(r.id, { scheduled_on: prevOn, scheduled_end: prevEnd }),
+          });
+        }
+      });
+  }, []);
+
+  /* ───────── 完成流（a6／D4：車票與列車／車廂蓋章＋完成卡；含期間自由券抽屜） ───────── */
   const completeRow = async (id: string) => {
-    const row = ns().today.byId[id];
+    const row = findRow(id);
     if (!row) return;
     // 運休中的班次：點在運休章上＝**取消運休**（A 原型 :60-62／:1061 的検印輪替「…→運休→空欄」最後一步）。
     // 不能直接蓋済——引擎已把 scheduled_on 推到下一班，這時蓋章會蓋到「下一班」頭上；
@@ -343,6 +396,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       return;
     }
     if (isDoneRow(row)) {
+      if (ui().completeCardFor === id) ui().setCompleteCardFor(null);
       await ns().setCompleted(id, false);
       return;
     }
@@ -351,7 +405,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       await ns().setCompleted(id, true, cascade ? true : undefined);
       // 動畫結束事件是主要清除點；reduced-motion（animation:none 不發 animationend）用計時器兜底
       setTimeout(() => setFreshId((cur) => (cur === id ? null : cur)), 800);
-      if (isTaskKind(row.kind)) ui().setCompleteCardFor(id);
+      if (isTaskKind(row.kind) || row.kind === "ticket") ui().setCompleteCardFor(id);
     };
     const open = row.child_total - row.child_done;
     if (open > 0) {
@@ -398,7 +452,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
 
   /* ───────── 刪除流（a11／D3：soft delete＋undo） ───────── */
   const deleteRow = (id: string) => {
-    if (!ns().today.byId[id]) return;
+    if (!findRow(id)) return;
     // 確認與 toast 在共用流程（失物招領 §5-6）；這裡只管刪後選哪一列
     void confirmAndDeleteNode(id, {
       around: async (del) => {
@@ -493,6 +547,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     },
     escape() {
       if (draftRef.current) return closeDraft();
+      if (seatTarget) return closeSeatPicker();
       if (deferTarget) return closeDefer();
       if (logTarget) return closeLog();
       if (clearIfAny("today")) return; // 回饋乙：覆蓋層之後、收側板之前先清多選
@@ -524,6 +579,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       ui().setPanelOpen(true);
     },
     openDefer,
+    openSeatPicker,
     focusContainer,
     pick: (id, e) => {
       if (pickClick("today", id, visibleIds(), e, ui().selectedId)) return true;
@@ -566,14 +622,39 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       });
     }
     // 已交代（済／運休）的不給改期項——跟手機 pickDay、行程表 ⋯ 同一把尺（主人真機抓過「蓋済章了還能推遲到明天」）
+    const isRange = !teiki && isRangeTicket(r);
     if (!isSettledRow(r)) {
-      const verb = teiki ? "這一班改到" : "推遲到";
-      items.push(
-        r.bucket === "today"
-          ? { key: "tomorrow", label: `${verb}明天`, hotkeyId: "today.schedule.tomorrow", onSelect: run(() => keys.scheduleSelected(1)) }
-          : { key: "today", label: `${verb}今天`, hotkeyId: "today.schedule.today", onSelect: run(() => keys.scheduleSelected(0)) },
-        { key: "pick-date", label: teiki ? "這一班改到…" : "選日期…", onSelect: run(() => openDefer(r.id, anchor)) },
-      );
+      if (isRange) {
+        items.push(
+          { key: "pull-today", label: "排今天", onSelect: run(() => pullToToday(r)) },
+          { key: "pick-date", label: "改期間／日期…", onSelect: run(() => openDefer(r.id, anchor)) },
+        );
+      } else {
+        const verb = teiki ? "這一班改到" : "推遲到";
+        items.push(
+          r.bucket === "today"
+            ? { key: "tomorrow", label: `${verb}明天`, hotkeyId: "today.schedule.tomorrow", onSelect: run(() => keys.scheduleSelected(1)) }
+            : { key: "today", label: `${verb}今天`, hotkeyId: "today.schedule.today", onSelect: run(() => keys.scheduleSelected(0)) },
+          { key: "pick-date", label: teiki ? "這一班改到…" : "選日期／區間…", onSelect: run(() => openDefer(r.id, anchor)) },
+        );
+      }
+    }
+    const railDate = r.occurrence?.due_on ?? r.scheduled_on;
+    if (r.seated_into) {
+      const s = r.seated_into;
+      items.push({
+        key: "release-seat",
+        label: "釋出預留席",
+        group: "編排",
+        onSelect: run(() => void releaseSeatedFlow(s.slotNodeId, s.dueOn, r.id)),
+      });
+    } else if (canActAsSeatSlot(r, isSettledRow(r)) && railDate) {
+      items.push({
+        key: "seat-into",
+        label: "配對待辦入座…",
+        group: "編排",
+        onSelect: () => openSeatPicker(r.id, r.custom_title || r.name, railDate, anchor),
+      });
     }
     if (teiki) {
       items.push({
@@ -635,7 +716,11 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     // 規範 §2.4 一層 ≤7：超過時（有発車又能推遲的票＝8 列）把改期的兩項收進「改期 ▾」群組（PopMenu group，同大綱「編排 ▾」）。
     // 算的是頂層列數（群組算一列）。定期券多一項運休：有発車時收完還超過，就跟著收進去（它緊接在改期兩項後面，群組連得起來）
     if (rowsOf(items).length > 7) {
-      for (const it of items) if (it.key === "tomorrow" || it.key === "today" || it.key === "pick-date") it.group = "改期";
+      for (const it of items) {
+        if (it.key === "tomorrow" || it.key === "today" || it.key === "pull-today" || it.key === "pick-date") {
+          it.group = "改期";
+        }
+      }
       if (rowsOf(items).length > 7) for (const it of items) if (it.key === "suspend" || it.key === "stopover") it.group = "改期";
     }
     return items;
@@ -667,6 +752,12 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     openDefer,
     closeDefer,
 
+    seatTarget,
+    openSeatPicker,
+    closeSeatPicker,
+
+    pullToToday,
+
     complete: (id) => void completeRow(id),
     createInboxTicket,
 
@@ -683,7 +774,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
 
     freshId,
     clearFresh: () => setFreshId(null),
-    blocked: draft !== null || logTarget !== null || deferTarget !== null,
+    blocked: draft !== null || logTarget !== null || deferTarget !== null || seatTarget !== null,
     keys,
     row,
     menuFor,

@@ -57,7 +57,7 @@ import { useSelectionStore } from "../../store/selectionStore";
 import { batchSetDate } from "../../store/batchActions";
 import { useDragReorder, type DropPlace, type Verdict } from "../common/dragReorder";
 import { SelectionBar } from "../common/selection/SelectionBar";
-import { clearIfAny, dragBatch, extendBy, pickClick, selectAll } from "../common/selection/desktopSelection";
+import { clearIfAny, dismissOnBlankClick, dragBatch, extendBy, pickClick, selectAll } from "../common/selection/desktopSelection";
 import {
   mdw,
   type StreamDaySection,
@@ -548,7 +548,7 @@ export function StreamView() {
 
   return (
     <div className="ns-sch">
-      <div ref={scrollRef} className="ns-sch-scroll" tabIndex={0} onScroll={onScroll} onKeyDown={onKeyDown}>
+      <div ref={scrollRef} className="ns-sch-scroll" tabIndex={0} onScroll={onScroll} onKeyDown={onKeyDown} onClick={dismissOnBlankClick}>
         {empty && (
           <EmptyState
             className="ns-sch-empty"

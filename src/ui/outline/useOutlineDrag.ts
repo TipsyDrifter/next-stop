@@ -13,11 +13,13 @@ import { useCallback } from "react";
 import type { NodeKind } from "../../domain";
 import { PARKED_ADD_WHY } from "../../domain/depot";
 import { dropVerdict } from "../../domain/dropRules";
+import { dedupeSubtreeRoots } from "../../domain/moveTo";
 import { APPEND, moveWithUndo } from "../../store/batchActions";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useDragReorder, type DropPlace, type Verdict } from "../common/dragReorder";
 import { dragBatch } from "../common/selection/desktopSelection";
+import { STATION_DROP_TYPE, dropOnStation, stationTargetVerdict } from "./StationTrackBar";
 import type { VisibleRow } from "./useOutlineController";
 
 const INDENT_PX = 28; // = OutlineRow.indentPx(1)
@@ -56,10 +58,17 @@ export function useOutlineDrag(opts: {
     (ids: readonly string[]): string[] => {
       const out: string[] = [];
       const set = new Set(ids);
+      const seen = new Set<string>();
       for (let i = 0; i < items.length; i++) {
         if (!set.has(items[i].id)) continue;
         const d = items[i].depth;
-        for (let j = i + 1; j < items.length && items[j].depth > d; j++) if (!set.has(items[j].id)) out.push(items[j].id);
+        for (let j = i + 1; j < items.length && items[j].depth > d; j++) {
+          const childId = items[j].id;
+          if (!set.has(childId) && !seen.has(childId)) {
+            seen.add(childId);
+            out.push(childId);
+          }
+        }
       }
       return out;
     },
@@ -76,9 +85,20 @@ export function useOutlineDrag(opts: {
     onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3600),
     dragIds: (id) => {
       const batch = dragBatch("outline", id, order);
-      // 祖先也在這一批的子孫不另搬（它跟著祖先走）
-      const under = new Set(carried(batch));
-      return batch.filter((x) => !under.has(x));
+      if (batch.length <= 1) return batch;
+      // 祖先也在這一批的子孫務必剔除（跟著母樹整棵搬遷，不可拆成平級重掛）
+      const batchSet = new Set(batch);
+      const byId = useNodeStore.getState().tree.byId;
+      const under = new Set<string>();
+      for (let i = 0; i < items.length; i++) {
+        if (!batchSet.has(items[i].id)) continue;
+        const d = items[i].depth;
+        for (let j = i + 1; j < items.length && items[j].depth > d; j++) {
+          under.add(items[j].id);
+        }
+      }
+      const roots = dedupeSubtreeRoots(batch, (x) => byId[x]?.parent_id ?? null);
+      return roots.filter((x) => !under.has(x));
     },
     tree: {
       indent: INDENT_PX,
@@ -88,7 +108,11 @@ export function useOutlineDrag(opts: {
     },
     resolve: (ids, place: DropPlace) => {
       if (!top) return "這裡放不下";
-      if (place.kind === "target") return place.type === "route" ? routeTargetVerdict(ids, place.target) : "這裡放不下";
+      if (place.kind === "target") {
+        if (place.type === "route") return routeTargetVerdict(ids, place.target);
+        if (place.type === STATION_DROP_TYPE) return stationTargetVerdict(ids, place.target, useNodeStore.getState().routeId, parked);
+        return "這裡放不下";
+      }
       const v = dropVerdict(useNodeStore.getState().tree, top, ids, place.parent);
       return v.ok ? true : v.why;
     },
@@ -96,6 +120,7 @@ export function useOutlineDrag(opts: {
       if (!top) return;
       if (place.kind === "target") {
         if (place.type === "route") dropOnRoute(ids, place.target);
+        else if (place.type === STATION_DROP_TYPE) dropOnStation(ids, place.target, useNodeStore.getState().routeId);
         return;
       }
       const v = dropVerdict(useNodeStore.getState().tree, top, ids, place.parent);

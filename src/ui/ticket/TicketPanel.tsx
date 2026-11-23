@@ -37,6 +37,7 @@ import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { useTagStore } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
+import { groupRoutesByLine } from "../notes/useAttachOptions";
 import { todayKey } from "../../lib/date";
 import { CommitInput, FieldRow, useDebouncedCommit } from "../common/fields";
 import { SidePanelFrame } from "../common/SidePanelFrame";
@@ -1053,14 +1054,29 @@ export function AcctPick(props: {
   );
 }
 
-/* ── 路線浮層（只到路線，D-票 K3；頂部搜尋） ── */
-export function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow[]; current: string | null; onClose(): void; onPick(id: string | null): void }) {
+/* ── 路線浮層（只到路線，D-票 K3；頂部搜尋＋討論 5 依幹線分組） ── */
+export function RoutePop({
+  routes,
+  lines: linesProp,
+  current,
+  onClose,
+  onPick,
+}: {
+  routes: NodeRow[];
+  lines?: readonly NodeRow[];
+  current: string | null;
+  onClose(): void;
+  onPick(id: string | null): void;
+}) {
+  const storeLines = useNodeStore((s) => s.lines);
+  const lines = linesProp ?? storeLines;
   const [q, setQ] = useState("");
   const list = useMemo(() => {
     const k = q.trim().toLowerCase();
     if (!k) return routes;
     return routes.filter((r) => r.name.toLowerCase().indexOf(k) >= 0 || (r.code ?? "").toLowerCase().indexOf(k) >= 0);
   }, [routes, q]);
+  const groups = useMemo(() => groupRoutesByLine(list, lines), [list, lines]);
   return (
     <Pop label="路線" onClose={onClose} search>
       <div className="search">
@@ -1073,12 +1089,17 @@ export function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow
           不選
         </button>
       )}
-      {list.map((r) => (
-        <button key={r.id} type="button" role="option" aria-selected={current === r.id} className={`opt${current === r.id ? " on" : ""}`} onClick={() => onPick(r.id)}>
-          <TkRoundel route={r} />
-          {r.name}
-          {r.code && <span className="path">{r.code}</span>}
-        </button>
+      {groups.map((g) => (
+        <div key={g.lineId ?? "other"} role="group" aria-label={g.header}>
+          <div className="hd">{g.header}</div>
+          {g.routes.map((r) => (
+            <button key={r.id} type="button" role="option" aria-selected={current === r.id} className={`opt${current === r.id ? " on" : ""}`} onClick={() => onPick(r.id)}>
+              <TkRoundel route={r} />
+              {r.name}
+              {r.code && <span className="path">{r.code}</span>}
+            </button>
+          ))}
+        </div>
       ))}
       {list.length === 0 && <div className="hd">找不到「{q}」</div>}
     </Pop>

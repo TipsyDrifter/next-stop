@@ -131,8 +131,10 @@ function MobileCompleteCardInner({ id }: { id: string }) {
     void save();
   };
 
-  const name = node?.name ?? "這班列車";
-  const kindLabel = node ? KIND_LABEL[node.kind] : "列車";
+  const isTicket = node?.kind === "ticket";
+  const name = node?.name ?? "這張車票";
+  const heading = isTicket ? "乘車完成" : `${node ? KIND_LABEL[node.kind] : "列車"}到站`;
+  const placeholder = isTicket ? "記一句剛才的乘務感想…（選填）" : "這一趟做了什麼？（選填）";
 
   return (
     <div className="m-cc-dock" ref={dockRef}>
@@ -147,7 +149,7 @@ function MobileCompleteCardInner({ id }: { id: string }) {
 
         <div className="m-cc-body">
           <p className="m-cc-head">
-            <span className="m-cc-kind">{kindLabel}到站</span>
+            <span className="m-cc-kind">{heading}</span>
             <span className="m-cc-title">{name}</span>
           </p>
           <input
@@ -160,7 +162,7 @@ function MobileCompleteCardInner({ id }: { id: string }) {
             onCompositionEnd={() => {
               composing.current = false;
             }}
-            placeholder="這一趟做了什麼？（選填）"
+            placeholder={placeholder}
             aria-label="一行乘務記錄"
             enterKeyHint="done"
             spellCheck={false}

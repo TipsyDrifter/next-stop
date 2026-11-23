@@ -89,16 +89,18 @@ test("路線刪了、票還掛著標籤：算臨時車票，選已刪路線與�
   assert.equal(routeKeyOf(orphan), "gone", "沒給判準照原值（存檔不改寫）");
 });
 
-test("有子項的列車：只有「誤點」條件收，而且要真的誤點", () => {
+test("有子項的列車：非誤點條件（預設／荷札／締切／高優先）一樣可命中（Bug 2）", () => {
   const past = "2026-11-01";
-  const lateTrain = task("t", { kind: "train", has_kids: true, due_on: past });
+  const lateTrain = task("t", { kind: "train", has_kids: true, due_on: past, priority: "high" });
   const okTrain = task("u", { kind: "train", has_kids: true });
-  assert.equal(matchTask(lateTrain, DEFAULT_TASK_FILTER, ctx()), false);
-  assert.equal(matchTask(lateTrain, f({ due: "overdue" }), ctx()), false);
-  assert.equal(matchTask(lateTrain, f({ status: "all" }), ctx()), false);
-  assert.equal(matchTask(lateTrain, f({ late: true }), ctx()), true);
-  assert.equal(matchTask(okTrain, f({ late: true }), ctx()), false);
-  assert.equal(matchTask(lateTrain, f({ late: true, routes: ["r2"] }), ctx()), false, "其他條件照舊");
+  const c = ctx({ tagsOf: (id) => (id === "u" ? ["重點"] : []) });
+  assert.equal(matchTask(lateTrain, DEFAULT_TASK_FILTER, c), true);
+  assert.equal(matchTask(lateTrain, f({ due: "overdue" }), c), true);
+  assert.equal(matchTask(lateTrain, f({ high: true }), c), true);
+  assert.equal(matchTask(okTrain, f({ tags: ["重點"] }), c), true);
+  assert.equal(matchTask(lateTrain, f({ late: true }), c), true);
+  assert.equal(matchTask(okTrain, f({ late: true }), c), false);
+  assert.equal(matchTask(lateTrain, f({ late: true, routes: ["r2"] }), c), false, "其他條件照舊");
 });
 
 test("跳轉落點：看得到的卡才算；有子項、隱藏中的済、支線都不算", () => {

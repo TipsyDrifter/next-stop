@@ -30,10 +30,11 @@
  *   返回鍵＝左鈕＝取消）。疊在表單上的 sheet（幣別、日期、新增分類）共用 "ticket.form.pick"（"dialog"）；「＋ 新增帳戶」與「管理分類…」
  *   走 store 的 openDialog，由 MobileSheetHost 疊在表單上面（表單開著時它登記成 "dialog"）。
  */
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTicketStore, type TicketDraft } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useNodeStore } from "../../../store/nodeStore";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { useUiStore } from "../../../store/uiStore";
 import { addDays, todayKey } from "../../../lib/date";
 import { roundelStyle } from "../../common/roundel";
@@ -372,8 +373,10 @@ function FormShell({
   const curByCode = useTicketStore((s) => s.curByCode);
   const frequent = useTicketStore((s) => s.frequent);
   const routes = useNodeStore((s) => s.routes);
-  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13）
+  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13；討論 5 依幹線分組）
+  const liveLines = useNodeStore((s) => s.liveLines);
   const liveRoutes = useNodeStore((s) => s.liveRoutes);
+  const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, liveLines), [liveRoutes, liveLines]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
 
@@ -879,19 +882,26 @@ function FormShell({
                   >
                     不掛
                   </button>
-                  {liveRoutes.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      className={"ns-tk-mchip" + (d.routeId === r.id ? " on" : "")}
-                      aria-pressed={d.routeId === r.id}
-                      onClick={() => onPatch({ routeId: r.id })}
-                    >
-                      <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
-                        {r.code ?? r.name.slice(0, 1)}
+                  {routeGroups.map((g) => (
+                    <Fragment key={g.lineId ?? "other"}>
+                      <span className="ns-tk-mf-acctsep" aria-hidden>
+                        {g.header}
                       </span>
-                      {r.name}
-                    </button>
+                      {g.routes.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className={"ns-tk-mchip" + (d.routeId === r.id ? " on" : "")}
+                          aria-pressed={d.routeId === r.id}
+                          onClick={() => onPatch({ routeId: r.id })}
+                        >
+                          <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
+                            {r.code ?? r.name.slice(0, 1)}
+                          </span>
+                          {r.name}
+                        </button>
+                      ))}
+                    </Fragment>
                   ))}
                 </div>
               </div>

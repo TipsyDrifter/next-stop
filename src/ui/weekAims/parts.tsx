@@ -3,7 +3,7 @@
  */
 import { useMemo } from "react";
 import type { NodeRow } from "../../domain";
-import { planHint, type PlanCount, type WeekAimRow } from "../../domain/weekAims";
+import { planHint, resolveAimRouteId, type AimAttachLookupNode, type PlanCount, type WeekAimRow } from "../../domain/weekAims";
 import { roundelStyle } from "../common/roundel";
 import { jumpToNode } from "../common/QuickJump";
 import { jumpToNodeMobile } from "../mobile/routeMapReveal";
@@ -32,12 +32,16 @@ export function useAimPlaceOf(): (id: string | null) => AimPlace | null {
   const extra = useWeekAimStore((s) => s.aimNodes);
   return useMemo(() => {
     const byId = new Map(routes.map((r) => [r.id, r]));
+    const lookup = new Map<string, AimAttachLookupNode>();
+    for (const r of routes) lookup.set(r.id, r);
+    for (const n of Object.values(extra)) lookup.set(n.id, n);
     return (id: string | null) => {
       if (!id) return null;
       const r = byId.get(id);
       if (r) return { route: r, node: r };
       const n = extra[id];
-      const owner = n?.route_id ? byId.get(n.route_id) : undefined;
+      const ownerId = n ? resolveAimRouteId(id, lookup) : null;
+      const owner = ownerId ? byId.get(ownerId) : undefined;
       return n && owner ? { route: owner, node: n } : null;
     };
   }, [routes, extra]);

@@ -28,12 +28,13 @@ import { SchedPopover } from "./SchedPopover"; // ⑦ C 席
 import { RoutinePicker } from "./RoutinePicker"; // ⑦ C 席
 import { RoutineSegPanel } from "../panels/RoutineSegPanel"; // ⑦ C 席
 import { SlotPanel } from "../panels/SlotPanel"; // ⑦ C 席
-import { AdhocPanel } from "../panels/AdhocPanel"; // 第三梯（討論 6）
-import { ScheduleWeekGrid } from "./ScheduleWeekGrid"; // 第三梯（討論 6）
+import { AdhocPanel } from "../panels/AdhocPanel"; // 舊版 adhoc 列相容
+import { ScheduleWeekGrid } from "./ScheduleWeekGrid"; // 第三梯＋第四梯（討論 6）
 import { CategoryBadge } from "../CategoryBadge"; // ⑦ C 席
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
 import { segName } from "../../../domain/timetableRoutine"; // ⑦ C 席
 import { SCHED_UI } from "./scheduleModel";
+import { planItemDisplay } from "./scheduleSeatModel";
 import { adhocDisplayOf, routeColorOf, useSchedulePage, type SchedulePage } from "./useSchedulePage";
 import { useScheduleDrag, type DragView } from "./useScheduleDrag";
 
@@ -79,6 +80,8 @@ export function DragFloat({ page, drag }: { page: SchedulePage; drag: DragView |
   if (!drag || drag.src !== "list") return null;
   const it = page.items[drag.key];
   if (!it) return null;
+  const node = page.nodes[it.nodeId];
+  const label = planItemDisplay(it, node, node?.route_id ? page.routeById[node.route_id]?.name : null).title;
   return createPortal(
     <div
       className={"ns-tt-sched-float techo-card" + (drag.min !== null ? " is-over" : "")}
@@ -86,7 +89,7 @@ export function DragFloat({ page, drag }: { page: SchedulePage; drag: DragView |
       aria-hidden="true"
     >
       <i className="ns-tt-sched-rdot" />
-      {page.nodes[it.nodeId]?.name ?? "？"}
+      {label}
     </div>,
     document.body,
   );
@@ -111,8 +114,6 @@ export function ScheduleView() {
   const sheet = useTimetableStore((s) => s.sheet);
   const closeSheet = useTimetableStore((s) => s.closeSheet);
   const slotName = sheet?.kind === "slot" ? (page.nodes[page.slots[sheet.key]?.nodeId ?? ""]?.name ?? "") : "";
-  const adhocName =
-    sheet?.kind === "adhoc" && page.adhocs[sheet.key] ? adhocDisplayOf(page, page.adhocs[sheet.key]).name : "臨時班次";
   const isWeek = page.scheduleMode === "week";
   const rootRef = useRef<HTMLElement>(null);
   const pcolRef = useRef<HTMLDivElement>(null);
@@ -165,14 +166,20 @@ export function ScheduleView() {
       </div>
       <DragFloat page={page} drag={drag} />
       {page.openKey && sheet?.kind === "plan" && <PlanPopover planKey={page.openKey} rootRef={rootRef} scrollRef={scrollRef} />}
-      {/* ⑦（C 席）：車票第二段起、臨時班次、作息段的小面板（同 PlanPopover 的浮層） */}
+      {/* ⑦（C 席）：車票第二段起、作息段的小面板（同 PlanPopover 的浮層） */}
       {sheet?.kind === "slot" && (
         <SchedPopover anchor={`.ns-tt-sched-card[data-key="${CSS.escape(sheet.key)}"]`} openId={sheet.key} title={slotName} rootRef={rootRef} scrollRef={scrollRef}>
           <SlotPanel key={sheet.key} onDone={closeSheet} shell="desktop" />
         </SchedPopover>
       )}
       {sheet?.kind === "adhoc" && (
-        <SchedPopover anchor={`.ns-tt-sched-card[data-key="${CSS.escape(sheet.key)}"]`} openId={sheet.key} title={adhocName} rootRef={rootRef} scrollRef={scrollRef}>
+        <SchedPopover
+          anchor={`.ns-tt-sched-card[data-key="${CSS.escape(sheet.key)}"]`}
+          openId={sheet.key}
+          title={page.adhocs[sheet.key] ? adhocDisplayOf(page, page.adhocs[sheet.key]).name : ""}
+          rootRef={rootRef}
+          scrollRef={scrollRef}
+        >
           <AdhocPanel key={sheet.key} onDone={closeSheet} shell="desktop" />
         </SchedPopover>
       )}

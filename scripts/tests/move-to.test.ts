@@ -16,30 +16,23 @@ import { allowedChildKinds, type NodeKind } from "../../src/domain/node.ts";
 
 /* ───────── 依種類能挑的新父節點 ───────── */
 
-test("moveTargetRule：車廂 → 列車／車廂，路線本身不可選", () => {
-  const r = moveTargetRule("car");
-  assert.ok(r);
-  assert.equal(r.depth, "node");
-  assert.deepEqual(r.kinds, ["train", "car"]);
-  assert.equal(r.routeSelectable, false);
-});
-
-test("moveTargetRule：車票 → 路線（＝掛路線標籤的根層車票）／支線／列車／車廂（丁 D-主-245）", () => {
-  const r = moveTargetRule("ticket");
-  assert.ok(r);
-  assert.equal(r.depth, "node");
-  assert.deepEqual(r.kinds, ["branch", "train", "car"]);
-  assert.equal(r.routeSelectable, true);
-});
-
-test("moveTargetRule：列車、支線 → 路線／支線", () => {
-  for (const k of ["train", "branch"] as const) {
+test("moveTargetRule：車票／車廂／列車 → 路線／支線／列車／車廂／車票（操作 7 全階層解禁）", () => {
+  for (const k of ["ticket", "car", "train"] as const) {
     const r = moveTargetRule(k);
     assert.ok(r);
     assert.equal(r.depth, "node");
-    assert.deepEqual(r.kinds, ["branch"]);
+    assert.deepEqual(r.kinds, ["branch", "train", "car", "ticket"]);
     assert.equal(r.routeSelectable, true);
+    assert.equal(r.label, "移到哪條路線、支線、列車或車票");
   }
+});
+
+test("moveTargetRule：支線 → 路線／支線", () => {
+  const r = moveTargetRule("branch");
+  assert.ok(r);
+  assert.equal(r.depth, "node");
+  assert.deepEqual(r.kinds, ["branch"]);
+  assert.equal(r.routeSelectable, true);
 });
 
 test("moveTargetRule：站 → 只挑路線；幹線、路線不出入口", () => {
@@ -51,17 +44,20 @@ test("moveTargetRule：站 → 只挑路線；幹線、路線不出入口", () =
   assert.equal(moveTargetRule("route"), null);
 });
 
-test("moveTargetRule 與 allowedChildKinds 一致：挑得到的父節點都允許掛這個種類（repository 不會擋）", () => {
+test("moveTargetRule 與搬移／升格／轉換規則一致（repository planMove 不會擋）", () => {
   const kinds: NodeKind[] = ["branch", "train", "car", "ticket", "station"];
   for (const k of kinds) {
     const r = moveTargetRule(k);
     assert.ok(r, k);
     const parents: NodeKind[] = [...r.kinds, ...(r.routeSelectable ? (["route"] as const) : [])];
     assert.ok(parents.length > 0, k);
-    // 車票選路線＝不是 parent_id＝路線，是根層＋路線標籤（moveNodeTo 改走 moveToAnchor），所以根層要允許車票
     for (const p of parents) {
-      if (k === "ticket" && p === "route") assert.ok(allowedChildKinds(null).includes("ticket"));
-      else assert.ok(allowedChildKinds(p).includes(k), `${k} 掛在 ${p} 底下應被允許`);
+      if (k === "ticket" || k === "car" || k === "train") {
+        // 操作 7：train/car/ticket 皆可搬往 route/branch/train/car/ticket（由 planMove 自動升格／轉型）
+        assert.ok(["route", "branch", "train", "car", "ticket"].includes(p));
+      } else {
+        assert.ok(allowedChildKinds(p).includes(k), `${k} 掛在 ${p} 底下應被允許`);
+      }
     }
   }
 });

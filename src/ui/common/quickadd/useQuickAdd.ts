@@ -13,11 +13,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { nodeRepo, type CreateNodeInput } from "../../../data";
 import { tagRepo } from "../../../data/tagRepo";
 import type { NodeKind, NodeRow, Priority } from "../../../domain";
+import { normalizeDateRange } from "../../../domain/dateRange";
+import { compareSiblings } from "../../../domain/nodeOrder";
+import { excludeSubtrees } from "../../../domain/moveTo";
 import { parseQuickAdd, stripTokens, type QuickAddCtx, type QuickAddParse, type QuickTokenKind } from "../../../domain/quickAdd";
 import { todayKey } from "../../../lib/date";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useUiStore } from "../../../store/uiStore";
+import { flattenAttachTree, type AttachKind } from "../../notes/useAttachOptions";
 import {
   CHIP_TOKENS,
   leaveNote,
@@ -35,7 +39,18 @@ import {
 
 /** 大綱位置型草稿列建票時多帶的東西（useOutlineController 的 createFromDraft 收） */
 export interface QuickExtra {
-  input: Pick<CreateNodeInput, "scheduledOn" | "scheduledTime" | "estimateMin" | "dueOn" | "priority" | "dayStartHour">;
+  input: Pick<
+    CreateNodeInput,
+    | "stationId"
+    | "scheduledOn"
+    | "scheduledEnd"
+    | "scheduledTime"
+    | "estimateMin"
+    | "dueOn"
+    | "priority"
+    | "isPlaceholder"
+    | "dayStartHour"
+  >;
   /** 建好之後（掛荷札） */
   afterCreate(row: NodeRow): Promise<void>;
 }
@@ -43,10 +58,20 @@ export interface QuickExtra {
 export interface UseQuickAddOptions {
   /** 掛到與乘車日的預設 */
   defaults: QuickDefaults;
-  /** 掛到路線（或支線）時預設建成什麼；省略＝路線圖列車、其他頁車票（契約 §一 A「路線圖預設列車」） */
+  /** 掛到路線（或支線）時預設建成什麼；省略＝車票（操作 2：路線大綱可切「車票｜支線」） */
   routeKind?: RouteKind;
+  /** 強制隱藏「車票｜支線」切換段（如看板欄內新增車票、行內編輯列） */
+  hideRouteKind?: boolean;
   /** 大綱位置型：建成的種類由位置決定、不認 @、不出掛到 chip；建票走呼叫端（extra()） */
   positional?: { kind: NodeKind };
+  /** 行內編輯既有項目：保留原項目種類（不自己 createNode），但 movable 時完整支援 `@路線` 語法與補完！ */
+  inlineEdit?: {
+    kind: NodeKind;
+    allowDest: boolean;
+    excludeId?: string;
+    allowedDestKinds?: readonly AttachKind[];
+    routeSelectable?: boolean;
+  };
   /** 行內編輯既有車票時的初始標題與締切同步狀態 */
   initialText?: string;
   initialSyncDue?: boolean;
@@ -77,10 +102,14 @@ export interface QuickAddApi {
   tokens: QuickAddParse["tokens"];
   values: QuickValues;
   target: QuickTarget;
+  /** 當前場景是否允許顯示「車票｜支線」分段鈕（只在路線大綱 here.kind === "route" 且掛到路線／支線時為 true） */
+  canChooseKind: boolean;
   routeKind: RouteKind;
   setRouteKind(k: RouteKind): void;
   setDest(d: QuickDest): void;
+  setStation(id: string | null): void;
   setDate(d: string | null): void;
+  setDateRange(start: string | null, end: string | null): void;
   setTime(t: string | null, estimateMin: number | null): void;
   setDue(d: string | null): void;
   /** 締切與乘車日同步開關 */
@@ -99,11 +128,22 @@ export interface QuickAddApi {
   today: string;
   dayStartHour: number;
   routes: NodeRow[];
+  /** 目前目標路線底下的車站（無路線或無車站時為空陣列） */
+  stations: NodeRow[];
   routeName(id: string | null): string | null;
-  /** 列車／車廂的名字（文字認出來的 @路線/列車） */
+  stationName(id: string | null): string | null;
+  /** 子節點的名字（文字認出來的 @路線/子項） */
   nodeName(id: string | null): string | null;
-  /** 聚焦時叫：把 @路線/列車 要用的列車清單載新 */
+  /** 聚焦時叫：把 @路線/子項 要用的節點清單載新 */
   warm(): void;
+  /** 給 QuickField 行內補完（useQuickSuggest）的設定 */
+  suggestConfig: {
+    allowDest: boolean;
+    allowTag: boolean;
+    excludeId?: string;
+    allowedDestKinds?: readonly AttachKind[];
+    routeSelectable?: boolean;
+  };
 }
 
 type TaskLite = { id: string; name: string; kind: NodeKind };
@@ -121,10 +161,18 @@ export async function attachQuickTags(nodeId: string, names: readonly string[]):
 }
 
 export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
-  const routes = useNodeStore((s) => s.routes);
+  const routes = useNodeStore((s) => s.liveRoutes);
+  const allRoutes = useNodeStore((s) => s.routes);
+  const allStations = useNodeStore((s) => s.stations);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
   const today = todayKey(dayStartHour);
   const positional = !!opts.positional;
+  const inlineEdit = opts.inlineEdit;
+  const disableDest = positional || (inlineEdit ? !inlineEdit.allowDest : false);
+  const fixedKind = opts.positional?.kind ?? inlineEdit?.kind ?? null;
+  const excludeId = inlineEdit?.excludeId;
+  const allowedDestKindsKey = inlineEdit?.allowedDestKinds?.join(",") ?? "";
 
   const [text, setTextState] = useState(opts.initialText ?? "");
   /** 解析用的字：組字中凍結在組字前那一版 */
@@ -132,12 +180,12 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
   const [composing, setComposing] = useState(false);
   const composingRef = useRef(false);
   const textRef = useRef(opts.initialText ?? "");
-  const [chips, setChips] = useState<QuickChips>(() => (opts.initialSyncDue ? { syncDueWithScheduled: true } : {}));
-  /** 連打留下來的掛到／乘車日（上一張用 chip 設的）：當預設用——這一張打的字照樣蓋得過（不然認出來的片段被拿掉、值卻被丟掉） */
-  const [carry, setCarry] = useState<Partial<Pick<QuickDefaults, "dest" | "scheduledOn">>>({});
+  const [chips, setChips] = useState<QuickChips>({});
+  /** 連打留下來的掛到／車站／乘車日（含區間訖日）：當預設用——這一張打的字照樣蓋得過 */
+  const [carry, setCarry] = useState<Partial<Pick<QuickDefaults, "dest" | "stationId" | "scheduledOn" | "scheduledEnd">>>({});
   const chipsRef = useRef(chips);
   chipsRef.current = chips;
-  // v1.31 Bug 1：新建葉節點預設統一為 ticket；顯式指定 routeKind="train"（如「新增列車」）時照舊
+  // v1.31 Bug 1：新建葉節點預設統一為 ticket；顯式指定 routeKind="branch" 時建立支線
   const [routeKind, setRouteKind] = useState<RouteKind>(opts.routeKind ?? "ticket");
   const [tasks, setTasks] = useState<ReadonlyMap<string, readonly TaskLite[]>>(new Map());
   const tasksFresh = useRef(false);
@@ -149,59 +197,144 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
   }, [opts.routeKind]);
 
   const warm = useCallback(() => {
-    if (tasksFresh.current || positional) return;
+    if (tasksFresh.current || disableDest) return;
     tasksFresh.current = true;
-    const list = useNodeStore.getState().routes;
+    const list = useNodeStore.getState().liveRoutes;
+    const excl = excludeId ? new Set([excludeId]) : null;
+    const allowedSet = allowedDestKindsKey ? new Set(allowedDestKindsKey.split(",")) : null;
     Promise.all(
       list.map((r) =>
-        nodeRepo
-          .listRouteTree(r.id)
-          .then((rows) => [r.id, rows.filter((n) => n.kind === "train" || n.kind === "car").map((n) => ({ id: n.id, name: n.name, kind: n.kind }))] as const),
+        nodeRepo.listRouteTree(r.id).then((rows) => {
+          const flat = flattenAttachTree(r.id, rows);
+          const filtered = excl ? excludeSubtrees(flat, excl) : flat;
+          const items: TaskLite[] = filtered
+            .filter((o) => !allowedSet || allowedSet.has(o.kind))
+            .map((o) => ({ id: o.id, name: o.name, kind: o.kind }));
+          return [r.id, items] as const;
+        }),
       ),
     )
       .then((pairs) => setTasks(new Map(pairs)))
       .catch((e: unknown) => {
         tasksFresh.current = false;
-        console.warn("建票列：載入列車清單失敗", e);
+        console.warn("建票列：載入節點清單失敗", e);
       });
-  }, [positional]);
+  }, [disableDest, excludeId, allowedDestKindsKey]);
 
-  // 打到 @…/ 才需要列車清單：沒載過就載
+  // 打到 @ 即預熱節點清單，讓 @路線/ 與跨路線補完秒出
   useEffect(() => {
-    if (!positional && /@\S*\//.test(parsedText)) warm();
-  }, [parsedText, positional, warm]);
+    if (!disableDest && parsedText.includes("@")) warm();
+  }, [parsedText, disableDest, warm]);
 
   const ctx: QuickAddCtx = useMemo(
     () => ({
       today,
       dayStartHour,
-      // 位置型：掛到由位置決定，@ 一律不認（留在名稱裡）
-      routes: positional ? [] : routes.map((r) => ({ id: r.id, name: r.name, code: r.code })),
-      tasksOf: positional ? undefined : (routeId: string) => tasks.get(routeId) ?? [],
+      weekStart,
+      // 位置型（或不可搬移之行內編輯）：@ 一律不認（留在名稱裡）
+      routes: disableDest ? [] : routes.map((r) => ({ id: r.id, name: r.name, code: r.code })),
+      tasksOf: disableDest ? undefined : (routeId: string) => tasks.get(routeId) ?? [],
     }),
-    [today, dayStartHour, routes, tasks, positional],
+    [today, dayStartHour, weekStart, routes, tasks, disableDest],
   );
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
   const parse = useMemo(() => parseQuickAdd(parsedText, ctx), [parsedText, ctx]);
+
+  // 使用者在點過 chip 後若又主動在輸入框打出同種語法（如 `=`、`14:00-15:30`、`@路線`），自動釋放該格 chip 覆寫讓新打語法生效
+  const prevTokKindsRef = useRef<Set<QuickTokenKind>>(new Set());
+  useEffect(() => {
+    const curKinds = new Set(parse.tokens.map((t) => t.kind));
+    const prevKinds = prevTokKindsRef.current;
+    prevTokKindsRef.current = curKinds;
+    const added = [...curKinds].filter((k) => !prevKinds.has(k));
+    if (!added.length) return;
+    setChips((c) => {
+      let next = c;
+      const drop = <K extends keyof QuickChips>(k: K) => {
+        if (k in next) {
+          const copy = { ...next };
+          delete copy[k];
+          next = copy;
+        }
+      };
+      if (added.includes("dest")) drop("dest");
+      if (added.includes("date")) {
+        drop("scheduledOn");
+        drop("scheduledEnd");
+      }
+      if (added.includes("time") || added.includes("length")) {
+        drop("scheduledTime");
+        drop("estimateMin");
+      }
+      if (added.includes("due")) {
+        drop("dueOn");
+        drop("syncDueWithScheduled");
+      }
+      if (added.includes("priority")) drop("priority");
+      if (added.includes("tag")) drop("tags");
+      return next;
+    });
+  }, [parse]);
+
   const nodeKindOf = useCallback(
     (id: string): QuickDest["nodeKind"] => {
       for (const list of tasks.values()) {
         const hit = list.find((t) => t.id === id);
-        if (hit) return hit.kind === "car" ? "car" : "train";
+        if (hit && (hit.kind === "branch" || hit.kind === "train" || hit.kind === "car" || hit.kind === "ticket")) {
+          return hit.kind;
+        }
       }
       return null;
     },
     [tasks],
   );
-  const values = useMemo(
-    () => mergeQuick(parse, chips, { ...opts.defaults, ...carry }, nodeKindOf, positional),
-    [parse, chips, carry, opts.defaults, nodeKindOf, positional],
+  const mergedDefaults = useMemo<QuickDefaults>(
+    () => ({
+      ...opts.defaults,
+      ...(opts.initialSyncDue !== undefined ? { syncDueWithScheduled: opts.initialSyncDue } : {}),
+      ...carry,
+    }),
+    [opts.defaults, opts.initialSyncDue, carry],
   );
-  const target: QuickTarget = opts.positional
-    ? { kind: opts.positional.kind, parentId: null, routeTagId: null, canChoose: false }
-    : resolveQuickTarget(values.dest, routeKind);
+  const destNameOf = useCallback(
+    (d: QuickDest): string | null => {
+      if (d.nodeId) {
+        for (const list of tasks.values()) {
+          const hit = list.find((t) => t.id === d.nodeId);
+          if (hit) return hit.name;
+        }
+      }
+      if (d.routeId) return allRoutes.find((r) => r.id === d.routeId)?.name ?? null;
+      return null;
+    },
+    [tasks, allRoutes],
+  );
+  const rawValues = useMemo(
+    () => mergeQuick(parse, chips, mergedDefaults, nodeKindOf, disableDest, destNameOf),
+    [parse, chips, mergedDefaults, nodeKindOf, disableDest, destNameOf],
+  );
+  const targetRouteId = positional
+    ? (opts.here.kind === "route" ? opts.here.routeId : mergedDefaults.dest.routeId)
+    : rawValues.dest.routeId;
+  const availableStations = useMemo(
+    () => (targetRouteId ? allStations.filter((s) => s.parent_id === targetRouteId).sort(compareSiblings) : []),
+    [allStations, targetRouteId],
+  );
+  const values = useMemo<QuickValues>(() => {
+    if (!rawValues.stationId) return rawValues;
+    if (availableStations.some((s) => s.id === rawValues.stationId)) return rawValues;
+    const nextOn = new Set(rawValues.on);
+    nextOn.delete("station");
+    return { ...rawValues, stationId: null, on: nextOn };
+  }, [rawValues, availableStations]);
+  const allowBranchChoice = opts.here.kind === "route" && !opts.hideRouteKind && !fixedKind;
+  const effectiveRouteKind: RouteKind = allowBranchChoice ? routeKind : "ticket";
+  const target: QuickTarget = fixedKind
+    ? { kind: fixedKind, parentId: null, routeTagId: null, canChoose: false }
+    : resolveQuickTarget(values.dest, effectiveRouteKind);
+  const canChooseKind = allowBranchChoice && target.canChoose;
 
   const setText = useCallback((t: string) => {
     textRef.current = t;
@@ -239,8 +372,31 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
     [setText],
   );
 
-  const setDest = useCallback((d: QuickDest) => (setChips((c) => ({ ...c, dest: d })), stripFor("dest")), [stripFor]);
-  const setDate = useCallback((d: string | null) => (setChips((c) => ({ ...c, scheduledOn: d })), stripFor("date")), [stripFor]);
+  const setDest = useCallback(
+    (d: QuickDest) => {
+      setChips((c) => {
+        const curRoute = live.current.values.dest.routeId;
+        if (d.routeId !== curRoute && "stationId" in c) {
+          const copy = { ...c, dest: d };
+          delete copy.stationId;
+          return copy;
+        }
+        return { ...c, dest: d };
+      });
+      stripFor("dest");
+    },
+    [stripFor],
+  );
+  const setStation = useCallback((id: string | null) => (setChips((c) => ({ ...c, stationId: id })), stripFor("station")), [stripFor]);
+  const setDateRange = useCallback(
+    (start: string | null, end: string | null) => {
+      const norm = normalizeDateRange(start, end);
+      setChips((c) => ({ ...c, scheduledOn: norm.scheduledOn, scheduledEnd: norm.scheduledEnd }));
+      stripFor("date");
+    },
+    [stripFor],
+  );
+  const setDate = useCallback((d: string | null) => setDateRange(d, null), [setDateRange]);
   const setTime = useCallback(
     (t: string | null, estimateMin: number | null) => (setChips((c) => ({ ...c, scheduledTime: t, estimateMin })), stripFor("time")),
     [stripFor],
@@ -261,20 +417,27 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
 
   const reset = useCallback(() => {
     setText("");
-    // 連打（Todoist 慣例）：chip 設的掛到與乘車日留著（降成預設，見 carry），其餘清掉；文字認出來的不留（那是上一張的）
+    // 連打（Todoist 慣例）：chip 設的掛到、車站與乘車日留著（降成預設，見 carry），其餘清掉；文字認出來的不留（那是上一張的）
     const c = chipsRef.current;
     setCarry((prev) => ({
       ...prev,
       ...(c.dest !== undefined ? { dest: c.dest } : {}),
-      ...(c.scheduledOn !== undefined ? { scheduledOn: c.scheduledOn } : {}),
+      ...(c.stationId !== undefined ? { stationId: c.stationId } : {}),
+      ...(c.scheduledOn !== undefined
+        ? { scheduledOn: c.scheduledOn, scheduledEnd: c.scheduledEnd ?? null }
+        : {}),
     }));
     setChips({});
     tasksFresh.current = false;
   }, [setText]);
 
   const routeName = useCallback(
-    (id: string | null) => (id ? (routes.find((r) => r.id === id)?.name ?? null) : null),
-    [routes],
+    (id: string | null) => (id ? (allRoutes.find((r) => r.id === id)?.name ?? null) : null),
+    [allRoutes],
+  );
+  const stationName = useCallback(
+    (id: string | null) => (id ? (allStations.find((s) => s.id === id)?.name ?? null) : null),
+    [allStations],
   );
   const nodeName = useCallback(
     (id: string | null) => {
@@ -292,15 +455,34 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
   live.current = { values, target, opts, dayStartHour };
 
   const extra = useCallback((): QuickExtra => {
-    const v = live.current.values;
+    const { values: v, target: t, dayStartHour: dsh } = live.current;
+    if (t.kind === "branch") {
+      return {
+        input: {
+          stationId: v.stationId,
+          scheduledOn: null,
+          scheduledEnd: null,
+          scheduledTime: null,
+          estimateMin: null,
+          dueOn: null,
+          priority: undefined,
+          isPlaceholder: undefined,
+          dayStartHour: dsh,
+        },
+        afterCreate: async () => undefined,
+      };
+    }
     return {
       input: {
+        stationId: v.stationId,
         scheduledOn: v.scheduledOn,
+        scheduledEnd: v.scheduledEnd,
         scheduledTime: v.scheduledTime,
         estimateMin: v.estimateMin,
         dueOn: v.dueOn,
         priority: v.priority ?? undefined,
-        dayStartHour: live.current.dayStartHour,
+        isPlaceholder: v.isPlaceholder || undefined,
+        dayStartHour: dsh,
       },
       afterCreate: (row) => attachQuickTags(row.id, v.tags),
     };
@@ -309,8 +491,9 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
   const submit = useCallback(async (so?: QuickSubmitOptions): Promise<NodeRow | null> => {
     if (busy.current || composingRef.current) return null;
     const { values: v, target: t, opts: o, dayStartHour: dsh } = live.current;
-    const name = v.name.trim();
-    if (!name || o.positional) return null;
+    const isBranch = t.kind === "branch";
+    const name = (isBranch ? v.name : v.effectiveName).trim();
+    if (!name || o.positional || o.inlineEdit) return null;
     busy.current = true;
     try {
       const ns = useNodeStore.getState();
@@ -319,22 +502,30 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
         name,
         parentId: t.parentId,
         routeTagId: t.routeTagId,
+        stationId: v.stationId,
         afterId: o.afterId ?? undefined,
-        scheduledOn: v.scheduledOn,
-        scheduledTime: v.scheduledTime,
-        estimateMin: v.estimateMin,
-        dueOn: v.dueOn,
-        priority: v.priority ?? undefined,
+        scheduledOn: isBranch ? null : v.scheduledOn,
+        scheduledEnd: isBranch ? null : v.scheduledEnd,
+        scheduledTime: isBranch ? null : v.scheduledTime,
+        estimateMin: isBranch ? null : v.estimateMin,
+        dueOn: isBranch ? null : v.dueOn,
+        priority: isBranch ? undefined : (v.priority ?? undefined),
+        isPlaceholder: isBranch ? undefined : (v.isPlaceholder || undefined),
         dayStartHour: dsh,
       });
       if (!row) {
         useUiStore.getState().showToast({ message: "新增失敗——請再試一次" });
         return null;
       }
-      await attachQuickTags(row.id, v.tags);
+      if (!isBranch) await attachQuickTags(row.id, v.tags);
       const note = leaveNote(
         o.here,
-        { scheduledOn: v.scheduledOn, target: t, routeId: v.dest.routeId },
+        {
+          scheduledOn: isBranch ? null : v.scheduledOn,
+          scheduledEnd: isBranch ? null : v.scheduledEnd,
+          target: t,
+          routeId: v.dest.routeId,
+        },
         (id) => useNodeStore.getState().routes.find((r) => r.id === id)?.name ?? null,
       );
       if (note) {
@@ -364,25 +555,37 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
     tokens: highlight ? parse.tokens : [],
     values,
     target,
-    routeKind,
+    canChooseKind,
+    routeKind: effectiveRouteKind,
     setRouteKind,
     setDest,
+    setStation,
     setDate,
+    setDateRange,
     setTime,
     setDue,
-    syncDueWithScheduled: !!chips.syncDueWithScheduled && parse.dueOn === undefined,
+    syncDueWithScheduled: values.syncDueWithScheduled,
     setSyncDueWithScheduled,
     setPriority,
     setTags,
-    canSubmit: !!values.name.trim() && !composing,
+    canSubmit: !composing && !!(target.kind === "branch" ? values.name : values.effectiveName).trim(),
     submit,
     extra,
     reset,
     today,
     dayStartHour,
-    routes,
+    routes: allRoutes,
+    stations: availableStations,
     routeName,
+    stationName,
     nodeName,
     warm,
+    suggestConfig: {
+      allowDest: !disableDest,
+      allowTag: fixedKind !== "branch" && effectiveRouteKind !== "branch",
+      excludeId,
+      allowedDestKinds: inlineEdit?.allowedDestKinds,
+      routeSelectable: inlineEdit?.routeSelectable,
+    },
   };
 }

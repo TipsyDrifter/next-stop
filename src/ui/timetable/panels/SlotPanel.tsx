@@ -19,6 +19,8 @@ import { useTimetablePlanStore } from "../../../store/timetablePlanStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useNow } from "../useNow";
 import { ClockInput } from "../../common/ClockInput";
+import { DurationPicker } from "../../common/DurationPicker";
+import { applySpanDurationMin, spanDurationMin } from "../../common/timespan/TimeSpanDurationFields";
 import { RouteRoundel, useRouteById } from "../parts/LinkPicker";
 import { RT_UI, SEG_UI, segNumberOf } from "../schedule/routineModel";
 import { SCHED_UI, deltaFull, mdw, toneOf } from "../schedule/scheduleModel";
@@ -145,18 +147,41 @@ export function SlotPanel({ onDone, shell = "mobile" }: PanelProps & { shell?: "
 
       {editable ? (
         <>
-          <Row k={RT_UI.start} time>
-            <ClockInput variant="compact" value={start.shown} lo={lo} hi={hi} onChange={start.change} label={RT_UI.start} refDay={item.date} />
-          </Row>
-          <Row k={RT_UI.end} time>
-            <ClockInput variant="compact" value={end.shown} lo={lo} hi={hiEnd} onChange={end.change} label={RT_UI.end} refDay={item.date} />
-          </Row>
+          {(() => {
+            const shownEnd =
+              end.shown !== eMs ? end.shown : start.shown !== sMs ? Math.min(hiEnd, start.shown + Math.max(MIN, eMs - sMs)) : eMs;
+            return (
+              <>
+                <Row k={RT_UI.start} time>
+                  <ClockInput variant="compact" value={start.shown} lo={lo} hi={hi} onChange={start.change} label={RT_UI.start} refDay={item.date} />
+                </Row>
+                <Row k={RT_UI.end} time>
+                  <ClockInput variant="compact" value={shownEnd} lo={start.shown + MIN} hi={hiEnd} onChange={end.change} label={RT_UI.end} refDay={item.date} />
+                </Row>
+                <Row k="時長" top>
+                  <DurationPicker
+                    value={spanDurationMin(start.shown, shownEnd)}
+                    onChange={(m) => {
+                      if (m === null) return;
+                      const next = applySpanDurationMin({ startMs: start.shown, endMs: shownEnd }, m, { lo, hiEnd });
+                      end.change(next.endMs);
+                    }}
+                    allowNull={false}
+                    compact
+                    liveCommit
+                    ariaLabel="這段時長"
+                  />
+                </Row>
+              </>
+            );
+          })()}
         </>
       ) : (
         <Row k={TT_TEXT.schedTimeLabel}>
           <b className="ns-tt-num ns-tt-plan-ptime">
             {item.time}–{item.end}
           </b>
+          <span className="ns-tt-plan-faint">（{fmtDur(Math.max(MIN, eMs - sMs))}）</span>
         </Row>
       )}
 

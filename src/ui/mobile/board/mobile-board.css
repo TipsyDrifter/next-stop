@@ -195,6 +195,67 @@
 [data-shell="mobile"] .m-bf-opts .ns-msheet-item.is-on { color: var(--sel-fg); }
 [data-shell="mobile"] .m-bf-opts .ns-msheet-item.is-on .m-bd-check { color: var(--accent); }
 [data-shell="mobile"] .m-bf-opts .ns-msheet-item:last-child { border-bottom: 0; }
+[data-shell="mobile"] .m-bf-optgroup {
+  padding: 10px var(--m-gutter) 4px; font-size: var(--fs-micro); font-weight: 500;
+  letter-spacing: .12em; color: var(--color-ink-faint); border-top: 1px dashed var(--color-line); margin-top: 2px;
+}
+[data-shell="mobile"] .m-bf-optgroup:first-child { border-top: 0; margin-top: 0; padding-top: 6px; }
+
+/* 篩選清單：手機命中子樹縮排視圖（Bug 2 · D-FB-1） */
+[data-shell="mobile"] .m-bf-outline { margin-top: 10px; display: flex; flex-direction: column; gap: var(--sp-4); }
+[data-shell="mobile"] .m-bf-rsec-hd {
+  display: flex; align-items: center; gap: 8px; padding: 2px 0 6px;
+  border-bottom: 1px solid var(--color-line);
+}
+[data-shell="mobile"] .m-bf-rbadge { width: 19px; height: 19px; font-size: var(--fs-micro); flex: none; }
+[data-shell="mobile"] .m-bf-rbadge.is-temp {
+  background: transparent; color: var(--route-none); border: 1.2px dashed var(--color-dash);
+  font-family: var(--font-display); font-weight: 600;
+}
+[data-shell="mobile"] .m-bf-rname {
+  flex: 1; min-width: 0; font-family: var(--font-display); font-weight: 700;
+  font-size: var(--fs-body); letter-spacing: .1em; color: var(--color-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[data-shell="mobile"] .m-bf-rcnt {
+  flex: none; font-size: var(--fs-xs); letter-spacing: .06em;
+  color: var(--color-ink-faint); font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .m-bf-tree-ul { margin: 0; padding: 0; }
+[data-shell="mobile"] .m-bf-tree-ul.is-indent,
+[data-shell="mobile"] .m-bf-grp.is-indent { position: relative; }
+[data-shell="mobile"] .m-bf-tree-ul.is-indent::before,
+[data-shell="mobile"] .m-bf-grp.is-indent::before {
+  content: ""; position: absolute; left: 6px; top: 0; bottom: 0;
+  border-left: 1px dashed var(--color-dash); pointer-events: none;
+}
+[data-shell="mobile"] .m-bf-grp {
+  display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 6px 2px;
+  border-bottom: 1px dashed var(--color-line); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m-bf-grp:active { background: var(--hover-bg); }
+[data-shell="mobile"] .m-bf-grp.is-picked { background: var(--sel-bg); }
+[data-shell="mobile"] .m-bf-grp.is-context .m-bf-grp-title { color: var(--color-ink-soft); }
+[data-shell="mobile"] .m-bf-grp-badge {
+  width: 20px; height: 20px; flex: none; border-radius: var(--radius-pill);
+  border: 1.2px dashed currentColor; display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-micro);
+}
+[data-shell="mobile"] .m-bf-grp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+[data-shell="mobile"] .m-bf-grp-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+[data-shell="mobile"] .m-bf-grp-title {
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-body);
+  letter-spacing: .06em; color: var(--color-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[data-shell="mobile"] .m-bf-grp-kind {
+  flex: none; font-size: var(--fs-micro); letter-spacing: .12em; color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .m-bf-grp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+[data-shell="mobile"] .m-bf-grp-more {
+  width: 36px; height: 44px; flex: none; padding: 0; border: 0; background: transparent;
+  display: grid; place-items: center; color: var(--color-ink-soft);
+}
 
 /* 頁底黏「存成常用…」：tab bar 之上的一段（同選取列的落點做法：flex:none 擠 .m-page） */
 [data-shell="mobile"] .m-bf-save { flex: none; position: relative; z-index: 2; margin-top: -6px; padding: 0 var(--m-gutter) 8px; animation: m-selbar-in var(--dur-slow) var(--ease); }

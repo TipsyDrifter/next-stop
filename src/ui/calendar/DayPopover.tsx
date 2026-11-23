@@ -284,8 +284,9 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
     const next = !row.done;
     if (next) markFresh(row.key);
     void ns().setCompleted(node.id, next);
-    // 車票純蓋章；列車／車廂走完成卡（a6／D4，與今日頁同一條）
-    if (next && isTaskKind(node.kind)) ui().setCompleteCardFor(node.id);
+    // Bug 4：車票與列車／車廂蓋済一致彈出完成卡；取消済收起完成卡
+    if (next && (isTaskKind(node.kind) || node.kind === "ticket")) ui().setCompleteCardFor(node.id);
+    else if (!next && ui().completeCardFor === node.id) ui().setCompleteCardFor(null);
   }, []);
 
   /** U：本班運休／取消運休（目前與未來班次都可以；歷史班次由 store 擋下並吐原句） */

@@ -21,9 +21,9 @@
  */
 import { useMemo } from "react";
 import { create } from "zustand";
-import { nodeRepo } from "../data";
+import { nodeRepo, type NodePatch } from "../data";
 import type { NodeRow } from "../domain/node";
-import { toSpan, type TimeBlockRow } from "../domain/timetable";
+import { MIN, fmtDur, toSpan, type TimeBlockRow } from "../domain/timetable";
 import {
   canScheduleDay,
   comparePlan,
@@ -109,6 +109,8 @@ export interface ScheduleState {
   setHover(h: ScheduleHover | null): void;
   /** 排、改、清都走這支（time null＝清除）：守門、收據 toast、撤回。回 true＝寫成功（或時刻沒變、不必寫） */
   placeAt(key: string, time: ClockText | null): Promise<boolean>;
+  /** 操作 10（D-FB-3）：從日程面板直接修改預定車票的預計時長（或由結束時刻反推），寫回 nodes.estimate_min 並附撤回 toast */
+  setEstimate(key: string, estimateMin: number | null): Promise<boolean>;
   /** ⑦：第二段起換位置（time＝新的開始；長度不變）：收據＋撤回 */
   moveSlot(key: string, time: ClockText): Promise<boolean>;
   /** ⑦：再排一段（挑位置放下；長度＝預計，沒填 60 分）：收據＋撤回 */
@@ -332,12 +334,14 @@ function reloadIfOpen(): void {
 export async function runTimeWrite(w: TimeWrite): Promise<boolean> {
   const ns = useNodeStore.getState();
   let r: { ok: boolean };
-  // 誤點項：執行日＋時刻（＋撤回時的 carried_from）一次呼叫（updateNode 先改道 reschedule、再把其餘欄位當一般欄位寫，nodeStore.ts updateNode；同今日頁撤回）
-  if (w.op === "setTime" && w.scheduledOn !== undefined && w.carriedFrom !== undefined) {
-    r = await ns.updateNode(w.id, { scheduled_on: w.scheduledOn, scheduled_time: w.time, carried_from: w.carriedFrom });
-  } else if (w.op === "setTime" && w.scheduledOn !== undefined) r = await ns.updateNode(w.id, { scheduled_on: w.scheduledOn, scheduled_time: w.time });
-  else if (w.op === "setTime") r = await ns.updateNode(w.id, { scheduled_time: w.time });
-  else if (w.op === "setRun") r = await ns.setRunTime(w.id, w.date, w.time);
+  // 誤點項／期間自由券：執行日＋訖日＋時刻（＋撤回時的 carried_from）一次呼叫（updateNode 先改道 reschedule、再把其餘欄位當一般欄位寫）
+  if (w.op === "setTime") {
+    const patch: NodePatch = { scheduled_time: w.time };
+    if (w.scheduledOn !== undefined) patch.scheduled_on = w.scheduledOn;
+    if (w.scheduledEnd !== undefined) patch.scheduled_end = w.scheduledEnd;
+    if (w.carriedFrom !== undefined) patch.carried_from = w.carriedFrom;
+    r = await ns.updateNode(w.id, patch);
+  } else if (w.op === "setRun") r = await ns.setRunTime(w.id, w.date, w.time);
   else r = await ns.clearRunTime(w.id, w.date);
   return r.ok;
 }
@@ -493,6 +497,31 @@ export const useTimetableScheduleStore = create<ScheduleState>((set, get) => ({
             : TT_TEXT.schedMoved(time);
     return runScheduleWrite(planTimeWrite(item, time), planUndo(item), msg, () => {
       if (get().picked === key) set({ picked: null });
+    });
+  },
+
+  setEstimate(key, estimateMin) {
+    const item = get().items[key];
+    if (!item) return Promise.resolve(false);
+    const h = dayStart();
+    if (!canScheduleDay(item.date, todayKey(h, new Date()))) {
+      toast(TT_TEXT.schedPast);
+      return Promise.resolve(false);
+    }
+    const prevEst = get().nodes[item.nodeId]?.estimate_min ?? item.estimateMin ?? null;
+    const nextEst =
+      typeof estimateMin === "number" && Number.isFinite(estimateMin) && estimateMin > 0
+        ? Math.min(1440, Math.max(1, Math.round(estimateMin)))
+        : null;
+    if (nextEst === prevEst) return Promise.resolve(true);
+    const msg = nextEst !== null ? `預計改成 ${fmtDur(nextEst * MIN)}` : "已清除預計時長";
+    return locked(async () => {
+      const r = await useNodeStore.getState().updateNode(item.nodeId, { estimate_min: nextEst });
+      if (!r.ok) return false;
+      toast(msg, TT_TEXT.undo, () =>
+        void locked(async () => (await useNodeStore.getState().updateNode(item.nodeId, { estimate_min: prevEst })).ok, true),
+      );
+      return true;
     });
   },
 
@@ -943,7 +972,13 @@ useTimetablePlanStore.subscribe((s, p) => {
 
 useNodeStore.subscribe((s, p) => {
   if (attachCount === 0) return;
-  if (s.today !== p.today || s.tree !== p.tree || s.calendar !== p.calendar) {
+  if (
+    s.today !== p.today ||
+    s.tree !== p.tree ||
+    s.calendar !== p.calendar ||
+    s.runOverrides !== p.runOverrides ||
+    s.rangeTickets !== p.rangeTickets
+  ) {
     void run();
   }
 });

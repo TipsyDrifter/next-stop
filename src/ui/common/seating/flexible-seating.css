@@ -1,0 +1,201 @@
+/* ─────────────────────────────────────────────────────
+ * flexible-seating.css — 第四梯（4A 預留席・4B 期間自由券抽屜・4C 本班填空與待辦入座）共用樣式
+ *
+ * 嚴守《視覺規範》：全數使用 theme.css 語意 token（零裸色碼、零 8px–16px 塑膠圓角、朱印色專屬於済／着章）。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 4A：預留席車票（虛線票框＋預留席填入提示） ═══ */
+.ticket.is-placeholder,
+.ticket.is-placeholder::before,
+.ticket.is-placeholder::after {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--color-dash));
+}
+.ticket.is-placeholder.done,
+.ticket.is-placeholder.done::before,
+.ticket.is-placeholder.done::after {
+  border-color: var(--color-dash);
+}
+
+[data-shell="mobile"] .m-tk.is-placeholder {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--color-dash));
+}
+
+.prow.is-placeholder {
+  border-bottom-style: dashed;
+}
+
+.ns-ph-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 0 6px; height: 18px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 48%, var(--color-dash));
+  border-radius: var(--radius-ctl);
+  font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-soft);
+}
+
+/* ═══ 4C：Mode A 本班填空副標 ＆ 行內編輯框 ═══ */
+.ns-run-origin {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-left: var(--sp-2);
+  font-family: var(--font-body); font-size: var(--fs-xs); font-weight: 400;
+  letter-spacing: .05em; color: var(--color-ink-faint);
+}
+
+[data-shell="mobile"] .m-tk-origin {
+  display: inline;
+  margin-left: var(--sp-1);
+  font-size: var(--fs-xs); font-weight: 400; color: var(--color-ink-faint);
+}
+
+.ns-run-fillbox {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin-top: 4px;
+}
+.ns-run-fillbox input {
+  flex: 1; min-width: 0; height: 28px; padding: 0 8px;
+  border: 1px solid var(--accent); border-radius: var(--radius-ctl);
+  background: var(--color-paper); color: var(--color-ink);
+  font-family: var(--font-body); font-size: var(--fs-body);
+  outline: none;
+}
+.ns-run-fillbox .ns-run-hint {
+  font-size: var(--fs-micro); color: var(--color-ink-faint); white-space: nowrap;
+}
+
+/* ═══ 4C：Mode B 待辦入座徽章、釋出鈕與拖放入座落點 ═══ */
+.ns-seat-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--color-line));
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--color-ink);
+  font-size: var(--fs-xs); letter-spacing: .05em; white-space: nowrap;
+}
+
+.ns-seat-release {
+  display: inline-flex; align-items: center;
+  padding: 1px 6px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  background: transparent; color: var(--color-ink-soft); cursor: pointer;
+  font-family: inherit; font-size: var(--fs-xs); letter-spacing: .05em; white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft);
+}
+.ns-seat-release:hover {
+  color: var(--accent); border-color: var(--accent); background: var(--hover-bg);
+}
+.ns-seat-release:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+.ns-seat-dropbtn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  background: transparent; color: var(--color-ink-soft); cursor: pointer;
+  font-family: inherit; font-size: var(--fs-xs); letter-spacing: .05em; white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft);
+}
+.ns-seat-dropbtn:hover,
+.ns-seat-dropbtn[aria-expanded="true"],
+.ns-seat-dropbtn[data-drop-state="ok"] {
+  border-style: solid; border-color: var(--accent);
+  background: var(--sel-bg); color: var(--sel-fg);
+}
+.ns-seat-dropbtn[data-drop-state="no"] {
+  border-color: var(--color-late); color: var(--color-late);
+}
+.ns-seat-dropbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+/* ═══ 4C：入座挑選浮層（桌機 .ns-seat-pop ／ 手機 MSheet 內搜尋列） ═══ */
+.ns-seat-pop {
+  position: fixed; z-index: 62;
+  width: 308px; max-height: 340px;
+  display: flex; flex-direction: column;
+  padding: 10px 0 0;
+}
+.ns-seat-pop-head { padding: 0 12px 6px; }
+.ns-seat-pop-search {
+  margin: 0 12px 8px; height: 30px; padding: 0 9px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: var(--color-paper); color: var(--color-ink);
+  font-family: var(--font-body); font-size: var(--fs-sm);
+  outline: none;
+}
+.ns-seat-pop-search:focus { border-color: var(--accent); }
+.ns-seat-pop-list {
+  list-style: none; margin: 0; padding: 0 6px 6px;
+  overflow-y: auto; flex: 1; min-height: 0;
+}
+.ns-seat-pop-sec {
+  padding: 6px 8px 3px;
+  font-size: var(--fs-micro); letter-spacing: .16em; color: var(--color-ink-faint);
+}
+.ns-seat-pop-item {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border: 0; border-radius: var(--radius-ctl);
+  background: transparent; color: var(--color-ink); cursor: pointer;
+  font-family: inherit; font-size: var(--fs-sm); text-align: left;
+}
+.ns-seat-pop-item:hover,
+.ns-seat-pop-item:focus-visible {
+  background: var(--sel-bg); color: var(--sel-fg); outline: none;
+}
+.ns-seat-pop-item .nm {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ns-seat-pop-item .sub {
+  flex: none; font-size: var(--fs-xs); color: var(--color-ink-faint); font-variant-numeric: tabular-nums;
+}
+.ns-seat-pop-empty {
+  margin: 0; padding: 14px 12px;
+  font-size: var(--fs-sm); color: var(--color-ink-faint); text-align: center;
+}
+.ns-seat-pop-foot { padding: 6px 12px 8px; }
+
+[data-shell="mobile"] .ns-seat-msearch-wrap { padding: 0 var(--m-gutter) 8px; }
+[data-shell="mobile"] .ns-seat-msearch {
+  width: 100%; box-sizing: border-box; min-height: var(--ctl-input); padding: 0 10px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: var(--color-paper); color: var(--color-ink);
+  font-family: var(--font-body); font-size: var(--fs-body); outline: none;
+}
+[data-shell="mobile"] .ns-seat-msearch:focus { border-color: var(--accent); }
+
+/* ═══ 4B：今日頁「期間自由券（涵蓋今日）」可收合抽屜 ═══ */
+.ns-range-drawer { margin-top: var(--sp-5); }
+.ns-range-row-acts {
+  display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.ns-range-pullbtn {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--color-line));
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--color-ink); cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-xs); font-weight: 500; letter-spacing: .06em; white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.ns-range-pullbtn:hover {
+  border-color: var(--accent); background: var(--sel-bg); color: var(--sel-fg);
+}
+.ns-range-pullbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+[data-shell="mobile"] .ns-mrange-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 6px;
+}
+[data-shell="mobile"] .ns-mrange-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 32px; padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--color-line));
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--color-ink); cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-xs); font-weight: 500; letter-spacing: .06em;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-seat-release, .ns-seat-dropbtn, .ns-range-pullbtn { transition: none; }
+}

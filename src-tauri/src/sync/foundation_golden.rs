@@ -90,6 +90,8 @@ pub(crate) const GOLDEN_NODES_COLS: &[(&str, bool)] = &[
     ("time_overrides", false),
     ("sort_key", false),
     ("station_id", false),
+    ("scheduled_end", false),
+    ("is_placeholder", true),
     ("route_id", false),
     ("created_at", false),
     ("updated_at", false),
@@ -158,6 +160,7 @@ pub(crate) const SQL_STAMP_NODES: &str = concat!(
     "SELECT 'arrived_on' AS col UNION ALL SELECT 'today_position' AS col UNION ALL SELECT 'carried_from' AS col UNION ALL ",
     "SELECT 'scheduled_time' AS col UNION ALL SELECT 'time_overrides' AS col UNION ALL ",
     "SELECT 'sort_key' AS col UNION ALL SELECT 'station_id' AS col UNION ALL ",
+    "SELECT 'scheduled_end' AS col UNION ALL SELECT 'is_placeholder' AS col UNION ALL ",
     "SELECT 'route_id' AS col UNION ALL SELECT 'created_at' AS col UNION ALL SELECT 'updated_at' AS col UNION ALL ",
     "SELECT 'deleted_at' AS col",
     ") c WHERE NOT (c.col = 'route_id' AND NOT (n.parent_id IS NULL AND n.kind = 'ticket'))"
@@ -366,6 +369,7 @@ pub(crate) async fn golden_pool(tag: &str) -> (Pool<Sqlite>, std::path::PathBuf)
         include_str!("../../migrations/0009_ticket_time.sql"),
         include_str!("../../migrations/0014_node_sort_key.sql"),
         include_str!("../../migrations/0020_node_station.sql"),
+        include_str!("../../migrations/0024_flexible_tickets.sql"),
     ] {
         sqlx::raw_sql(sql).execute(&pool).await.unwrap();
     }

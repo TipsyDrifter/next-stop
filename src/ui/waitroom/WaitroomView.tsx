@@ -18,7 +18,7 @@ import { Select } from "../common/Select";
  *         └─ .ns-wr-done   「實現了 N 件 ›」摺起；攤開每列：済章・名稱（點了跳到那筆記錄）・「11/2 記了一筆 4,280」「開了路線」…
  * 進頁：bootWaitroom（warm＋refresh：別處刪了開出的記錄，這裡回到等候）。
  */
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useTicketStore } from "../../store/ticketStore";
 import { readLastNav, writeLastNav } from "../../store/uiStore";
 import { useTagStore } from "../../store/tagStore";
@@ -31,9 +31,15 @@ import { CommitInput } from "../common/fields";
 import { EntityTagField } from "../common/EntityTagField";
 import { IconChevron, IconPlus } from "../common/icons";
 import { PageHeader } from "../common/PageHeader";
+import { runOnBlankClick } from "../common/selection/desktopSelection";
 import { useImeGuard } from "../ticket/dialogs/dialogBits";
 import { CategoryCombo } from "../ticket/TicketPanel";
 import { bootWaitroom, buyFromWaitroom, gotoRealized } from "./waitroomActs";
+import {
+  usePruneWaitroomSelection,
+  useWaitroomSelectStore,
+  WaitroomSelectionBar,
+} from "./WaitroomSelectionBar";
 import {
   KindChips,
   KindMark,
@@ -82,6 +88,10 @@ export function WaitroomView() {
   };
   const { kinds, kindById } = useKinds();
   const { shown, move } = useShown(filter);
+  const shownIds = useMemo(() => shown.map((w) => w.id), [shown]);
+  usePruneWaitroomSelection(shownIds);
+  const selIds = useWaitroomSelectStore((s) => s.ids);
+  const selSet = useMemo(() => new Set(selIds), [selIds]);
   const [open, setOpen] = useState<Open>(null);
   const [doneOpen, setDoneOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
@@ -121,14 +131,50 @@ export function WaitroomView() {
   const empty = shown.length > 0 ? null : filtered ? "這條番線還沒有等車的事" : n === 0 && wish.bought.length > 0 ? "等車的事都實現了" : null;
 
   return (
-    <section className="page ns-waitroom" tabIndex={-1} aria-label="候車室">
+    <section
+      className="page ns-waitroom"
+      tabIndex={-1}
+      aria-label="候車室"
+      onClick={(e) => {
+        if (open || selIds.length > 0) {
+          runOnBlankClick(e, ".ns-wr-list > li, .ns-wr-add, .ns-wr-chips, .ns-selbar, .ns-selbar-dock, .ns-popmenu", () => {
+            setOpen(null);
+            useWaitroomSelectStore.getState().clear();
+          });
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
+        const inField = !!(e.target as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable='true']");
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && !inField && shownIds.length > 0) {
+          e.preventDefault();
+          setOpen(null);
+          useWaitroomSelectStore.getState().setAll(shownIds);
+          return;
+        }
+        if (e.key === "Escape" && useWaitroomSelectStore.getState().ids.length > 0 && !inField) {
+          e.preventDefault();
+          e.stopPropagation();
+          useWaitroomSelectStore.getState().clear();
+        }
+      }}
+    >
       <div className="sheet">
         <PageHeader
           variant="name"
           overline={{ zh: "候車室", latin: "Waiting Room" }}
           title="候車室"
           stats={<WaitroomStats />}
-          manage={{ label: "管番線", onClick: () => setManageOpen(true), title: "番線的名稱、順序與實現動作", haspopup: "dialog", expanded: manageOpen }}
+          manage={{
+            label: "管番線",
+            onClick: () => {
+              useWaitroomSelectStore.getState().clear();
+              setManageOpen(true);
+            },
+            title: "番線的名稱、順序與實現動作",
+            haspopup: "dialog",
+            expanded: manageOpen,
+          }}
         />
         <div className="ns-wr-paper">
           <KindChips value={filter} onChange={setFilter} />
@@ -143,11 +189,16 @@ export function WaitroomView() {
                   w={w}
                   dec={dec}
                   on={draftWishId === w.id}
+                  picked={selSet.has(w.id)}
+                  order={shownIds}
                   open={open?.id === w.id ? open.mode : null}
                   first={i === 0}
                   last={i === shown.length - 1}
                   filtered={filtered}
-                  onOpen={(mode) => setOpen(mode ? { id: w.id, mode } : null)}
+                  onOpen={(mode) => {
+                    if (mode) useWaitroomSelectStore.getState().clear();
+                    setOpen(mode ? { id: w.id, mode } : null);
+                  }}
                   onMove={(dir) => move(w.id, dir)}
                 />
               ))}
@@ -181,6 +232,7 @@ export function WaitroomView() {
           )}
         </div>
       </div>
+      <WaitroomSelectionBar visibleIds={shownIds} />
       {manageOpen && <KindManagerDialog onClose={() => setManageOpen(false)} />}
     </section>
   );
@@ -270,7 +322,15 @@ function WaitAdd({ filter }: { filter: WaitFilter }) {
 function waitMenu(
   w: WishRow,
   action: WishAction,
-  props: { first: boolean; last: boolean; open: "edit" | "realize" | null; onOpen(mode: "edit" | "realize" | null): void; onMove(dir: -1 | 1): void },
+  props: {
+    picked: boolean;
+    order: readonly string[];
+    first: boolean;
+    last: boolean;
+    open: "edit" | "realize" | null;
+    onOpen(mode: "edit" | "realize" | null): void;
+    onMove(dir: -1 | 1): void;
+  },
 ): ContextMenuSpec {
   return {
     overline: { zh: "候車室", latin: "Waiting Room" },
@@ -282,6 +342,15 @@ function waitMenu(
         onSelect: () => (action === "entry" ? buyFromWaitroom(w.id) : props.onOpen("realize")),
       },
       { key: "edit", label: props.open === "edit" ? "收起" : "修改…", onSelect: () => props.onOpen(props.open === "edit" ? null : "edit") },
+      {
+        key: "select",
+        label: props.picked ? "取消選取" : "選取",
+        cut: true,
+        onSelect: () => {
+          props.onOpen(null);
+          useWaitroomSelectStore.getState().toggle(w.id, props.order);
+        },
+      },
       { key: "up", label: "上移", disabled: props.first, why: "已經在最上面", cut: true, onSelect: () => props.onMove(-1) },
       { key: "down", label: "下移", disabled: props.last, why: "已經在最下面", onSelect: () => props.onMove(1) },
       { key: "delete", label: "刪除", danger: true, cut: true, onSelect: () => void useTicketStore.getState().deleteWish(w.id) },
@@ -294,6 +363,8 @@ function WaitItem(props: {
   dec: number;
   /** 正在記一筆的就是它（「記一筆」開的） */
   on: boolean;
+  picked: boolean;
+  order: readonly string[];
   open: "edit" | "realize" | null;
   first: boolean;
   last: boolean;
@@ -301,7 +372,7 @@ function WaitItem(props: {
   onOpen(mode: "edit" | "realize" | null): void;
   onMove(dir: -1 | 1): void;
 }) {
-  const { w, dec, on, open, first, last, filtered, onOpen, onMove } = props;
+  const { w, dec, on, picked, order, open, first, last, filtered, onOpen, onMove } = props;
   const rowRef = useRef<HTMLLIElement>(null);
   const { kindById, actionOf } = useKinds();
   const action = actionOf(w);
@@ -310,6 +381,22 @@ function WaitItem(props: {
   const onClick = (e: MouseEvent<HTMLLIElement>) => {
     const t = e.target as HTMLElement;
     if (t.closest("button, input, textarea, select, a, .ns-wr-edit, .ns-wr-realize")) return;
+    if (e.shiftKey) {
+      e.preventDefault();
+      useWaitroomSelectStore.getState().range(w.id, order, open ? w.id : null);
+      onOpen(null);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      onOpen(null);
+      useWaitroomSelectStore.getState().toggle(w.id, order);
+      return;
+    }
+    if (useWaitroomSelectStore.getState().ids.length > 0) {
+      useWaitroomSelectStore.getState().clear();
+      return;
+    }
     onOpen(open ? null : "edit");
   };
   const onKeyDown = (e: KeyboardEvent<HTMLLIElement>) => {
@@ -349,10 +436,11 @@ function WaitItem(props: {
       ref={rowRef}
       data-drag-id={w.id}
       tabIndex={0}
-      className={"ns-wr-row" + (on ? " is-on" : "") + (open ? " is-open" : "")}
+      className={"ns-wr-row" + (on ? " is-on" : "") + (picked ? " is-picked" : "") + (open ? " is-open" : "")}
+      aria-selected={picked || undefined}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      onContextMenu={rowContextMenu(() => waitMenu(w, action, { first, last, open, onOpen, onMove }))}
+      onContextMenu={rowContextMenu(() => waitMenu(w, action, { picked, order, first, last, open, onOpen, onMove }))}
     >
       <span className={"grip" + (filtered ? " is-off" : "")} title={filtered ? DRAG_ONLY_ALL : "拖曳排序（Alt+↑↓）"} aria-hidden>
         <IconGrip />

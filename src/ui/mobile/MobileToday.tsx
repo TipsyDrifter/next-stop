@@ -67,7 +67,8 @@ import { preloadLocalFlag, useLocalFlag } from "../common/useLocalFlag";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
-import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
+import { rangeRemainingDays } from "../../domain/dateRange";
+import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow, totalEstimateMin } from "../../domain/scheduledTime";
 import { dayCountParts, lateCountText } from "../../domain/dayCount";
 import type { TodayRow } from "../../data";
 import { MobileTicket } from "./MobileTicket";
@@ -86,10 +87,11 @@ import { DoneToggleChip, MobileQuickAdd, NO_DEST, type QuickDefaults, type Quick
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { cardFromTodayRow } from "../schedule/ticketCard";
 import { useMinuteTick } from "../schedule/useMinuteTick";
-import { lineTodayStats } from "../../lines/runtime";
+import { lineTodayHotkey, lineTodayStats } from "../../lines/runtime";
 import { useDragReorder } from "../common/dragReorder";
 import { batchDragIds, isSelecting, pressSelect, tapSelect, usePressedSwipe, usePruneSelection, useScopeSelection, type SwipePair } from "./mobileSelect";
 import { MobileSelectionBar } from "./MobileSelectionBar";
+import { dismissSelectionOnBlankClick } from "../common/selection/desktopSelection";
 import { sheetDeferItems } from "../schedule/streamModel";
 import { TodayBrief } from "../report/TodayBrief";
 import { MobileWeekAims } from "../weekAims/MobileWeekAims";
@@ -106,7 +108,16 @@ const LATE_NO_DRAG_MSG = "誤點的票不能拖曳排序——改日期用 ⋯ �
 
 /** 己-2 B3：手機今日誤點區開合（本機、不同步；跟桌機的 lateCollapsed 分開記）。模組層先讀，進頁不先展開再收 */
 const KEY_LATE_OPEN_MOBILE = "today_late_open_mobile";
+const KEY_RANGE_OPEN_MOBILE = "today_range_open_mobile";
 preloadLocalFlag(KEY_LATE_OPEN_MOBILE);
+preloadLocalFlag(KEY_RANGE_OPEN_MOBILE);
+
+function fmtPlanned(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (!h) return `${m}m`;
+  return m ? `${h}h${m < 10 ? `0${m}` : m}m` : `${h}h`;
+}
 
 export default function MobileToday() {
   const c = useMobileToday();
@@ -129,7 +140,10 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const [sheetId, setSheetId] = useState<string | null>(null);
   /** 誤點區展開與否（己-2 B3：記本機手機鍵，預設展開；不進 uiStore＝不污染桌機的 lateCollapsed，見檔頭 3） */
   const [lateOpen, setLateOpen] = useLocalFlag(KEY_LATE_OPEN_MOBILE, true);
-  const sheetRow = useNodeStore((s) => (sheetId ? (s.today.byId[sheetId] ?? null) : null));
+  const [rangeOpen, setRangeOpen] = useLocalFlag(KEY_RANGE_OPEN_MOBILE, true);
+  const sheetRow = useNodeStore((s) =>
+    sheetId ? (s.today.byId[sheetId] ?? s.rangeTickets.find((r) => r.id === sheetId) ?? null) : null,
+  );
   const pageRef = useRef<HTMLDivElement | null>(null);
   useSubSwipe(pageRef, "today");
   /** 「今天的列車」與誤點區兩張清單（條件渲染，callback ref 拿元素——掛上來拖曳才綁得上事件） */
@@ -264,11 +278,16 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   }, [flashId]);
 
   const { total, left } = c.stats;
+  const plannedMin = totalEstimateMin(c.todayRows);
   // 磨光⑤ N11：完成數字樣走 domain/dayCount（與桌機今日、串流今日列同一句）
   const countParts = dayCountParts(c.stats);
   /** 別線的統計段（插槽 todayStats，接縫 #66）；沒有線填＝空陣列，兩條路都與之前逐字相同 */
   const stats = lineTodayStats("mobile");
-  const allSettled = !c.empty && left === 0 && c.lateRows.every((r) => r.occurrence !== null || r.status === "done");
+  const departHotkey = lineTodayHotkey("timetable.today.depart");
+  const allSettled =
+    (c.todayRows.length > 0 || c.lateRows.length > 0) &&
+    left === 0 &&
+    c.lateRows.every((r) => r.occurrence !== null || r.status === "done");
 
   /* ───────── 時刻（主線②）：分群、現在線、下一班 ───────── */
   const railOf = (r: TodayRow) => r.occurrence?.due_on ?? r.scheduled_on ?? c.dateKey;
@@ -329,11 +348,16 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
 
   return (
     <>
-      <div className="m-page m-today" ref={pageRef}>
+      <div className="m-page m-today" ref={pageRef} onClick={dismissSelectionOnBlankClick}>
         {countParts ? (
           <p className="m-today-stats">
             完成 <b>{countParts.done}</b>/<b>{countParts.total}</b>
             <span className="m-today-left">・{countParts.tail}</span>
+            {plannedMin > 0 && (
+              <span className="m-today-left">
+                ・已排 <b>{fmtPlanned(plannedMin)}</b>
+              </span>
+            )}
             {/* 各線的統計段插在「下一班」前面（同桌機 TodayView；D-票-72：接在長短不一的「下一班」後面位置會飄） */}
             {stats.map((S, i) => (
               <S key={i} shell="mobile" dateKey={c.dateKey} lead wrap={false} />
@@ -409,6 +433,50 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
               </>
             )}
 
+            {/* ═══ 4B：期間自由券（涵蓋今日）可收合抽屜（0 張時整塊隱藏） ═══ */}
+            {c.rangeTickets.length > 0 && (
+              <>
+                <div className="sec">
+                  <h3>期間自由券</h3>
+                  <span className="rule" />
+                  <button
+                    type="button"
+                    aria-expanded={rangeOpen}
+                    aria-label={`期間自由券（涵蓋今日）${c.rangeTickets.length} 張，${rangeOpen ? "收起" : "展開"}`}
+                    onClick={() => setRangeOpen(!rangeOpen)}
+                    className="note fold"
+                  >
+                    涵蓋今日 {c.rangeTickets.length} 張
+                    <span className="caret" aria-hidden>
+                      ▾
+                    </span>
+                  </button>
+                </div>
+                {rangeOpen && (
+                  <ul className="m-tk-list" aria-label="期間自由券（涵蓋今日）">
+                    {c.rangeTickets.map((r) => (
+                      <MobileTicket
+                        key={r.id}
+                        card={cardFromTodayRow(r, c.dateKey)}
+                        route={c.routeOf(r)}
+                        today={c.dateKey}
+                        fresh={c.freshId === r.id}
+                        flash={flashId === r.id}
+                        now={now}
+                        onComplete={(card) => c.complete(card.nodeId)}
+                        onMore={(card) => setSheetId(card.nodeId)}
+                        rangeActions={{
+                          remDays: r.scheduled_end ? rangeRemainingDays(r.scheduled_end, c.dateKey) : 0,
+                          onPullToday: () => c.pullToToday(r),
+                          onDepart: departHotkey ? () => departHotkey(r.id) : undefined,
+                        }}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+
             {/* 1.0d 全完成慶祝（語氣與 1.0c 分開：這裡是收工，不是招募）——文案逐字同桌機 */}
             {allSettled && (
               <EmptyState tone="done" title="今天的班次都到站了" desc="剩下的時間是你的。明天的事，可以先去行程表排好。" />
@@ -426,6 +494,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           card={cardFromTodayRow(sheetRow, c.dateKey)}
           today={c.dateKey}
           onDefer={(d) => c.defer(sheetRow.id, d)}
+          onDeferRange={(s, e) => c.deferRange(sheetRow.id, s, e)}
           onSkip={(s) => c.skip(sheetRow.id, s)}
           onSetTime={(t, est) => c.setTime(sheetRow.id, t, est)}
           onSetRunTime={(t) => c.setRunTime(sheetRow.id, t)}

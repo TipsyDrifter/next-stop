@@ -158,6 +158,20 @@
 .ns-notes .ns-notes-iitem.is-sel .ticket {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent), var(--shadow-card);
 }
+/* 操作 9（D-FB-4）：收件匣多選勾中的列＝選中框＋選中底（--sel-bg） */
+.ns-notes-iitem.is-picked .ns-notes-slip-in {
+  border-color: var(--accent);
+  background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--color-paper-high);
+  box-shadow: var(--ns-hi), inset 0 0 0 1px var(--accent);
+}
+.ns-notes .ns-notes-iitem.is-picked .ticket::before {
+  border: var(--sel-line);
+  background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--color-paper-high);
+}
+.ns-notes-iitem.is-picked .ns-notes-slip,
+.ns-notes .ns-notes-iitem.is-picked .ticket {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent), var(--shadow-card);
+}
 
 /* 去處列：選中才滑出 */
 .ns-notes-dest { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur) var(--ease); position: relative; z-index: 1; }

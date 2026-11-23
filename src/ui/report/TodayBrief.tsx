@@ -8,7 +8,9 @@
  * 今天清單變動、回到前景、每分鐘（時間塊在跑、別頁記的帳）重讀；第一次還沒讀到就不畫（不留空殼）。
  */
 import { formatReportMoney } from "../../domain/report";
+import { totalEstimateMin } from "../../domain/scheduledTime";
 import { fmtDur } from "../../domain/timetable";
+import { useNodeStore } from "../../store/nodeStore";
 import { useReportStore } from "../../store/reportStore";
 import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { openReport, type ReportShellKind } from "./reportJumps";
@@ -17,11 +19,13 @@ import "./report.css";
 
 export function TodayBrief({ shell }: { shell: ReportShellKind }) {
   const brief = useReportStore((s) => s.brief);
+  const plannedMin = useNodeStore((s) => totalEstimateMin(s.today.rows.filter((r) => r.bucket === "today")));
   const amountMasked = useTicketStore(isTicketAmountMasked);
   useReload(() => void useReportStore.getState().loadBrief(shell), 60_000);
   if (!brief) return null;
   const spentText = brief.spent !== null ? formatReportMoney(brief.spent, brief.decimals, amountMasked) : null;
   const parts = [`済 ${brief.seals}`];
+  if (plannedMin > 0) parts.push(`已排 ${fmtDur(plannedMin * 60_000)}`);
   if (brief.recordedMs !== null) parts.push(`記錄 ${fmtDur(brief.recordedMs)}`);
   if (spentText !== null) parts.push(`花了 ${spentText}`);
   return (
@@ -35,6 +39,11 @@ export function TodayBrief({ shell }: { shell: ReportShellKind }) {
         <span>
           済 <b className="num">{brief.seals}</b>
         </span>
+        {plannedMin > 0 && (
+          <span>
+            已排 <b className="num">{fmtDur(plannedMin * 60_000)}</b>
+          </span>
+        )}
         {brief.recordedMs !== null && (
           <span>
             記錄 <b className="num">{fmtDur(brief.recordedMs)}</b>

@@ -109,17 +109,193 @@ input.ns-tt-rtp-name::placeholder { color: var(--color-ink-faint); }
 /* 挑位置提示條在作息帶時代的長相不變（UnscheduledTray 的 .ns-tt-sched-pickhint）；這裡只補一個名字的粗體 */
 .ns-tt-sched-pickhint b { font-weight: 600; color: var(--color-ink); }
 
-/* ── 第三梯（討論 6）：臨時班次虛線車廂邊框與小牌、日程單日｜週時段切換、週時段互動畫布 ── */
+/* ── 第三梯＋第四梯（討論 6 · D-FB-7）：預留席車票虛線車廂框、本班填空（Mode A）、待辦入座頂替（Mode B）、週時段互動畫布 ── */
 .ns-tt-sched-card.is-adhoc,
-.ns-tg-blk.is-adhoc {
+.ns-tt-sched-card.is-placeholder,
+.ns-tg-blk.is-adhoc,
+.ns-tg-blk.is-placeholder {
   border: 1.5px dashed color-mix(in srgb, var(--rc, var(--color-dash)) 72%, var(--color-dash));
   background: color-mix(in srgb, var(--rc, var(--ns-tt-cat-8)) 11%, var(--ns-tt-sched-solid, var(--bg-card)));
 }
-.ns-tt-sched-tag.is-adhoc {
+.ns-tt-sched-ui.is-placeholder,
+.ns-tt-sched-chip.is-placeholder,
+.ns-tg-chip.is-placeholder {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--rc, var(--color-dash)) 72%, var(--color-dash));
+}
+.ns-tt-sched-ghost.is-placeholder {
+  border-style: dashed;
+  border-width: 1.5px;
+}
+.ns-tt-sched-tag.is-adhoc,
+.ns-tt-sched-tag.is-placeholder {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--color-dash));
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   letter-spacing: .04em;
+}
+.ns-tt-sched-tag.is-filled {
+  color: var(--color-ink-soft);
+  border-color: color-mix(in srgb, var(--rc, var(--accent)) 55%, var(--color-dash));
+  background: color-mix(in srgb, var(--rc, var(--accent)) 11%, transparent);
+  letter-spacing: .03em;
+}
+.ns-tt-sched-tag.is-seated {
+  color: var(--sel-fg);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--color-dash));
+  background: color-mix(in srgb, var(--accent) 12%, var(--sel-bg));
+  letter-spacing: .03em;
+}
+.ns-tt-sched-tag.is-range {
+  color: var(--color-ink-soft);
+  border-color: var(--color-dash);
+  background: color-mix(in srgb, var(--ns-tt-sched-solid, var(--bg-card)) 75%, transparent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+}
+.ns-tg-chip .ns-tt-sched-tag {
+  flex: none;
+  margin-left: 2px;
+  font-size: var(--fs-micro);
+  font-style: normal;
+  padding: 0 4px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+}
+.ns-tt-seat-pill {
+  position: absolute;
+  right: 6px;
+  top: 4px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 20px;
+  padding: 1px 7px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-ctl);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: .04em;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--color-ink) 10%, transparent);
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.ns-tt-seat-pill:hover,
+.ns-tt-seat-pill:focus-visible {
+  background: color-mix(in srgb, var(--accent) 18%, var(--sel-bg));
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+[data-shell="mobile"] .ns-tt-seat-pill::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: -10px;
+  bottom: -10px;
+}
+.ns-tt-adhoc-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.ns-tt-seat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+.ns-tt-seat-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+}
+.ns-tt-seat-inline > input.ns-tt-rtp-name {
+  flex: 1 1 140px;
+}
+.ns-tt-seat-note {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: .03em;
+  line-height: 1.35;
+}
+.ns-tt-seat-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+}
+.ns-tt-seat-active-txt {
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  letter-spacing: .03em;
+}
+.ns-tt-seat-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--ns-tt-sched-solid, var(--bg-card)) 60%, transparent);
+}
+.ns-tt-seat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+.ns-tt-seat-opt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+[data-shell="mobile"] .ns-tt-seat-opt {
+  min-height: 40px;
+}
+.ns-tt-seat-opt:hover,
+.ns-tt-seat-opt:focus-visible {
+  background: var(--sel-bg);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--color-dash));
+  outline: none;
+}
+.ns-tt-seat-opt .nm {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ns-tt-seat-opt .rt,
+.ns-tt-seat-opt .est {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  white-space: nowrap;
 }
 .ns-tt-sched-adhoc-btn {
   margin-left: auto;
@@ -218,5 +394,5 @@ input.ns-tt-rtp-name::placeholder { color: var(--color-ink-faint); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ns-tt-rt, .ns-tt-rtpick, .ns-tt-sched-adhoc-btn { transition: none; }
+  .ns-tt-rt, .ns-tt-rtpick, .ns-tt-sched-adhoc-btn, .ns-tt-seat-pill, .ns-tt-seat-opt { transition: none; }
 }

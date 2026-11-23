@@ -110,6 +110,10 @@ async function undoStates(snapshot: ReadonlyMap<string, CardState>): Promise<voi
  * 同 `completeNodeFlow` 的輪替，但不靠目前開著的那棵樹。不吐成功的 toast（同大綱的章）。
  */
 export async function stampCard(node: TaskRow): Promise<boolean> {
+  if (node.kind === "branch") {
+    ui().showToast({ message: "支線是主題章節，不蓋済章" }, 3600);
+    return false;
+  }
   if (isSettling(node.id)) return false;
   if (node.has_kids) {
     changeStatusFlow(node, "done", openKidsOf(node));
@@ -125,7 +129,7 @@ export async function stampCard(node: TaskRow): Promise<boolean> {
   if (w.failed.length) ui().showToast({ message: w.failed[0] || SORRY }, 4000);
   if (!w.moved.size) return false;
   if (stamped) {
-    if (isTaskKind(node.kind)) ui().setCompleteCardFor(node.id);
+    if (isTaskKind(node.kind) || node.kind === "ticket") ui().setCompleteCardFor(node.id);
   } else retractCard([node.id]);
   return stamped;
 }
@@ -137,15 +141,20 @@ export function moveCardToStatus(node: TaskRow, to: BoardStatus): Promise<void> 
 
 /** 一批卡換欄：一則 toast、一次復原 */
 export async function moveCardsToStatus(nodes: readonly TaskRow[], to: BoardStatus): Promise<void> {
-  if (nodes.length === 1 && to === "done" && nodes[0].has_kids) {
-    changeStatusFlow(nodes[0], "done", openKidsOf(nodes[0]));
+  const taskNodes = nodes.filter((n) => n.kind !== "branch");
+  if (!taskNodes.length) {
+    ui().showToast({ message: "支線是主題章節，沒有現況欄" }, 3600);
     return;
   }
-  const w = await writeCards(nodes.map((n) => n.id), readStates, (id, was) => writeSteps(id, was, planCardMove(was, to)));
+  if (taskNodes.length === 1 && to === "done" && taskNodes[0].has_kids) {
+    changeStatusFlow(taskNodes[0], "done", openKidsOf(taskNodes[0]));
+    return;
+  }
+  const w = await writeCards(taskNodes.map((n) => n.id), readStates, (id, was) => writeSteps(id, was, planCardMove(was, to)));
   if (to !== "done") retractCard(w.moved.keys());
   else if (w.moved.size === 1) {
-    const only = nodes.find((n) => w.moved.has(n.id));
-    if (only && isTaskKind(only.kind)) ui().setCompleteCardFor(only.id);
+    const only = taskNodes.find((n) => w.moved.has(n.id));
+    if (only && (isTaskKind(only.kind) || only.kind === "ticket")) ui().setCompleteCardFor(only.id);
   }
   const label = STATUS_COLUMN_LABEL[to];
   report(w, (n) => (n > 1 ? `已把 ${n} 張移到${label}` : `已移到${label}`), () => undoStates(w.moved));

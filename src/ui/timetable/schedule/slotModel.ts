@@ -129,18 +129,29 @@ export function schedBlocksOf(
 ): SchedBlock[] {
   const axisMin = h * 60;
   const axisMax = axisMin + 1440;
-  const out: SchedBlock[] = (grid?.blocks ?? []).map((b) => ({
-    key: b.key,
-    nodeId: b.entry.node_id,
-    slotId: null,
-    startMin: b.startMin,
-    endMin: b.endMin,
-    noEstimate: b.noEstimate,
-    lane: 0,
-    lanes: 1,
-  }));
+  const out: SchedBlock[] = (grid?.blocks ?? []).map((b) => {
+    const slotEst = b.entry.seated_into?.slotEstimateMin ?? null;
+    const inheritedLen = b.noEstimate && typeof slotEst === "number" && slotEst > 0 ? slotEst : null;
+    const noEstimate = inheritedLen !== null ? false : b.noEstimate;
+    const endMin = inheritedLen !== null ? Math.min(b.startMin + inheritedLen, axisMax) : b.endMin;
+    return {
+      key: b.key,
+      nodeId: b.entry.node_id,
+      slotId: null,
+      startMin: b.startMin,
+      endMin,
+      noEstimate,
+      lane: 0,
+      lanes: 1,
+    };
+  });
   const laneEnd = new Map<string, number>();
-  for (const b of grid?.blocks ?? []) laneEnd.set(b.key, b.startMin + Math.max(b.noEstimate ? NO_ESTIMATE_MIN : b.endMin - b.startMin, LANE_MIN_MIN));
+  for (const b of grid?.blocks ?? []) {
+    const slotEst = b.entry.seated_into?.slotEstimateMin ?? null;
+    const inheritedLen = b.noEstimate && typeof slotEst === "number" && slotEst > 0 ? slotEst : null;
+    const rawLen = inheritedLen !== null ? inheritedLen : b.noEstimate ? NO_ESTIMATE_MIN : b.endMin - b.startMin;
+    laneEnd.set(b.key, b.startMin + Math.max(rawLen, LANE_MIN_MIN));
+  }
   for (const it of [...Object.values(slots), ...Object.values(adhocs)]) {
     const s = clockMinutes(it.time as ClockText);
     if (s === null || s < axisMin || s >= axisMax) continue;

@@ -119,10 +119,12 @@ describe("週的算術", () => {
 });
 
 describe("文字與寫方針框", () => {
-  test("checkAimText：正規化空白、空字擋、超長擋", () => {
-    assert.equal(checkAimText("  跑\n三次  "), "跑 三次");
-    assert.throws(() => checkAimText("   "), /不能是空的/);
-    assert.throws(() => checkAimText("字".repeat(61)), /最多 60 個字/);
+  test("checkAimText：保留句內換行、正規化水平空白、空字擋、超長擋", () => {
+    assert.equal(checkAimText("  跑\n三次  "), "跑\n三次");
+    assert.equal(checkAimText("  跑  一\r\n  三次  \n\n\n\n收尾 "), "跑 一\n三次\n\n收尾");
+    assert.throws(() => checkAimText("   \n  "), /不能是空的/);
+    assert.equal(checkAimText("字".repeat(160)).length, 160);
+    assert.throws(() => checkAimText("字".repeat(161)), /最多 160 個字/);
     assert.equal(aimNumeral(0), "一、");
     assert.equal(aimNumeral(4), "五、");
   });
@@ -170,7 +172,7 @@ describe("排成車票", () => {
     assert.deepEqual(ticketPlacement({ id: "R", kind: "route", route_id: null }), { parentId: null, routeTagId: "R" });
     // 支線底下可以直接放票 ⇒ 排成車票建在支線底下
     assert.deepEqual(ticketPlacement({ id: "B", kind: "branch", route_id: "R" }), { parentId: "B", routeTagId: null });
-    assert.deepEqual(AIM_ATTACH_KINDS, ["route", "branch"]);
+    assert.deepEqual(AIM_ATTACH_KINDS, ["route"]);
   });
 
   test("planDefaultDay：這週還沒過的第一天；過去的週＝今天", () => {

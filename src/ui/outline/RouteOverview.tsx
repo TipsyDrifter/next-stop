@@ -15,9 +15,11 @@
  * ⑫：頁首下多一列分頁「路線｜篩選」（內容在 board/FilterView）；卡上的「誤點 N」可點＝篩選清單預填這條路線＋誤點（契約 §7）。
  *   頁首與分頁列畫布寬（D-主-477），路線卡內容包在 .ns-rm-read 維持 848。
  */
-import { useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
+import { SYNC_WRITE_EVENT, nodeRepo } from "../../data";
 import type { NodeRow } from "../../domain";
+import { buildStationTrack, type StationTrackResult } from "../../domain/stationTrack";
 import { fmtDur } from "../../domain/timetable";
 import { EMPTY_SUMMARY, type RouteSummary } from "../../domain/routeOverview";
 import { useNodeStore } from "../../store/nodeStore";
@@ -33,6 +35,7 @@ import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
 import { IconChevron, IconDots, IconPlus } from "../common/icons";
 import { rowContextMenu } from "../common/contextMenu";
 import { roundelStyle } from "../common/roundel";
+import { dismissOnBlankClick } from "../common/selection/desktopSelection";
 import { requestDeleteRoute } from "../panel/routeFlows";
 import { requestArrive } from "../panel/arrivalFlows";
 import { GNAV_ICONS } from "../sidebar/gnavIcons";
@@ -129,11 +132,17 @@ function More({ label, overline, items }: { label: string; overline: { zh: strin
   );
 }
 
-/** 車站進度線：實線到「到站數÷車站數」、虛線到終點、終點一枚 ◎ */
-function StationTrack({ s, color }: { s: RouteSummary; color: string }) {
-  const pct = s.stationsTotal > 0 ? Math.round((s.stationsArrived / s.stationsTotal) * 100) : 0;
+/** 車站進度線：實線到「到站數＋下一站車票完成率 ÷ 車站數」、虛線到終點、終點一枚 ◎ */
+function StationTrack({ s, track, color }: { s: RouteSummary; track?: StationTrackResult<NodeRow>; color: string }) {
+  const nextStop = track?.stops.find((st) => st.isNext);
+  const fractional = nextStop && nextStop.ticketTotal > 0 ? nextStop.ticketDone / nextStop.ticketTotal : 0;
+  const pct = s.stationsTotal > 0 ? Math.min(100, Math.round(((s.stationsArrived + fractional) / s.stationsTotal) * 100)) : 0;
+  const label =
+    nextStop && nextStop.ticketTotal > 0
+      ? `車站 ${s.stationsArrived}/${s.stationsTotal} 到站，下一站「${nextStop.station.name}」車票 ${nextStop.ticketDone}/${nextStop.ticketTotal} 済`
+      : `車站 ${s.stationsArrived}/${s.stationsTotal} 到站`;
   return (
-    <div className="ns-ov-track" style={{ "--rc": color } as CSSProperties} aria-label={`車站 ${s.stationsArrived}/${s.stationsTotal} 到站`}>
+    <div className="ns-ov-track" style={{ "--rc": color } as CSSProperties} aria-label={label} title={label}>
       <i className="done" style={{ width: `${pct}%` }} />
       <i className="dot" style={{ left: `${pct}%` }} />
       <i className="end" />
@@ -141,9 +150,69 @@ function StationTrack({ s, color }: { s: RouteSummary; color: string }) {
   );
 }
 
+/** 載入各運行中路線的站內車票完成數（供路線卡片「下一站」與軌道進度線顯示） */
+function useOverviewStationTracks(
+  routes: readonly NodeRow[],
+  dayKey: string,
+  dayStartHour: number,
+): Record<string, StationTrackResult<NodeRow>> {
+  const stations = useNodeStore((s) => s.stations);
+  const [tick, setTick] = useState(0);
+  const [tracks, setTracks] = useState<Record<string, StationTrackResult<NodeRow>>>({});
+
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const bump = () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => setTick((n) => n + 1), 600);
+    };
+    window.addEventListener(SYNC_WRITE_EVENT, bump);
+    return () => {
+      if (t) clearTimeout(t);
+      window.removeEventListener(SYNC_WRITE_EVENT, bump);
+    };
+  }, []);
+
+  const routeKey = routes.map((r) => r.id).join(",");
+  useEffect(() => {
+    const withStations = routes.filter((r) => stations.some((st) => st.parent_id === r.id));
+    if (!withStations.length) {
+      setTracks({});
+      return;
+    }
+    let alive = true;
+    Promise.all([
+      nodeRepo.listCurrentOccurrences(dayKey, dayStartHour),
+      ...withStations.map((r) => nodeRepo.listRouteTree(r.id).then((rows) => [r.id, r, rows] as const)),
+    ])
+      .then(([occ, ...entries]) => {
+        if (!alive) return;
+        const out: Record<string, StationTrackResult<NodeRow>> = {};
+        for (const [rid, r, rows] of entries) {
+          out[rid] = buildStationTrack({
+            routeId: rid,
+            stations,
+            nodes: rows,
+            occurrences: occ,
+            routeArrived: !!r.arrived_on,
+          });
+        }
+        setTracks(out);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeKey, stations, tick, dayKey, dayStartHour]);
+
+  return tracks;
+}
+
 function RouteCard({
   route,
   s,
+  track,
   decimals,
   lines,
   next,
@@ -151,6 +220,7 @@ function RouteCard({
 }: {
   route: NodeRow;
   s: RouteSummary;
+  track?: StationTrackResult<NodeRow>;
   decimals: number;
   lines: NodeRow[];
   /** 下一站與它的方針（整批載好，方針擴充 辛 §3 #7） */
@@ -158,6 +228,7 @@ function RouteCard({
   onOpenStation(id: string, anchor: HTMLElement): void;
 }) {
   const color = route.color ?? "var(--route-preset-4)";
+  const nextStop = track?.stops.find((st) => st.isNext);
   const label = `路線「${route.name}」的動作`;
   const onKey = (e: KeyboardEvent<HTMLElement>) => {
     if (e.target !== e.currentTarget) return;
@@ -198,6 +269,11 @@ function RouteCard({
           <span className="ns-ov-next">
             <StationMark size={11} />
             下一站 <b>{s.nextStation.name}</b>
+            {nextStop && nextStop.ticketTotal > 0 && (
+              <span className="d">
+                済 {nextStop.ticketDone}/{nextStop.ticketTotal}
+              </span>
+            )}
             {s.nextStation.expectedOn && <span className="d">{mdw(s.nextStation.expectedOn)}</span>}
           </span>
           {next.brief && <span className="wa-ov-aim">{next.brief}</span>}
@@ -208,7 +284,7 @@ function RouteCard({
           <span className="d">還沒有下一站</span>
         </p>
       )}
-      <StationTrack s={s} color={color} />
+      <StationTrack s={s} track={track} color={color} />
       <dl className="ns-ov-stats">
         <div>
           <dt>車票</dt>
@@ -270,6 +346,7 @@ export function RouteOverview() {
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const dayKey = todayKey(dayStartHour);
+  const stationTracks = useOverviewStationTracks(routes, dayKey, dayStartHour);
   const [ty, tm, td] = dayKey.split("-").map(Number);
   const now = new Date(ty, tm - 1, td);
   const decimals = data?.decimals ?? 2;
@@ -287,7 +364,7 @@ export function RouteOverview() {
   );
 
   return (
-    <section className="page ns-outline ns-ov" aria-label="路線一覽">
+    <section className="page ns-outline ns-ov" aria-label="路線一覽" onClick={dismissOnBlankClick}>
       <div className="sheet">
         <PageHeader
           variant="identity"
@@ -354,7 +431,16 @@ export function RouteOverview() {
                 <>
                   <div className="ns-ov-grid">
                     {lr.map((r) => (
-                      <RouteCard key={r.id} route={r} s={data?.byRoute[r.id] ?? EMPTY_SUMMARY} decimals={decimals} lines={lines} next={nextAims[r.id]} onOpenStation={stationCard.open} />
+                      <RouteCard
+                        key={r.id}
+                        route={r}
+                        s={data?.byRoute[r.id] ?? EMPTY_SUMMARY}
+                        track={stationTracks[r.id]}
+                        decimals={decimals}
+                        lines={lines}
+                        next={nextAims[r.id]}
+                        onOpenStation={stationCard.open}
+                      />
                     ))}
                   </div>
                   <button type="button" className="ns-ov-addroute" onClick={() => openRouteDialog({ lineId: line.id, editId: null })}>

@@ -90,6 +90,7 @@ export function IdealAimsMatrix({ shell }: IdealAimsMatrixProps) {
           <button
             type="button"
             className="ns-btn btn-ghost"
+            title="展開「行路企劃書」三欄同屏對照工作台"
             onClick={() => openEditor(weekKey)}
           >
             ✎ 一站式改方針

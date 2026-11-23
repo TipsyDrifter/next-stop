@@ -70,6 +70,8 @@
 .m-dt-pick:active { background: var(--hover-bg); }
 .m-dt-pick:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .m-dt-pick .is-empty { color: var(--color-ink-faint); }
+.m-dt-pick .roundel { flex: none; width: 20px; height: 20px; font-size: 10px; }
+.m-dt-loc-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-dt-chev { margin-left: auto; color: var(--color-ink-faint); font-size: 18px; line-height: 1; }
 .m-dt-hm { font-family: var(--font-latin); font-weight: 600; }
 .m-dt-sub { font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .04em; }

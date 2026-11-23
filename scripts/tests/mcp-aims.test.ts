@@ -139,9 +139,9 @@ test("save-aim 改字、掛與取下；沒變不寫；句序不動", async () =>
   assert.equal(edited.data.text, "第一句改");
   assert.deepEqual(edited.changed, ["week_aims"]);
 
-  const hung = await call("save-aim", { id: b.data.id, attachTo: s.branch.id }, ctx);
-  assert.equal(hung.data.attachedTo.name, "文法");
-  assert.equal(hung.data.attachedTo.route, "日本語");
+  const hung = await call("save-aim", { id: b.data.id, attachTo: s.route.id }, ctx);
+  assert.equal(hung.data.attachedTo.name, "日本語");
+  assert.equal(hung.data.attachedTo.route, undefined);
 
   const off = await call("save-aim", { id: b.data.id, attachTo: null }, ctx);
   assert.equal(off.data.attachedTo, undefined);
@@ -165,8 +165,8 @@ test("save-aim 的規則：五句、60 字、空字不會變成刪除、只掛�
   // 滿了照樣能改字
   await call("save-aim", { id: made[0].data.id, text: "句零" }, ctx);
 
-  await assert.rejects(call("save-aim", { text: "長".repeat(61), period: "month" }, ctx), isUserError(/60 個字/));
-  await assert.rejects(call("save-aim", { id: made[1].data.id, text: "長".repeat(61) }, ctx), isUserError(/60 個字/));
+  await assert.rejects(call("save-aim", { text: "長".repeat(161), period: "month" }, ctx), isUserError(/160 個字/));
+  await assert.rejects(call("save-aim", { id: made[1].data.id, text: "長".repeat(161) }, ctx), isUserError(/160 個字/));
   await assert.rejects(call("save-aim", { id: made[1].data.id, text: "   " }, ctx), isUserError(/不能是空的/));
   assert.equal((await ctx.deps.weekAimRepo.listKeys(["Y2026"])).filter((r: Any) => !r.deleted_at).length, 5, "空字沒有刪掉那句");
 
@@ -176,7 +176,8 @@ test("save-aim 的規則：五句、60 字、空字不會變成刪除、只掛�
   await assert.rejects(call("save-aim", { text: "x", period: "month", stationId: s.st2.id }, ctx), isUserError(/period:station/));
   await assert.rejects(call("save-aim", { text: "x", stationId: s.st2.id, date: "2026-11-04" }, ctx), isUserError(/不看日期/));
   await assert.rejects(call("save-aim", { text: "x", stationId: s.route.id }, ctx), isUserError(/找不到車站/));
-  await assert.rejects(call("save-aim", { text: "x", period: "month", attachTo: s.ticket.id }, ctx), isUserError(/路線或支線/));
+  await assert.rejects(call("save-aim", { text: "x", period: "month", attachTo: s.ticket.id }, ctx), isUserError(/路線/));
+  await assert.rejects(call("save-aim", { text: "x", period: "month", attachTo: s.branch.id }, ctx), isUserError(/路線/));
   await assert.rejects(call("save-aim", { id: made[1].data.id, period: "month", text: "換期" }, ctx), isUserError(/別的期間/));
   await assert.rejects(call("save-aim", { id: made[1].data.id }, ctx), isUserError(/text 或 attachTo/));
   await assert.rejects(call("save-aim", { id: "沒這句", text: "x" }, ctx), isUserError(/找不到方針/));
@@ -227,9 +228,9 @@ test("runMcpCall：拼錯欄位回錯、寫入記 write、看的工具不記", a
   const read = await runMcpCall("3", "list-aims", {}, ctx);
   assert.equal(read.reply.write, false);
   assert.equal(read.outcome, null);
-  const limit = await runMcpCall("4", "save-aim", { text: "長".repeat(61), period: "week" }, ctx);
+  const limit = await runMcpCall("4", "save-aim", { text: "長".repeat(161), period: "week" }, ctx);
   assert.equal(limit.reply.isError, true);
-  assert.doesNotMatch(limit.reply.text, /App 內部錯誤/, "60 字是助理修得了的錯");
+  assert.doesNotMatch(limit.reply.text, /App 內部錯誤/, "160 字是助理修得了的錯");
 });
 
 test("get-overview：任務可讀才帶這週方針；只帶這週", async () => {

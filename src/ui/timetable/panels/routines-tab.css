@@ -60,9 +60,9 @@
 .ns-tt-rtmgr-taken { font-size: var(--fs-xs); letter-spacing: .06em; line-height: 1.5; color: var(--color-ink-faint); margin: 0; }
 .ns-tt-rtmgr-none { padding-top: 7px; }
 
-/* 時段：段列＝分類｜名字｜起–訖｜長度｜× */
+/* 時段：段列＝分類｜名字｜起–訖｜長度｜×（點長度可就地攤開雙排時長挑選器） */
 .ns-tt-rtmgr-segs { list-style: none; margin: 0; padding: 0; }
-.ns-tt-rtmgr-seg { display: flex; align-items: center; gap: 6px; min-height: 38px; border-bottom: 1px dashed var(--color-line); }
+.ns-tt-rtmgr-seg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-height: 38px; padding: 2px 0; border-bottom: 1px dashed var(--color-line); }
 
 /* 分類：原生 select 疊在「圓牌＋名字＋▾」上（鍵盤、手機的系統選單都是它的；只列子分類） */
 .ns-tt-rtmgr-cat {
@@ -125,6 +125,16 @@
 [data-shell="mobile"] .ns-tt-rtmgr-t .techo-input.ns-clock-in { width: 62px; height: 40px; min-height: 40px; font-size: 16px; line-height: 38px; }
 .ns-tt-rtmgr-dash { color: var(--color-ink-faint); font-size: 12px; padding: 0 1px; }
 .ns-tt-rtmgr-len { flex: none; min-width: 3.4em; font-size: var(--fs-micro); color: var(--color-ink-faint); text-align: right; white-space: nowrap; }
+.ns-tt-rtmgr-len.is-btn {
+  padding: 2px 6px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  font-family: inherit; cursor: pointer; text-align: center;
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-tt-rtmgr-len.is-btn:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-tt-rtmgr-len.is-btn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tt-rtmgr-len.is-btn.is-on { border-style: solid; border-color: var(--accent); background: var(--sel-bg); color: var(--sel-fg); }
+.ns-tt-rtmgr-dur { flex: 0 0 100%; order: 4; padding: 4px 0 6px 26px; }
+[data-shell="mobile"] .ns-tt-rtmgr-dur { padding-left: 26px; }
 .ns-tt-rtmgr-x { flex: none; }
 .ns-tt-rtmgr-seg:hover .ns-iconbtn.is-dim, .ns-tt-rtmgr-seg:focus-within .ns-iconbtn.is-dim { opacity: 1; }
 [data-shell="mobile"] .ns-tt-rtmgr-seg .ns-iconbtn.is-dim { opacity: 1; }

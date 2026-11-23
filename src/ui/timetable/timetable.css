@@ -3022,6 +3022,21 @@ button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--accent) 16%,
 .ns-tt-fcat-grp + .ns-tt-fcat-grp {
   margin-top: var(--sp-1); padding-top: var(--sp-1); border-top: 1px dashed var(--color-dash);
 }
+.ns-tt-fline-sec {
+  margin-top: var(--sp-1); padding-top: var(--sp-1); border-top: 1px dashed var(--color-dash);
+}
+.ns-tt-fline-sec .ns-tt-fcat-grp + .ns-tt-fcat-grp {
+  margin-top: 0; padding-top: 0; border-top: 0;
+}
+.ns-tt-fline-hd {
+  padding: var(--sp-1) var(--sp-2) 2px; font-size: var(--fs-micro); font-weight: 500;
+  letter-spacing: .12em; color: var(--color-ink-faint);
+}
+.ns-tt-link-select, .ns-tt-adhoc-select, .ns-tt-goal-select { display: block; width: 100%; min-width: 0; }
+.ns-tt-link-select .techo-input, .ns-tt-adhoc-select .techo-input, .ns-tt-goal-select .techo-input { width: 100%; max-width: 100%; }
+.ns-tt-goal-select { margin-top: var(--sp-1); }
+.ns-tt-goal-search-wrap { margin-top: var(--sp-2); }
+.ns-tt-goal-rm { opacity: .7; margin-left: var(--sp-1); }
 .ns-tt-fopt {
   width: 100%; min-height: var(--row-menu, 32px); padding: var(--sp-1) var(--sp-2);
   display: flex; align-items: center; gap: var(--sp-2);

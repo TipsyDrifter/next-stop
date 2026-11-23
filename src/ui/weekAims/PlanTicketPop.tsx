@@ -40,7 +40,7 @@ export function usePlanForm(aim: WeekAimRow, weekOn: string, today: string): Pla
   const stationId = stationIdOfKey(weekOn);
   const stationRoute = useNodeStore((s) => (stationId ? (s.stations.find((x) => x.id === stationId)?.parent_id ?? null) : null));
   const at = useAimPlaceOf()(aim.node_id ?? stationRoute);
-  const [name, setName] = useState(aim.text);
+  const [name, setName] = useState(() => aim.text.replace(/\s+/g, " ").trim());
   const [place, setPlace] = useState<PlanPlace | null>(() => {
     if (!at) return null;
     if (at.node.id === at.route.id) return { target: { routeId: at.route.id, nodeId: null, nodeKind: "route" }, name: at.route.name };
@@ -170,7 +170,7 @@ export function PlanTicketPop({ aim, weekOn, today, onClose }: { aim: WeekAimRow
             kinds={["branch", "train", "car"]}
             routeSelectable
             float
-            label="放在哪條路線、支線或列車"
+            label="放在哪條路線、支線、列車或車廂"
             value={f.place?.target ?? { routeId: null, nodeId: null, nodeKind: null }}
             onPick={(t) => {
               setPicking(false);
@@ -233,7 +233,7 @@ export function PlanTicketForm({ f, today, foot }: { f: PlanFormApi; today: stri
       {foot}
       {picking && (
         <MobileAttachPicker
-          title="放在哪條路線、支線或列車"
+          title="放在哪條路線、支線、列車或車廂"
           depth="node"
           kinds={["branch", "train", "car"]}
           routeSelectable

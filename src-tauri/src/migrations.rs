@@ -85,6 +85,9 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(22, "0022_ideal_techo", "ideal techo: ideal_cards (frontispiece cards with window illustrations & compressed photos, pinned motto) + ideal_reflections (daily window Q&A, diary note link, cross-time review)"),
     // 第七本第三梯（v1.33；G1 / 功能 2 / G2）：統計專題表與作息範本生效區間
     mig!(23, "0023_v133_stats_and_prefs", "v1.33 stats & prefs: time_stat_topics (pinned custom stats topics with optional day_start_hour) + time_routines.start_day/end_day"),
+    // 第四梯（討論 6 · D-FB-7）：期間自由券、預留席車票與逐班填空／待辦入座
+    mig!(24, "0024_flexible_tickets", "flexible tickets: nodes.scheduled_end (inclusive range end) + nodes.is_placeholder (reserved seat flag)"),
+    mig!(25, "0025_override_seating", "override seating: node_time_overrides.custom_title + node_time_overrides.seated_node_id"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -242,6 +245,17 @@ mod tests {
             23,
             "0023_v133_stats_and_prefs",
             "3dc406382da33dc6b24f01ac024e51be3df57349c736f7893bf1b221c18d86d82a20c0fa839a100135102d94dc8fbb0b",
+        ),
+        // v1.35.0 發行（期間自由券、預留席車票與定期班次填空／入座）
+        (
+            24,
+            "0024_flexible_tickets",
+            "2b3b62857509716118a6fa6202f18d75b7a24f2793d1b3127bc0158202d774a5b96fb542be77dd171c205e334e2e6a6a",
+        ),
+        (
+            25,
+            "0025_override_seating",
+            "5ae90b035b3f1b5dfb2b7298a53c183ab04a3750f89b8e5392fc46b3bcccdeef276d36552e7fa21dbc4cb5fd469899bb",
         ),
     ];
 

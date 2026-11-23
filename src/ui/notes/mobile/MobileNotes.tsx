@@ -26,11 +26,14 @@
  *   籤上的「收件匣 N／筆記 N／荷札 N」數字拿掉（M3；收件匣待整理數改寫在收件匣段頂那一行）。子頁（筆記整頁、荷札清單頁）照舊整條不畫（M2）。
  *   `listsReady`：進頁那一趟收件匣＋筆記載完之前不畫兩段的空狀態（§1.8：資料未到不閃「沒有東西」）。
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNotesStore, type NotesSection } from "../../../store/notesStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useRevealStore } from "../../mobile/routeMapReveal";
 import { noteTitle } from "../../../domain/notes";
+import { buildInboxItems } from "../../../domain/notesFilter";
+import { runOnBlankClick } from "../../common/selection/desktopSelection";
+import { MobileInboxSelectionBar, useInboxSelectStore } from "../InboxSelectionBar";
 import { MobileNoteInbox } from "./MobileNoteInbox";
 import { MobileNoteList } from "./MobileNoteList";
 import { MobileNotePage } from "./MobileNotePage";
@@ -193,30 +196,65 @@ export function MobileNotes() {
   const showPage = section === "notes" && pageOpen;
   const showTagPage = section === "tags" && tagKey !== null;
 
+  const inboxNotes = useNotesStore((s) => s.inboxNotes);
+  const inboxTickets = useNotesStore((s) => s.inboxTickets);
+  const inboxKind = useNotesStore((s) => s.inboxKind);
+  const inboxSort = useNotesStore((s) => s.inboxSort);
+  const inboxTagKeys = useNotesStore((s) => s.inboxTagKeys);
+  const tagIndex = useTagStore((s) => s.index);
+  const inboxVisibleIds = useMemo(
+    () =>
+      section === "inbox"
+        ? buildInboxItems({
+            notes: inboxNotes,
+            tickets: inboxTickets,
+            kind: inboxKind,
+            sort: inboxSort,
+            tagKeys: inboxTagKeys,
+            tagEnts: tagIndex?.ents ?? [],
+          }).map((it) => it.id)
+        : [],
+    [section, inboxNotes, inboxTickets, inboxKind, inboxSort, inboxTagKeys, tagIndex],
+  );
+  const inboxSelecting = useInboxSelectStore((s) => s.mobileMode || s.ids.length > 0);
+
   return (
-    <div className="m-page ns-notes-m" ref={pageRef}>
-      {showPage ? (
-        <MobileNotePage onBack={() => setPageOpen(false)} onOpenTag={openTagFromNote} />
-      ) : showTagPage ? (
-        <MobileTagPage onOpenNote={(id) => openPage(id)} />
-      ) : (
-        <>
-          {/* UI 丙-6 M1～M3：自畫的四格切換退役，換成今日頂帶下一列同款 .ns-tabrow（共用 Tabs；跟丙-4 時刻表、丙-5 售票口
-              同一做法：頁內 sticky，不走 MobileTopBand 的 tabsRow 插槽）。籤上不帶數字（Tabs 只收字串；收件匣的待整理數在段內） */}
-          <div className="ns-notes-mtop ns-tabrow">
-            <Tabs items={SECTION_TABS} value={section} onChange={setSection} size="mobile" aria-label="旅客筆記分頁" />
-          </div>
-          {section === "inbox" ? (
-            <MobileNoteInbox ready={listsReady} />
-          ) : section === "diary" ? (
-            <MobileDiary />
-          ) : section === "tags" ? (
-            <MobileTags />
-          ) : (
-            <MobileNoteList ready={listsReady} onOpen={(id) => openPage(id)} onNew={() => openPage(null)} />
-          )}
-        </>
-      )}
-    </div>
+    <>
+      <div
+        className="m-page ns-notes-m"
+        ref={pageRef}
+        onClick={(e) => {
+          if (section === "inbox" && inboxSelecting) {
+            runOnBlankClick(e, ".ns-notes-milist > li, .ns-notes-mlede, .ns-notes-fbar, .ns-notes-mtop", () =>
+              useInboxSelectStore.getState().clear(),
+            );
+          }
+        }}
+      >
+        {showPage ? (
+          <MobileNotePage onBack={() => setPageOpen(false)} onOpenTag={openTagFromNote} />
+        ) : showTagPage ? (
+          <MobileTagPage onOpenNote={(id) => openPage(id)} />
+        ) : (
+          <>
+            {/* UI 丙-6 M1～M3：自畫的四格切換退役，換成今日頂帶下一列同款 .ns-tabrow（共用 Tabs；跟丙-4 時刻表、丙-5 售票口
+                同一做法：頁內 sticky，不走 MobileTopBand 的 tabsRow 插槽）。籤上不帶數字（Tabs 只收字串；收件匣的待整理數在段內） */}
+            <div className="ns-notes-mtop ns-tabrow">
+              <Tabs items={SECTION_TABS} value={section} onChange={setSection} size="mobile" aria-label="旅客筆記分頁" />
+            </div>
+            {section === "inbox" ? (
+              <MobileNoteInbox ready={listsReady} />
+            ) : section === "diary" ? (
+              <MobileDiary />
+            ) : section === "tags" ? (
+              <MobileTags />
+            ) : (
+              <MobileNoteList ready={listsReady} onOpen={(id) => openPage(id)} onNew={() => openPage(null)} />
+            )}
+          </>
+        )}
+      </div>
+      {section === "inbox" && !showPage && !showTagPage && <MobileInboxSelectionBar visibleIds={inboxVisibleIds} />}
+    </>
   );
 }

@@ -37,6 +37,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
+import { formatDateRangeBadge } from "../../domain/dateRange";
 import { REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
 import { isSettling, scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -64,6 +65,8 @@ export interface MobileTodayApi {
   todayRows: TodayRow[];
   /** 誤點區（late＝有乘車日已過／due＝締切已到但沒排乘車日） */
   lateRows: TodayRow[];
+  /** 4B：涵蓋今日的期間自由券（依到期日迫近排序） */
+  rangeTickets: TodayRow[];
   /** 完全沒有任何一列（空狀態判斷） */
   empty: boolean;
   routeOf(row: TodayRow): NodeRow | undefined;
@@ -76,6 +79,10 @@ export interface MobileTodayApi {
   complete(id: string): void;
   /** 改期；null＝清除乘車日（已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ 只改這一班，清除或講不出哪一班 ⇒ REPEAT_RESCHEDULE_MSG） */
   defer(id: string, target: string | null): void;
+  /** 4B：期間區間改期 */
+  deferRange(id: string, start: string | null, end: string | null): void;
+  /** 4B：期間自由券一鍵排今天 */
+  pullToToday(row: TodayRow): void;
   /** 定期券：本班運休（true）／取消運休（false）——今日頁口徑：不帶 dueOn */
   skip(id: string, skip: boolean): void;
   /** 每班／單發票時刻（＋預計；estimateMin 為 undefined＝不送）。null＝不排時刻（主線②） */
@@ -107,11 +114,16 @@ export interface MobileTodayApi {
  * ⋯ sheet 的改名／記乘務記錄（磨光① 加工單 §2.4、§9.5；刪除改走 common/deleteNodeFlow）——今日子頁與行程表串流共用，所以是模組函式不是 hook 裡的閉包
  * ═══════════════════════════════════════════════════════ */
 
-/** 改名（空白由子面板擋；跟原名一樣就不寫）。失敗由 store 寫 error 列 */
+/** 改名（空白由子面板擋；預留席填入新名稱時一併解除 is_placeholder） */
 export function renameTicket(id: string, name: string, prev: string): void {
   const next = name.trim();
-  if (!next || next === prev) return;
-  void useNodeStore.getState().updateNode(id, { name: next });
+  if (!next) return;
+  const s = useNodeStore.getState();
+  const existing =
+    s.today.byId[id] ?? s.rangeTickets.find((r) => r.id === id) ?? s.tree.byId[id] ?? s.calendar.nodes[id];
+  const wasPh = Boolean(existing?.is_placeholder);
+  if (next === prev && !wasPh) return;
+  void s.updateNode(id, { name: next, ...(wasPh ? { is_placeholder: null } : {}) });
 }
 
 /** 記乘務記錄；成功 toast「記了」（同桌機行內輸入的回饋字）。失敗由 store 寫 error 列（addWorkLog 回 false，手機殼班） */
@@ -128,6 +140,7 @@ export function logTicket(id: string, body: string): void {
 
 export function useMobileToday(): MobileTodayApi {
   const today = useNodeStore((s) => s.today);
+  const rangeTickets = useNodeStore((s) => s.rangeTickets);
   const routes = useNodeStore((s) => s.routes);
   const loadToday = useNodeStore((s) => s.loadToday);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -182,9 +195,12 @@ export function useMobileToday(): MobileTodayApi {
 
   /* ───────── 蓋済（契約 §2.7 的四個分支＋手機殼班補上的第五個：列車／車廂開完成卡）───────── */
 
+  const findRow = (id: string): TodayRow | undefined =>
+    ns().today.byId[id] ?? ns().rangeTickets.find((r) => r.id === id);
+
   const complete = useCallback((id: string) => {
     const run = async () => {
-      const row = ns().today.byId[id];
+      const row = findRow(id);
       // 上一下還在寫＝畫面是舊的，照它判會再蓋一次（定期券＝蓋到下一班）；store 也會擋，這裡先擋免得播章、開卡
       if (!row || isSettling(id)) return;
 
@@ -211,8 +227,8 @@ export function useMobileToday(): MobileTodayApi {
         await ns().setCompleted(id, true, cascade ? true : undefined);
         // 印章動畫 .4s；0.8s 後清旗標（reduced-motion 不發 animationend，故一律用計時器兜底）
         setTimeout(() => setFreshId((cur) => (cur === id ? null : cur)), 800);
-        // 第五分支（同桌機 completeRow）：列車／車廂蓋章＋完成卡；車票純蓋章
-        if (isTaskKind(row.kind)) ui().setCompleteCardFor(id);
+        // Bug 4：車票與列車／車廂蓋済一致彈出完成卡
+        if (isTaskKind(row.kind) || row.kind === "ticket") ui().setCompleteCardFor(id);
       };
       const open = row.child_total - row.child_done;
       if (open > 0) {
@@ -232,17 +248,14 @@ export function useMobileToday(): MobileTodayApi {
   /* ───────── 改期（⋯ sheet 四項的共同出口；誤點區的票也能推）───────── */
 
   const defer = useCallback((id: string, target: string | null) => {
-    const row = ns().today.byId[id];
+    const row = findRow(id);
     if (!row) return;
     const key = ns().today.dateKey ?? todayKey(useUiStore.getState().dayStartHour);
-    // 分流在 pickDay.ts（純函式、有單測）：済／運休的守門照舊（2026-09-18 主人真機驗收抓到「蓋済章了還能推遲到明天」，
-    // UI 隱藏之外這裡再守一道）；定期券＝只改這一班（⑥ D-主-295；班次日同 timeOfRow）；
-    // UI 丙-3 F5（E20）：挑到今天以前＝補記（同桌機側板／大綱日期 chip，磨光⑦ D-主-67）
     const repeat = parseRule(row.repeat_rule) !== null;
     const plan = planPickDay({
       target,
       today: key,
-      current: repeat ? (row.occurrence?.due_on ?? row.scheduled_on) : row.scheduled_on,
+      current: repeat ? (row.occurrence?.due_on ?? row.scheduled_on) : (row.scheduled_end ? "__range__" : row.scheduled_on),
       settled: isSettledRow(row),
       repeat,
     });
@@ -256,8 +269,7 @@ export function useMobileToday(): MobileTodayApi {
         void moveRunFlow(id, plan.from, plan.day);
         return;
       case "clear": {
-        // 清除乘車日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原乘車日放回去（DeferPopover.tsx 同款）
-        const prev = scheduleSnapshot(row);
+        const prev = { ...scheduleSnapshot(row), scheduled_end: row.scheduled_end ?? null };
         void ns().reschedule(id, null);
         ui().showToast({
           message: INBOX_TOAST,
@@ -267,17 +279,69 @@ export function useMobileToday(): MobileTodayApi {
         return;
       }
       case "backfill":
-        // 收據「已補記到 M/D」＋復原由 nodeStore 出（repository 判條件：未済、非定期券、沒有未完成子票才蓋済；不成立就只是改期）
-        void ns().updateNode(id, { scheduled_on: plan.day }, { backfill: true });
+        void ns().updateNode(id, { scheduled_on: plan.day, scheduled_end: null }, { backfill: true });
         return;
       case "reschedule": {
-        const prev = scheduleSnapshot(row);
-        void ns().reschedule(id, plan.day);
-        // 票一改期就離開今日清單，今天唯一的回饋是這張可反悔的收據（與桌機同款）；排回今天不出收據
-        if (plan.receipt) showRescheduleToast(id, prev, plan.day);
+        const prev = { ...scheduleSnapshot(row), scheduled_end: row.scheduled_end ?? null };
+        void ns().reschedule(id, plan.day, { scheduledEnd: null });
+        if (plan.receipt || row.scheduled_end) {
+          if (row.scheduled_end && plan.day === key) {
+            ui().showToast({
+              message: "已排進今天",
+              actionLabel: "復原",
+              onAction: () => void ns().updateNode(id, prev),
+            });
+          } else {
+            showRescheduleToast(id, prev, plan.day);
+          }
+        }
         return;
       }
     }
+  }, []);
+
+  const deferRange = useCallback(
+    (id: string, start: string | null, end: string | null) => {
+      if (!start || !end || end <= start) {
+        defer(id, start);
+        return;
+      }
+      const row = findRow(id);
+      if (!row) return;
+      if (isSettledRow(row)) {
+        toast(SETTLED_DEFER_MSG);
+        return;
+      }
+      if (parseRule(row.repeat_rule) !== null) {
+        toast(REPEAT_RESCHEDULE_MSG);
+        return;
+      }
+      const prev = { ...scheduleSnapshot(row), scheduled_end: row.scheduled_end ?? null };
+      void ns().reschedule(id, start, { scheduledEnd: end });
+      ui().showToast({
+        message: `已排入期間 ${formatDateRangeBadge(start, end)}`,
+        actionLabel: "復原",
+        onAction: () => void ns().updateNode(id, prev),
+      });
+    },
+    [defer],
+  );
+
+  const pullToToday = useCallback((r: TodayRow) => {
+    const key = ns().today.dateKey ?? todayKey(useUiStore.getState().dayStartHour);
+    const prevOn = r.scheduled_on;
+    const prevEnd = r.scheduled_end ?? null;
+    void ns()
+      .pullRangeTicketToToday(r.id, key)
+      .then((res) => {
+        if (res.ok) {
+          ui().showToast({
+            message: "已排進今天",
+            actionLabel: "復原",
+            onAction: () => void ns().updateNode(r.id, { scheduled_on: prevOn, scheduled_end: prevEnd }),
+          });
+        }
+      });
   }, []);
 
   /* ───────── 本班運休／取消運休（定期券版 sheet；今日頁口徑不帶 dueOn）───────── */
@@ -410,13 +474,16 @@ export function useMobileToday(): MobileTodayApi {
     loaded: today.dateKey !== null,
     todayRows,
     lateRows,
-    empty: rows.length === 0,
+    rangeTickets,
+    empty: rows.length === 0 && rangeTickets.length === 0,
     routeOf,
     // 磨光⑤ N11：與桌機今日同一把尺（domain/dayCount）
     stats: dayCount(todayRows.map(dayCountItem)),
     late: lateCount(lateRows, dateKey),
     complete,
     defer,
+    deferRange,
+    pullToToday,
     skip,
     setTime,
     setRunTime,

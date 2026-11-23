@@ -38,12 +38,12 @@
  *   .ns-mattach* 搬到 common/attachpicker.css（src/index.css 集中 @import）。搜尋框借 notes-mobile.css 的 .ns-notes-minput。
  *   原路徑 notes/mobile/MobileAttachPicker.tsx 的 re-export 殼也在丙-7 T5 刪掉（呼叫端都改 import 本檔）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { NodeRow } from "../../domain";
 import type { AttachTarget } from "../../domain/notes";
-import { excludeSubtree, pruneToSelectable } from "../../domain/moveTo";
+import { excludeSubtrees, pruneToSelectable } from "../../domain/moveTo";
 import { roundelStyle } from "./roundel";
-import { useAttachOptions, type AttachKind, type AttachOption } from "../notes/useAttachOptions";
+import { groupRoutesByLine, useAttachOptions, type AttachKind, type AttachOption } from "../notes/useAttachOptions";
 import { useBackLayer } from "../mobile/backStack";
 import { MSheet } from "./MSheet";
 
@@ -69,8 +69,8 @@ export function RouteDot({ route }: { route: Pick<NodeRow, "color"> | null | und
   );
 }
 
-const KIND_GLYPH: Record<AttachKind, string> = { branch: "支", train: "列", car: "廂" };
-const KIND_NAME: Record<AttachKind, string> = { branch: "支線", train: "列車", car: "車廂" };
+const KIND_GLYPH: Record<AttachKind, string> = { branch: "支", train: "列", car: "廂", ticket: "票" };
+const KIND_NAME: Record<AttachKind, string> = { branch: "支線", train: "列車", car: "車廂", ticket: "車票" };
 
 export interface AttachPickNames {
   route: string;
@@ -81,7 +81,7 @@ export interface AttachPickNames {
 export interface MobileAttachPickerProps {
   title: string;
   depth: "route" | "node";
-  /** depth="node" 時可選的節點種類；省略＝支線／列車／車廂都可 */
+  /** depth="node" 時可選的節點種類；省略＝支線／列車／車廂／車票都可 */
   kinds?: readonly AttachKind[];
   /** depth="node" 時能不能直接選路線本身（預設 true） */
   routeSelectable?: boolean;
@@ -99,6 +99,8 @@ export interface MobileAttachPickerProps {
   backKind?: "sheet" | "dialog";
   /** 搬遷模式（磨光⑤ B1）：不列這個節點與它的整個子樹，樹只留挑得到的列與其群組頭 */
   excludeId?: string;
+  /** 多選搬遷模式（操作 7）：一次排除多棵子樹（向下相容單一 excludeId） */
+  excludeIds?: ReadonlySet<string>;
   /** 有給＝`value` 那一格標這個字（「目前位置」）、不可點 */
   currentNote?: string;
 }
@@ -120,13 +122,21 @@ export function MobileAttachPicker({
   onClose,
   backKind = "sheet",
   excludeId,
+  excludeIds,
   currentNote,
 }: MobileAttachPickerProps) {
-  const { routes, loadTree } = useAttachOptions();
+  const { lines, routes, loadTree } = useAttachOptions();
+  /** 搬遷模式（磨光⑤ B1／操作 7）：藏掉自己與子樹 */
+  const moving = excludeId !== undefined || excludeIds !== undefined;
+  const excludedSet = useMemo(() => {
+    const s = new Set<string>(excludeIds);
+    if (excludeId) s.add(excludeId);
+    return s;
+  }, [excludeId, excludeIds]);
   // 搬遷模式（手機殼班，契約 §一F）：一打開就在目前所在那條路線的第二層，「目前位置」那格看得到（同桌機 AttachPicker 的 expanded 初值）；
   //   其他用處照舊從路線清單開始
   const [routeId, setRouteId] = useState<string | null>(() =>
-    excludeId !== undefined && depth === "node" && value?.routeId && routes.some((r) => r.id === value.routeId)
+    moving && depth === "node" && value?.routeId && routes.some((r) => r.id === value.routeId)
       ? value.routeId
       : null,
   );
@@ -196,30 +206,29 @@ export function MobileAttachPicker({
     () => routes.filter((r) => !q || ((r.code ?? "") + " " + r.name).toLowerCase().includes(q)),
     [routes, q],
   );
-
-  /** 搬遷模式（磨光⑤ B1）：藏掉自己與子樹 */
-  const moving = excludeId !== undefined;
+  const routeGroups = useMemo(() => groupRoutesByLine(routeHits, lines), [routeHits, lines]);
 
   const crossHits = useMemo<CrossHit[]>(() => {
     if (depth !== "node" || routeId || !q || !all) return [];
     const out: CrossHit[] = [];
     for (const r of routes) {
       const opts = all.get(r.id) ?? [];
-      for (const opt of moving ? excludeSubtree(opts, excludeId) : opts) {
+      for (const opt of excludedSet.size > 0 ? excludeSubtrees(opts, excludedSet) : opts) {
         if (opt.selectable && opt.name.toLowerCase().includes(q)) out.push({ route: r, opt });
       }
     }
     return out;
-  }, [depth, routeId, q, all, routes, moving, excludeId]);
+  }, [depth, routeId, q, all, routes, excludedSet]);
 
   const treeHits = useMemo(() => {
     if (!tree) return null;
-    // 搬遷模式另外只留挑得到的列與其群組頭（搬列車時別的列車、車廂全是灰字，留著只是噪音）
-    const shown = moving ? pruneToSelectable(excludeSubtree(tree, excludeId)) : tree;
+    // 搬遷模式與指定 kinds 模式都只留挑得到的列與其群組頭（免得不可選的葉車票變成整串灰字噪音）
+    const base = excludedSet.size > 0 ? excludeSubtrees(tree, excludedSet) : tree;
+    const shown = moving || kinds !== undefined ? pruneToSelectable(base) : base;
     if (!q) return shown;
     // 有字時只留命中的可選節點（群組頭的縮排脈絡沒了也無妨：右側寫種類）
-    return shown.filter((o) => o.name.toLowerCase().includes(q));
-  }, [tree, q, moving, excludeId]);
+    return shown.filter((o) => o.selectable && o.name.toLowerCase().includes(q));
+  }, [tree, q, moving, kinds, excludedSet]);
 
   const pickRoute = (r: NodeRow) => onPick({ routeId: r.id, nodeId: null, nodeKind: "route" }, { route: r.name, node: null });
   const pickNode = (r: NodeRow, o: AttachOption) =>
@@ -230,6 +239,7 @@ export function MobileAttachPicker({
   /** 「目前位置」（磨光⑤ B1）：標出來、不可點。臨時車票的值只帶路線標籤（nodeKind null）＝沒有目前位置 */
   const lockRoute = (r: NodeRow) => !!currentNote && value?.nodeKind === "route" && isOnRoute(r);
   const lockNode = (o: AttachOption) => !!currentNote && isOnNode(o);
+  const allowsTicket = !kinds || kinds.includes("ticket");
 
   return (
     <MSheet
@@ -263,7 +273,17 @@ export function MobileAttachPicker({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={route ? "搜尋這條路線的支線、列車、車廂…" : depth === "node" ? "搜尋路線、列車、車廂…" : "搜尋路線…"}
+          placeholder={
+            route
+              ? allowsTicket
+                ? "搜尋這條路線的支線、列車、車廂、車票…"
+                : "搜尋這條路線的支線、列車、車廂…"
+              : depth === "node"
+                ? allowsTicket
+                  ? "搜尋路線、列車、車廂、車票…"
+                  : "搜尋路線、列車、車廂…"
+                : "搜尋路線…"
+          }
           aria-label="搜尋"
           autoComplete="off"
           spellCheck={false}
@@ -274,26 +294,38 @@ export function MobileAttachPicker({
       <div className="ns-mattach-list" ref={listRef}>
         {!route ? (
           <ul className="ns-notes-mnodes">
-            {routeHits.map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  className={"ns-notes-mnode" + (isOnRoute(r) ? " on" : "") + (depth === "route" && lockRoute(r) ? " is-locked" : "")}
-                  disabled={depth === "route" && lockRoute(r)}
-                  onClick={() => (depth === "route" ? pickRoute(r) : setRouteId(r.id))}
-                >
-                  <RouteRoundel route={r} className="ns-notes-mroundel" />
-                  <span className="nm">{r.name}</span>
-                  {depth === "node" ? (
-                    <span className="chev" aria-hidden>
-                      ›
-                    </span>
-                  ) : (
-                    <span className="path">{lockRoute(r) ? currentNote : "路線"}</span>
-                  )}
-                </button>
-              </li>
+            {routeGroups.map((g) => (
+              <Fragment key={g.lineId ?? "other"}>
+                <li role="presentation" className="ns-mattach-linehead">
+                  {g.header}
+                </li>
+                {g.routes.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      className={"ns-notes-mnode" + (isOnRoute(r) ? " on" : "") + (depth === "route" && lockRoute(r) ? " is-locked" : "")}
+                      disabled={depth === "route" && lockRoute(r)}
+                      onClick={() => (depth === "route" ? pickRoute(r) : setRouteId(r.id))}
+                    >
+                      <RouteRoundel route={r} className="ns-notes-mroundel" />
+                      <span className="nm">{r.name}</span>
+                      {depth === "node" ? (
+                        <span className="chev" aria-hidden>
+                          ›
+                        </span>
+                      ) : (
+                        <span className="path">{lockRoute(r) ? currentNote : "路線"}</span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </Fragment>
             ))}
+            {crossHits.length > 0 && routeHits.length > 0 && (
+              <li role="presentation" className="ns-mattach-linehead">
+                符合的節點
+              </li>
+            )}
             {crossHits.map(({ route: r, opt }) => (
               <li key={opt.id}>
                 <button
@@ -302,7 +334,11 @@ export function MobileAttachPicker({
                   disabled={lockNode(opt)}
                   onClick={() => pickNode(r, opt)}
                 >
-                  <span className="kind" style={{ color: r.color ?? "var(--route-none)" }} aria-hidden>
+                  <span
+                    className={"kind" + (opt.kind === "ticket" ? " is-ticket" : "")}
+                    style={{ color: r.color ?? "var(--route-none)" }}
+                    aria-hidden
+                  >
                     {KIND_GLYPH[opt.kind]}
                   </span>
                   <span className="nm">{opt.name}</span>
@@ -311,7 +347,9 @@ export function MobileAttachPicker({
               </li>
             ))}
             {routeHits.length === 0 && crossHits.length === 0 && (
-              <li className="empty">{routes.length === 0 ? "還沒有路線" : "找不到符合的路線或列車"}</li>
+              <li className="empty">
+                {routes.length === 0 ? "還沒有路線" : allowsTicket ? "找不到符合的路線、列車或車票" : "找不到符合的路線或列車"}
+              </li>
             )}
           </ul>
         ) : (
@@ -338,7 +376,15 @@ export function MobileAttachPicker({
               // 搬遷模式且路線本身能挑（搬列車）：上面那一格就是去處，不多一句
               moving && routeSelectable && !q ? null : (
                 <li className="empty">
-                  {q ? "找不到符合的列車或車廂" : moving ? "這條路線沒有可以放的地方" : "這條路線還沒有支線或列車"}
+                  {q
+                    ? allowsTicket
+                      ? "找不到符合的列車、車廂或車票"
+                      : "找不到符合的列車或車廂"
+                    : moving
+                      ? "這條路線沒有可以放的地方"
+                      : allowsTicket
+                        ? "這條路線還沒有支線、列車或車票"
+                        : "這條路線還沒有支線或列車"}
                 </li>
               )
             ) : (
@@ -352,7 +398,11 @@ export function MobileAttachPicker({
                       style={{ paddingLeft: `calc(var(--m-gutter) + ${q ? 0 : o.depth * 16}px)` }}
                       onClick={() => pickNode(route, o)}
                     >
-                      <span className="kind" style={{ color: route.color ?? "var(--route-none)" }} aria-hidden>
+                      <span
+                        className={"kind" + (o.kind === "ticket" ? " is-ticket" : "")}
+                        style={{ color: route.color ?? "var(--route-none)" }}
+                        aria-hidden
+                      >
                         {KIND_GLYPH[o.kind]}
                       </span>
                       <span className="nm">{o.name}</span>
@@ -365,7 +415,7 @@ export function MobileAttachPicker({
                     className="ns-notes-mnode-group"
                     style={{ paddingLeft: `calc(var(--m-gutter) + ${q ? 0 : o.depth * 16}px)` }}
                   >
-                    <span className="kind" aria-hidden>
+                    <span className={"kind" + (o.kind === "ticket" ? " is-ticket" : "")} aria-hidden>
                       {KIND_GLYPH[o.kind]}
                     </span>
                     <span className="nm">{o.name}</span>

@@ -42,15 +42,21 @@ import {
 import { STARTER_LINES } from "../domain/starterLines";
 import { keysForSlot, planSortKeyBackfill, slotFromAnchor, type BackfillRow, type KeyWrite } from "../domain/nodeSortKey";
 import {
+  TIME_OVERRIDE_INHERIT_HHMM,
   TIME_REPEAT_ONLY_MSG,
   assertClockWritable,
   hasRepeatRule,
   manualOrderIds,
   overrideId,
   parseTimeOverrides,
+  type RunOverrideRecord,
   type TimeOverrideRow,
 } from "../domain/scheduledTime";
+import { compareRangeDrawerRows, normalizeDateRange } from "../domain/dateRange";
+import { clockMinutes } from "../lib/date";
+import { uuidv5 } from "../lib/uuidv5";
 import { promotedKindForParent } from "../domain/node";
+import { dedupeSubtreeRoots } from "../domain/moveTo";
 import {
   KIND_LABEL,
   allowedChildKinds,
@@ -92,6 +98,7 @@ import type {
   TodayRow,
 } from "./nodeRepository";
 import {
+  applyTodaySeating,
   attachTimeOverrides,
   backfillAtOf,
   buildCalendar,
@@ -135,6 +142,8 @@ const ALIVE = "deleted_at IS NULL";
  * 型別斷言是過渡：表名登記進 `syncTables.ts` 的 CORE_SYNC_TABLES 之後 SyncTable 就認得它，這個 `as` 可以拿掉。
  */
 const NTO = "node_time_overrides" satisfies SyncTable;
+/** 4A：time_plans (kind='adhoc') → nodes 預留席車票的決定性 UUID v5 命名空間 */
+const ADHOC_MIGRATION_NAMESPACE = "7c4e9b2a-1d3f-5a8b-9c0e-2f4a6b8d0e1c";
 
 /** 存量搬移（舊欄 JSON → 覆寫列）做過了沒；settings 的本地鍵（不在同步白名單，各台各記各的） */
 
@@ -150,7 +159,7 @@ async function guardToday(db: Database): Promise<string> {
 
 // repeat_rule 不在這裡：寫規則的唯一入口是 setRepeatRule（update 收到會改道，M3 ④）
 const PATCHABLE = new Set<string>([
-  "name", "description", "color", "code", "status", "scheduled_on", "due_on", "priority",
+  "name", "description", "color", "code", "status", "scheduled_on", "scheduled_end", "is_placeholder", "due_on", "priority",
   "estimate_min", "progress", "time_spent_min", "mood", "expected_on", "arrived_on",
   "carried_from", "route_id", "scheduled_time", "today_position", "station_id",
 ]);
@@ -264,7 +273,9 @@ export class SqliteNodeRepository implements NodeRepository {
   async listTaskHolders(): Promise<TaskHolderRow[]> {
     const db = await getDb();
     await this.ensureLeafTicketBackfill(db);
-    return db.select<TaskHolderRow[]>(`SELECT id, name, parent_id FROM nodes WHERE kind IN ('branch', 'train', 'car') AND ${ALIVE}`);
+    return db.select<TaskHolderRow[]>(
+      `SELECT id, name, parent_id FROM nodes WHERE kind IN ('branch', 'train', 'car') AND ${ALIVE} ORDER BY ${SIBLING_ORDER_SQL}`,
+    );
   }
 
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
@@ -653,15 +664,18 @@ export class SqliteNodeRepository implements NodeRepository {
     );
     const position = (maxPos[0]?.m ?? -1) + 1;
 
+    const stationId = kind === "line" || kind === "route" || kind === "station" ? null : (input.stationId ?? null);
+    const { scheduledOn, scheduledEnd } = normalizeDateRange(input.scheduledOn, input.scheduledEnd);
+    const isPlaceholder = input.isPlaceholder ? 1 : null;
     b.stmts.push({
       sql: `INSERT INTO nodes
-         (id, kind, parent_id, line_id, route_id, name, description, position, sort_key, color, code, scheduled_on,
-          due_on, priority, scheduled_time, estimate_min, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+         (id, kind, parent_id, line_id, route_id, name, description, position, sort_key, station_id, color, code, scheduled_on,
+          scheduled_end, is_placeholder, due_on, priority, scheduled_time, estimate_min, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
       args: [
         id, kind, parent?.id ?? null, lineId, routeId, name,
-        input.description ?? null, position, sortKey, input.color ?? null, input.code ?? null,
-        input.scheduledOn ?? null, input.dueOn ?? null, priority, input.scheduledTime ?? null, estimateMin, now, now,
+        input.description ?? null, position, sortKey, stationId, input.color ?? null, input.code ?? null,
+        scheduledOn, scheduledEnd, isPlaceholder, input.dueOn ?? null, priority, input.scheduledTime ?? null, estimateMin, now, now,
       ],
     });
     const cols: Record<string, unknown> = {
@@ -673,11 +687,14 @@ export class SqliteNodeRepository implements NodeRepository {
       sort_key: sortKey,
       color: input.color ?? null,
       code: input.code ?? null,
-      scheduled_on: input.scheduledOn ?? null,
+      scheduled_on: scheduledOn,
       created_at: now,
       updated_at: now,
     };
     // 建票列一次設好的欄位：有值才進 op（沒給＝欄位預設，跟以前的 op 長相一樣）
+    if (stationId) cols.station_id = stationId;
+    if (scheduledEnd) cols.scheduled_end = scheduledEnd;
+    if (isPlaceholder) cols.is_placeholder = isPlaceholder;
     if (input.dueOn) cols.due_on = input.dueOn;
     if (input.priority) cols.priority = priority;
     if (input.scheduledTime) cols.scheduled_time = input.scheduledTime;
@@ -711,8 +728,32 @@ export class SqliteNodeRepository implements NodeRepository {
     if (!picked.length) return;
     const db = await getDb();
 
-    // route_id＝臨時車票的路線標籤：驗身分、順手把 line_id 同步過去（setRouteTag 也走這條）
-    const entries = [...picked];
+    // 路線標籤換了＝換了一份清單：排序鍵改成新清單的尾端
+    const entries: [string, unknown][] = picked.map(([k, v]) => [
+      k,
+      k === "is_placeholder" ? (v ? 1 : null) : v === undefined ? null : v,
+    ]);
+    // 期間自由券正規化：有傳 scheduled_on 或 scheduled_end 時確保兩者維持合法閉區間或單日 null
+    const hasRangeField = entries.some(([k]) => k === "scheduled_on" || k === "scheduled_end");
+    const extraOpCols: Record<string, unknown> = {};
+    if (hasRangeField) {
+      const curForRange = await this.getNode(id);
+      if (curForRange) {
+        const rawStart = entries.find(([k]) => k === "scheduled_on")?.[1] as string | null | undefined;
+        const rawEnd = entries.find(([k]) => k === "scheduled_end")?.[1] as string | null | undefined;
+        const startIn = entries.some(([k]) => k === "scheduled_on") ? (rawStart ?? null) : curForRange.scheduled_on;
+        const endIn = entries.some(([k]) => k === "scheduled_end") ? (rawEnd ?? null) : curForRange.scheduled_end;
+        const norm = normalizeDateRange(startIn, endIn);
+        const setEntry = (col: "scheduled_on" | "scheduled_end", val: string | null) => {
+          const idx = entries.findIndex(([k]) => k === col);
+          if (idx >= 0) entries[idx] = [col, val];
+          else entries.push([col, val]);
+          extraOpCols[col] = val;
+        };
+        setEntry("scheduled_on", norm.scheduledOn);
+        setEntry("scheduled_end", norm.scheduledEnd);
+      }
+    }
     /** 路線標籤換了＝換了一份清單（顯示群組）：排序鍵改成新清單的尾端（收件匣不排序＝清成 NULL） */
     let retagTo: string | null | undefined;
     if (entries.some(([k]) => k === "route_id")) {
@@ -732,7 +773,6 @@ export class SqliteNodeRepository implements NodeRepository {
 
     const now = nowUtcIso();
     const b = newWriteBatch();
-    const extraOpCols: Record<string, unknown> = {};
     if (retagTo !== undefined) {
       let key: string | null = null;
       if (retagTo !== null) {
@@ -762,7 +802,7 @@ export class SqliteNodeRepository implements NodeRepository {
     });
     // op 只放 picked（主人真的改的欄）＋updated_at；順手算出來的 line_id 是快取，不進 oplog
     const cols: Record<string, unknown> = {};
-    for (const [k, v] of picked) cols[k] = v === undefined ? null : v;
+    for (const [k, v] of picked) cols[k] = k === "is_placeholder" ? (v ? 1 : null) : v === undefined ? null : v;
     Object.assign(cols, extraOpCols); // 換標籤時的排序鍵是主人資料（這列在新清單裡的位置）
     cols.updated_at = now;
     addOp(b, "nodes", id, "upsert", cols);
@@ -786,7 +826,18 @@ export class SqliteNodeRepository implements NodeRepository {
     const node = await this.getNode(id);
     if (!node) throw new Error("節點不存在");
     if (node.kind === kind) return;
-    const parent = node.parent_id ? await this.getNode(node.parent_id) : null;
+    // 操作 2：根層帶路線標籤的車票（parent_id=null, route_id!=null）轉支線／列車時，同步將 parent_id 寫為 route_id
+    let parent = node.parent_id ? await this.getNode(node.parent_id) : null;
+    let attachRouteId: string | undefined;
+    let attachLineId: string | null | undefined;
+    if (!parent && node.kind === "ticket" && node.route_id && (kind === "branch" || kind === "train")) {
+      const route = await this.getNode(node.route_id);
+      if (route && route.deleted_at === null && route.kind === "route") {
+        parent = route;
+        attachRouteId = route.id;
+        attachLineId = route.line_id;
+      }
+    }
     if (!allowedChildKinds(parent ? parent.kind : null).includes(kind) && !(parent?.kind === "route" && kind === "ticket")) {
       throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${parent ? KIND_LABEL[parent.kind] : "根層"} 底下`);
     }
@@ -800,11 +851,33 @@ export class SqliteNodeRepository implements NodeRepository {
     const now = nowUtcIso();
     const b = newWriteBatch();
     if (kind === "branch") {
+      if (attachRouteId) {
+        b.stmts.push({
+          sql: `UPDATE nodes SET kind = $1, parent_id = $2, line_id = $3, scheduled_on = NULL, due_on = NULL, scheduled_time = NULL, repeat_rule = NULL, updated_at = $4 WHERE id = $5`,
+          args: [kind, attachRouteId, attachLineId ?? null, now, id],
+        });
+        addOp(b, "nodes", id, "upsert", {
+          kind,
+          parent_id: attachRouteId,
+          scheduled_on: null,
+          due_on: null,
+          scheduled_time: null,
+          repeat_rule: null,
+          updated_at: now,
+        });
+      } else {
+        b.stmts.push({
+          sql: `UPDATE nodes SET kind = $1, scheduled_on = NULL, due_on = NULL, scheduled_time = NULL, repeat_rule = NULL, updated_at = $2 WHERE id = $3`,
+          args: [kind, now, id],
+        });
+        addOp(b, "nodes", id, "upsert", { kind, scheduled_on: null, due_on: null, scheduled_time: null, repeat_rule: null, updated_at: now });
+      }
+    } else if (attachRouteId) {
       b.stmts.push({
-        sql: `UPDATE nodes SET kind = $1, scheduled_on = NULL, due_on = NULL, scheduled_time = NULL, repeat_rule = NULL, updated_at = $2 WHERE id = $3`,
-        args: [kind, now, id],
+        sql: `UPDATE nodes SET kind = $1, parent_id = $2, line_id = $3, updated_at = $4 WHERE id = $5`,
+        args: [kind, attachRouteId, attachLineId ?? null, now, id],
       });
-      addOp(b, "nodes", id, "upsert", { kind, scheduled_on: null, due_on: null, scheduled_time: null, repeat_rule: null, updated_at: now });
+      addOp(b, "nodes", id, "upsert", { kind, parent_id: attachRouteId, updated_at: now });
     } else {
       b.stmts.push({ sql: `UPDATE nodes SET kind = $1, updated_at = $2 WHERE id = $3`, args: [kind, now, id] });
       addOp(b, "nodes", id, "upsert", { kind, updated_at: now });
@@ -975,11 +1048,27 @@ export class SqliteNodeRepository implements NodeRepository {
 
   async moveMany(items: readonly MoveManyItem[], anchor: SlotAnchor): Promise<void> {
     if (!items.length) return;
-    const ids = items.map((x) => x.id);
-    if (new Set(ids).size !== ids.length) throw new Error("同一個項目選了兩次");
+    const rawIds = items.map((x) => x.id);
+    if (new Set(rawIds).size !== rawIds.length) throw new Error("同一個項目選了兩次");
     const db = await getDb();
+    // Bug 1 ＋ 操作 8：樹祖先去重，祖先與子孫同時傳入時剔除子孫，整棵子樹隨祖先原封不動搬遷
+    const parentMap = new Map<string, string | null>();
+    for (const id of rawIds) {
+      let cur: string | null = id;
+      const seen = new Set<string>();
+      while (cur && !seen.has(cur) && !parentMap.has(cur)) {
+        seen.add(cur);
+        const row = await this.getNode(cur);
+        const p = row && row.deleted_at === null ? row.parent_id : null;
+        parentMap.set(cur, p);
+        cur = p;
+      }
+    }
+    const rootIdSet = new Set(dedupeSubtreeRoots(rawIds, (id) => parentMap.get(id) ?? null));
+    const rootItems = items.filter((it) => rootIdSet.has(it.id));
+    const ids = rootItems.map((x) => x.id);
     const plans: PlannedMove[] = [];
-    for (const it of items) plans.push(await this.planMove(db, it.id, it.parentId, it.kind, it.routeTag));
+    for (const it of rootItems) plans.push(await this.planMove(db, it.id, it.parentId, it.kind, it.routeTag));
     const group = plans[0].group;
     if (plans.some((p) => !sameGroup(p.group, group))) throw new Error("選到的項目放不進同一個地方");
     const now = nowUtcIso();
@@ -1058,6 +1147,8 @@ export class SqliteNodeRepository implements NodeRepository {
     });
     // delete op 的 payload 一樣是 {col: value}——`deleted_at` 只是一個欄，套用規則與 upsert 同一條（契約 §7.3）
     for (const x of ids) addOp(b, "nodes", x, "delete", { deleted_at: now, updated_at: now });
+    // Mode B：若有被刪除的車票正入座於某預留空位，自動釋出該入座（保留 hhmm／custom_title）
+    await this.stageReleaseSeatedTickets(db, b, ids, now);
     if (oldParentId && !ids.includes(oldParentId)) {
       await this.stageDemoteIfChildless(db, b, oldParentId, ids, now);
     }
@@ -1194,8 +1285,11 @@ export class SqliteNodeRepository implements NodeRepository {
         addOp(b, "nodes", r.id, "upsert", { status: "done", completed_at: now, updated_at: now });
         this.writeEvent(b, r.id, "done", now);
       }
+      // Mode B（4C）：若已完成車票正入座於預留席／定期班次，一次交易同步完成母預留班次（或單次預留席）
+      const slotSyncIds = await this.stageSeatedComplete(db, b, ids, true, now, dateKey, dayStartHour);
       await runWriteBatch(db, b.stmts, b.ops);
       await this.syncRetired(db, changed, dateKey, dayStartHour);
+      for (const sid of slotSyncIds) await this.syncNode(db, sid, dateKey, dayStartHour);
       return ids;
     }
 
@@ -1219,21 +1313,25 @@ export class SqliteNodeRepository implements NodeRepository {
         await this.revokeLatestEvent(db, b, kid, "done");
       }
     }
+    const slotSyncIds = await this.stageSeatedComplete(db, b, [id], false, now, dateKey, dayStartHour);
     await runWriteBatch(db, b.stmts, b.ops);
     // 退役的定期券取消完成＝退役解除，引擎重新排班（a16：沒有「已生成班次」要收回）
     if (rule) await this.syncNode(db, id, dateKey, dayStartHour);
+    for (const sid of slotSyncIds) await this.syncNode(db, sid, dateKey, dayStartHour);
     return [id];
   }
 
   async listToday(dateKey: string, dayStartHour = 3): Promise<TodayRow[]> {
     const db = await getDb();
+    await this.ensureAdhocMigrated(db);
     const { start, end } = dayWindow(dateKey, dayStartHour);
     // 票號不在這支 SQL 裡算：M3-2 改「當日全域發券序」後，號碼取決於本地日界與全集排序，
     // 統一交給 listSerials／buildSerialMap（大綱與今日視圖共用同一把尺）。
     const serials = await this.listSerials();
-    // 磨光⑦ 沙盒 F1：第一條（scheduled_on＝今天）不收退役的定期券——它的 scheduled_on 是各台自己推算、不同步、退役後就凍住的值，
-    // 兩台可能停在不同天（先済再退役的那台推到明天、同步收到的那台停在今天），落在哪天那天就冒出一張済。
-    // 退役的定期券只認第四條（今天完成）與第五條（今天交代過的班次）。
+    // 期間自由券（scheduled_end > scheduled_on）：涵蓋今日（scheduled_on <= today <= scheduled_end）者歸入 listRangeTickets 抽屜，
+    // 不進一般單日主清單、絕不判誤點；唯有 today > scheduled_end 且未結案才進誤點區。
+    const isActiveRangeSql =
+      `(r.scheduled_end IS NOT NULL AND r.scheduled_on IS NOT NULL AND r.scheduled_end > r.scheduled_on AND r.scheduled_on <= $1 AND r.scheduled_end >= $1)`;
     const raw = await db.select<(NodeRow & { child_total: number; child_done: number })[]>(
       `SELECT r.*,
               (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = r.id AND c.${ALIVE}) AS child_total,
@@ -1243,11 +1341,14 @@ export class SqliteNodeRepository implements NodeRepository {
          AND r.kind IN ('train','car','ticket')
          AND NOT ${inDepotSql("r")}
          AND (
-              (r.scheduled_on = $1 AND r.status != 'paused' AND NOT (r.repeat_rule IS NOT NULL AND r.status = 'done'))
-           OR (r.scheduled_on IS NOT NULL AND r.scheduled_on < $1 AND r.status NOT IN ('done', 'paused'))
+              (r.scheduled_on = $1 AND (r.scheduled_end IS NULL OR r.scheduled_end <= r.scheduled_on)
+               AND r.status != 'paused' AND NOT (r.repeat_rule IS NOT NULL AND r.status = 'done'))
+           OR (r.scheduled_on IS NOT NULL AND COALESCE(NULLIF(r.scheduled_end, ''), r.scheduled_on) < $1 AND r.status NOT IN ('done', 'paused'))
            OR (r.status NOT IN ('done', 'paused') AND r.due_on IS NOT NULL AND r.due_on <= $1
-               AND (r.scheduled_on IS NULL OR r.scheduled_on > $1))
+               AND (r.scheduled_on IS NULL OR r.scheduled_on > $1)
+               AND NOT ${isActiveRangeSql})
            OR (r.status = 'done' AND r.completed_at IS NOT NULL AND r.completed_at >= $2 AND r.completed_at < $3
+               AND NOT (r.scheduled_end IS NOT NULL AND r.scheduled_on IS NOT NULL AND r.scheduled_end > r.scheduled_on AND r.scheduled_end >= $1)
                AND (
                     (r.scheduled_on IS NOT NULL AND r.scheduled_on <= $1)
                  OR (r.scheduled_on IS NULL AND r.due_on IS NOT NULL AND r.due_on <= $1)
@@ -1262,20 +1363,10 @@ export class SqliteNodeRepository implements NodeRepository {
       [dateKey, start, end],
     );
     await this.withOverrides(db, raw, dateKey);
-    // 第四條的第三個分支（D-主-122）：退役定期券一班都沒済過 ⇒ 執行日推導成 NULL（retiredScheduledOn）；
-    // 沒有締切的話前兩個分支都接不住，今天才一起完成的它會從今日完成數裡掉出去。
-    // 第五條 OR＝定期券變體（r2 的定期券版）：蓋済／運休之後 scheduled_on 已被引擎推到下一班，
-    // 「今天交代過的那一班」只能靠 occurrence 的時刻戳留在清單裡。活著的定期券 status 恆非 done，
-    // 所以第四條（原樣）碰不到它。磨光⑦（接縫 #102，D-主-68）：**退役的也走第五條**——今天先済、同一天又被上層
-    // 「一起完成」退役的定期券，scheduled_on 已是明天、status 已是 done，第四條撈不到；不收它今日完成數會少一張
-    // （行程表走班次紀錄算得到）。退役之後引擎不再排班、連帶完成也不寫 occurrence，所以只會多出「今天交代過」的那幾張。
 
-    // 這一輪出現的定期券，把班次記錄撈回來配對（一次查完，不逐列往返）
-    const repeatIds = raw.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id); // #102：退役的也配對（分區用那筆的班次日）
+    const repeatIds = raw.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
     const occByNode = await this.occurrencesByNode(db, repeatIds);
 
-    // 第四條第三支（退役、執行日 NULL）SQL 判不了「退役前是不是本來就在今天」，在這裡用規則補判（retiredWasDueToday）；
-    // 同一列若另有締切到期或第五條（今天交代過某班）的資格，照舊收
     const touchedToday = (id: string) =>
       (occByNode[id] ?? []).some((o) => {
         const at = o.completed_at ?? o.updated_at;
@@ -1289,22 +1380,72 @@ export class SqliteNodeRepository implements NodeRepository {
         retiredWasDueToday(n, occByNode[n.id] ?? [], dateKey, dayStartHour),
     );
 
-    const rows: TodayRow[] = hits.map((n) => {
+    const baseRows: TodayRow[] = hits.map((n) => {
       const occ = repeatIds.includes(n.id)
         ? pickTodayOccurrence(occByNode[n.id] ?? [], n.scheduled_on, dateKey, dayStartHour)
         : null;
       return {
         ...n,
         serial: serials[n.id] ?? "",
-        // 分區用「班次日」：蓋済留原位（今天）／漏班進誤點帶原定 M/D（D-④-4）
-        bucket: todayBucketOf(n, dateKey, occ ? occ.due_on : n.scheduled_on),
+        bucket: todayBucketOf(n, dateKey, occ ? occ.due_on : undefined),
         occurrence: occ ? toCurrentOccurrence(occ) : null,
         run_ended: n.status === "done" && runEnded(parseRule(n.repeat_rule), occByNode[n.id] ?? [], dateKey, dayStartHour),
       };
     });
 
+    const overrides = await this.aliveRunOverrides(db);
+    const nodesById = new Map<string, NodeRow>(baseRows.map((r) => [r.id, r]));
+    const missingIds = new Set<string>();
+    for (const ov of overrides) {
+      if (!nodesById.has(ov.node_id)) missingIds.add(ov.node_id);
+      if (ov.seated_node_id && !nodesById.has(ov.seated_node_id)) missingIds.add(ov.seated_node_id);
+    }
+    if (missingIds.size) {
+      const idList = [...missingIds];
+      const extra = await this.withOverrides(
+        db,
+        await db.select<NodeRow[]>(`SELECT * FROM nodes WHERE id IN (${placeholders(idList.length, 1)}) AND ${ALIVE}`, idList),
+        dateKey,
+      );
+      for (const n of extra) nodesById.set(n.id, n);
+    }
+
+    const rows = applyTodaySeating(baseRows, nodesById, overrides);
     await this.assignMissingTodayPositions(db, rows);
     return rows.sort(compareTodayRows);
+  }
+
+  async listRangeTickets(dateKey: string, dayStartHour = 3): Promise<TodayRow[]> {
+    const db = await getDb();
+    await this.ensureAdhocMigrated(db);
+    const { start, end } = dayWindow(dateKey, dayStartHour);
+    const serials = await this.listSerials();
+    const raw = await db.select<(NodeRow & { child_total: number; child_done: number })[]>(
+      `SELECT r.*,
+              (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = r.id AND c.${ALIVE}) AS child_total,
+              (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = r.id AND c.${ALIVE} AND c.status = 'done') AS child_done
+       FROM nodes r
+       WHERE r.${ALIVE}
+         AND r.kind IN ('train','car','ticket')
+         AND NOT ${inDepotSql("r")}
+         AND r.scheduled_on IS NOT NULL
+         AND r.scheduled_end IS NOT NULL
+         AND r.scheduled_end > r.scheduled_on
+         AND r.scheduled_on <= $1
+         AND r.scheduled_end >= $1
+         AND r.status != 'paused'
+         AND (r.status != 'done' OR (r.completed_at IS NOT NULL AND r.completed_at >= $2 AND r.completed_at < $3))`,
+      [dateKey, start, end],
+    );
+    await this.withOverrides(db, raw, dateKey);
+    const rows: TodayRow[] = raw.map((n) => ({
+      ...n,
+      serial: serials[n.id] ?? "",
+      bucket: "today",
+      occurrence: null,
+      run_ended: false,
+    }));
+    return rows.sort(compareRangeDrawerRows);
   }
 
   /**
@@ -1367,33 +1508,35 @@ export class SqliteNodeRepository implements NodeRepository {
     if (!node) throw new Error("節點不存在");
     // 定期券的班次由規則排定（M3-5e「只改這次的日期」v1 不做）——擋在 repository 層，不只靠 UI 不給入口
     if (parseRule(node.repeat_rule)) throw new Error(REPEAT_RESCHEDULE_MSG);
+    const { scheduledOn, scheduledEnd } = normalizeDateRange(nextDate, opts?.scheduledEnd);
     const prev = node.scheduled_on;
-    const leavesToday = nextDate === null || nextDate > todayDateKey;
+    const leavesToday = scheduledOn === null || scheduledOn > todayDateKey;
     // 繰越＝「手動把今天／過去的票挪到更晚的一天」（M3-1：過期票不自動順延；只有手動改期會長章）。
-    // 含「誤點票按 T 排上今天」——那也是從過去挪過來的，來歷要留（否則延着當場蒸發，與 mock
-    // 示範的『自 9/2 繰越』同一種情形卻沒有章）。
     const carried =
-      nextDate !== null && prev !== null && prev < nextDate && prev <= todayDateKey ? prev : node.carried_from;
+      scheduledOn !== null && scheduledEnd === null && prev !== null && prev < scheduledOn && prev <= todayDateKey
+        ? prev
+        : node.carried_from;
     const todayPosition = leavesToday ? null : node.today_position;
     const now = nowUtcIso();
-    // 磨光⑦（D-主-67）：日期欄親手選了今天以前 ⇒ 補記＝同一個交易裡直接済在那一天
+    // 磨光⑦（D-主-67）：日期欄親手選了今天以前 ⇒ 補記＝同一個交易裡直接済在那一天（期間自由券不走補記）
     let doneAt: string | null = null;
-    if (opts?.backfill && nextDate !== null && nextDate < todayDateKey) {
+    if (opts?.backfill && scheduledOn !== null && scheduledEnd === null && scheduledOn < todayDateKey) {
       const open = await db.select<{ c: number }[]>(
         `SELECT COUNT(*) AS c FROM nodes WHERE parent_id = $1 AND ${ALIVE} AND status != 'done'`,
         [id],
       );
-      doneAt = backfillAtOf(node, nextDate, todayDateKey, opts.dayStartHour ?? 3, open[0]?.c ?? 0);
+      doneAt = backfillAtOf(node, scheduledOn, todayDateKey, opts.dayStartHour ?? 3, open[0]?.c ?? 0);
     }
     const b = newWriteBatch();
     if (doneAt) {
       b.stmts.push({
-        sql: `UPDATE nodes SET scheduled_on = $1, carried_from = $2, today_position = $3, status = 'done', completed_at = $4, updated_at = $5 WHERE id = $6`,
-        args: [nextDate, node.carried_from, todayPosition, doneAt, now, id],
+        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = $2, carried_from = $3, today_position = $4, status = 'done', completed_at = $5, updated_at = $6 WHERE id = $7`,
+        args: [scheduledOn, scheduledEnd, node.carried_from, todayPosition, doneAt, now, id],
       });
       // 補記不算繰越（往過去挪；評審 #3：誤點票 10/18 補記到 10/20 不該長「自 10/18 繰越」）
       addOp(b, "nodes", id, "upsert", {
-        scheduled_on: nextDate,
+        scheduled_on: scheduledOn,
+        scheduled_end: scheduledEnd,
         carried_from: node.carried_from,
         today_position: todayPosition,
         status: "done",
@@ -1403,17 +1546,20 @@ export class SqliteNodeRepository implements NodeRepository {
       this.writeLog(b, id, "", "done", doneAt, now); // 済的時刻＝那一天；列的寫入時刻照實是現在
     } else {
       b.stmts.push({
-        sql: `UPDATE nodes SET scheduled_on = $1, carried_from = $2, today_position = $3, updated_at = $4 WHERE id = $5`,
-        args: [nextDate, carried, todayPosition, now, id],
+        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = $2, carried_from = $3, today_position = $4, updated_at = $5 WHERE id = $6`,
+        args: [scheduledOn, scheduledEnd, carried, todayPosition, now, id],
       });
       // 沒有 repeat_rule 的節點，scheduled_on 是貨真價實的主人資料（推遲＝主人的決定）
       addOp(b, "nodes", id, "upsert", {
-        scheduled_on: nextDate,
+        scheduled_on: scheduledOn,
+        scheduled_end: scheduledEnd,
         carried_from: carried,
         today_position: todayPosition,
         updated_at: now,
       });
     }
+    // Mode B（4C）：若已入座的車票被改期移離該班次日（或改成期間券），自動清理釋出原預留空位
+    await this.stageReleaseSeatedTickets(db, b, [id], now, scheduledEnd ? "__range__" : scheduledOn);
     await runWriteBatch(db, b.stmts, b.ops);
     return { backfilled: doneAt !== null };
   }
@@ -1519,11 +1665,15 @@ export class SqliteNodeRepository implements NodeRepository {
     // 對面那台在舊規則下併發新設的未來覆寫這裡刪不到（它不在這台）——落在新規則非班次日的由讀取守門忽略（overrideKeepOf）。
     if (!rule) await this.dropOverrides(db, b, id);
     else if (!same) await this.dropOverrides(db, b, id, dateKey, occs.map((o) => o.due_on));
+    const clearRangeEnd = rule !== null && node.scheduled_end !== null;
     b.stmts.push({
-      sql: `UPDATE nodes SET repeat_rule = $1, updated_at = $2 WHERE id = $3`,
+      sql: clearRangeEnd
+        ? `UPDATE nodes SET repeat_rule = $1, scheduled_end = NULL, updated_at = $2 WHERE id = $3`
+        : `UPDATE nodes SET repeat_rule = $1, updated_at = $2 WHERE id = $3`,
       args: [serialized, now, id],
     });
     const cols: Record<string, unknown> = { repeat_rule: serialized, updated_at: now };
+    if (clearRangeEnd) cols.scheduled_end = null;
     // 清規則＝票變回乘車券（D-④-5）：scheduled_on 從「引擎推導值」轉為主人資料，這一刻起要同步。
     // 值沒變，但對面那台從此不會再自己算它——所以得把現值帶過去一次（契約 §2.7 #23）。
     if (!rule) cols.scheduled_on = node.scheduled_on;
@@ -1673,23 +1823,46 @@ export class SqliteNodeRepository implements NodeRepository {
     const b = newWriteBatch();
     b.stmts.push({ sql: `UPDATE nodes SET repeat_rule = $1, updated_at = $2 WHERE id = $3`, args: [serialized, now, id] });
     addOp(b, "nodes", id, "upsert", { repeat_rule: serialized, updated_at: now });
-    // 這一班的時刻覆寫跟著走（逐列 LWW，舊列軟刪、新列 upsert）
+    // 這一班的覆寫（時刻／本班填空／待辦入座）跟著走（逐列 LWW，舊列軟刪、新列 upsert）
     await this.ensureOverrideBackfill(db);
     const oldId = await overrideId(id, from);
-    const hit = (await db.select<{ hhmm: string | null }[]>(`SELECT hhmm FROM node_time_overrides WHERE id = $1 AND ${ALIVE}`, [oldId]))[0];
+    const hit = (
+      await db.select<{ hhmm: string | null; custom_title: string | null; seated_node_id: string | null }[]>(
+        `SELECT hhmm, custom_title, seated_node_id FROM node_time_overrides WHERE id = $1 AND ${ALIVE}`,
+        [oldId],
+      )
+    )[0];
     if (hit) {
       const newId = await overrideId(id, to);
       const existed = (await db.select<{ id: string }[]>(`SELECT id FROM node_time_overrides WHERE id = $1`, [newId])).length > 0;
       b.stmts.push({ sql: `UPDATE node_time_overrides SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, oldId] });
       addOp(b, NTO, oldId, "delete", { deleted_at: now, updated_at: now });
       b.stmts.push({
-        sql: `INSERT INTO node_time_overrides (id, node_id, due_on, hhmm, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$5)
-         ON CONFLICT(id) DO UPDATE SET hhmm = excluded.hhmm, deleted_at = NULL, updated_at = excluded.updated_at`,
-        args: [newId, id, to, hit.hhmm, now],
+        sql: `INSERT INTO node_time_overrides (id, node_id, due_on, hhmm, custom_title, seated_node_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+         ON CONFLICT(id) DO UPDATE SET hhmm = excluded.hhmm, custom_title = excluded.custom_title, seated_node_id = excluded.seated_node_id, deleted_at = NULL, updated_at = excluded.updated_at`,
+        args: [newId, id, to, hit.hhmm, hit.custom_title, hit.seated_node_id, now],
       });
-      // created_at 只在這台新建時帶：本機復活不改它，op 帶新值的話對面整列採新值、兩台就不一樣了（同 writeRunTime）
-      addOp(b, NTO, newId, "upsert", { node_id: id, due_on: to, hhmm: hit.hhmm, deleted_at: null, ...(existed ? {} : { created_at: now }), updated_at: now });
+      addOp(b, NTO, newId, "upsert", {
+        node_id: id,
+        due_on: to,
+        hhmm: hit.hhmm,
+        custom_title: hit.custom_title,
+        seated_node_id: hit.seated_node_id,
+        deleted_at: null,
+        ...(existed ? {} : { created_at: now }),
+        updated_at: now,
+      });
+      if (hit.seated_node_id) {
+        const seated = await this.getNode(hit.seated_node_id);
+        if (seated && seated.deleted_at === null && seated.scheduled_on === from) {
+          b.stmts.push({
+            sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = NULL, updated_at = $2 WHERE id = $3`,
+            args: [to, now, seated.id],
+          });
+          addOp(b, "nodes", seated.id, "upsert", { scheduled_on: to, scheduled_end: null, updated_at: now });
+        }
+      }
     }
     await runWriteBatch(db, b.stmts, b.ops);
     await this.syncNode(db, id, dateKey, dayStartHour);
@@ -1728,23 +1901,45 @@ export class SqliteNodeRepository implements NodeRepository {
     if (set) assertClockWritable(set.time, set.dayStartHour);
     const oid = await overrideId(id, dueOn);
     const hit = (
-      await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM node_time_overrides WHERE id = $1`, [oid])
+      await db.select<{ deleted_at: string | null; hhmm: string | null; custom_title: string | null; seated_node_id: string | null }[]>(
+        `SELECT deleted_at, hhmm, custom_title, seated_node_id FROM node_time_overrides WHERE id = $1`,
+        [oid],
+      )
     )[0];
     const now = nowUtcIso();
     const b = newWriteBatch();
     if (set === null) {
       if (!hit || hit.deleted_at !== null) return; // 這一班本來就沒覆寫：不寫、不進 op
-      b.stmts.push({
-        sql: `UPDATE node_time_overrides SET deleted_at = $1, updated_at = $1 WHERE id = $2`,
-        args: [now, oid],
-      });
-      addOp(b, NTO, oid, "delete", { deleted_at: now, updated_at: now });
+      if (hit.custom_title || hit.seated_node_id) {
+        if (hit.hhmm === TIME_OVERRIDE_INHERIT_HHMM) return;
+        b.stmts.push({
+          sql: `UPDATE node_time_overrides SET hhmm = $1, updated_at = $2 WHERE id = $3`,
+          args: [TIME_OVERRIDE_INHERIT_HHMM, now, oid],
+        });
+        addOp(b, NTO, oid, "upsert", {
+          node_id: id,
+          due_on: dueOn,
+          hhmm: TIME_OVERRIDE_INHERIT_HHMM,
+          custom_title: hit.custom_title,
+          seated_node_id: hit.seated_node_id,
+          deleted_at: null,
+          updated_at: now,
+        });
+      } else {
+        b.stmts.push({
+          sql: `UPDATE node_time_overrides SET deleted_at = $1, updated_at = $1 WHERE id = $2`,
+          args: [now, oid],
+        });
+        addOp(b, NTO, oid, "delete", { deleted_at: now, updated_at: now });
+      }
     } else {
+      const keepCustom = hit && hit.deleted_at === null ? hit.custom_title : null;
+      const keepSeated = hit && hit.deleted_at === null ? hit.seated_node_id : null;
       b.stmts.push({
-        sql: `INSERT INTO node_time_overrides (id, node_id, due_on, hhmm, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$5)
-         ON CONFLICT(id) DO UPDATE SET hhmm = excluded.hhmm, deleted_at = NULL, updated_at = excluded.updated_at`,
-        args: [oid, id, dueOn, set.time, now],
+        sql: `INSERT INTO node_time_overrides (id, node_id, due_on, hhmm, custom_title, seated_node_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+         ON CONFLICT(id) DO UPDATE SET hhmm = excluded.hhmm, custom_title = excluded.custom_title, seated_node_id = excluded.seated_node_id, deleted_at = NULL, updated_at = excluded.updated_at`,
+        args: [oid, id, dueOn, set.time, keepCustom, keepSeated, now],
       });
       // node_id／due_on 每次都帶：對面可能還沒有這一列（新設、或被它的清除之前從沒同步到），INSERT 要有必填欄。
       // created_at 只在這台新建時帶——復活／改值不該改寫這一列的出生時刻
@@ -1752,6 +1947,8 @@ export class SqliteNodeRepository implements NodeRepository {
         node_id: id,
         due_on: dueOn,
         hhmm: set.time,
+        custom_title: keepCustom,
+        seated_node_id: keepSeated,
         deleted_at: null,
         ...(hit ? {} : { created_at: now }),
         updated_at: now,
@@ -1854,6 +2051,7 @@ export class SqliteNodeRepository implements NodeRepository {
     opts?: { todayDateKey?: string; dayStartHour?: number; projectAfter?: boolean },
   ): Promise<ScheduleEntry[]> {
     const db = await getDb();
+    await this.ensureAdhocMigrated(db);
     const dayStartHour = opts?.dayStartHour ?? 3;
     const today = opts?.todayDateKey ?? todayKey(dayStartHour);
     const nodes = await this.withOverrides(
@@ -1864,9 +2062,13 @@ export class SqliteNodeRepository implements NodeRepository {
       today,
     );
     const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
-    const occByNode = await this.occurrencesByNode(db, repeatIds);
+    const [occByNode, overrides] = await Promise.all([
+      this.occurrencesByNode(db, repeatIds),
+      this.aliveRunOverrides(db),
+    ]);
     return buildSchedule(nodes, occByNode, from, to, today, dayStartHour, {
       projectAfter: opts?.projectAfter,
+      overrides,
     });
   }
 
@@ -1877,6 +2079,7 @@ export class SqliteNodeRepository implements NodeRepository {
   ): Promise<CalendarData> {
     const db = await getDb();
     await this.ensureLeafTicketBackfill(db);
+    await this.ensureAdhocMigrated(db);
     const dayStartHour = opts?.dayStartHour ?? 3;
     const today = opts?.todayDateKey ?? todayKey(dayStartHour);
     // 與 listSchedule 同一句、同一趟：締切層與節點表都從這批列裡摺出來，不再多打一次 SQL
@@ -1888,8 +2091,11 @@ export class SqliteNodeRepository implements NodeRepository {
       today,
     );
     const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
-    const occByNode = await this.occurrencesByNode(db, repeatIds);
-    return buildCalendar(nodes, occByNode, from, to, today, dayStartHour);
+    const [occByNode, overrides] = await Promise.all([
+      this.occurrencesByNode(db, repeatIds),
+      this.aliveRunOverrides(db),
+    ]);
+    return buildCalendar(nodes, occByNode, from, to, today, dayStartHour, overrides);
   }
 
   async scheduleBounds(): Promise<ScheduleBounds> {
@@ -2208,5 +2414,415 @@ export class SqliteNodeRepository implements NodeRepository {
       args: [now, target],
     });
     addOp(b, "work_logs", target, "delete", { deleted_at: now, updated_at: now });
+  }
+
+  // ───────────── 第四梯 4A/4C：逐班覆寫（本班填空／待辦入座）與 adhoc 遷移 ─────────────
+
+  private adhocMigrated: Promise<void> | null = null;
+
+  private ensureAdhocMigrated(db: Database): Promise<void> {
+    this.adhocMigrated ??= this.runAdhocMigration(db).then(() => undefined, () => {
+      this.adhocMigrated = null;
+    });
+    return this.adhocMigrated;
+  }
+
+  private async aliveRunOverrides(db: Database): Promise<RunOverrideRecord[]> {
+    return db.select<RunOverrideRecord[]>(
+      `SELECT id, node_id, due_on, hhmm, custom_title, seated_node_id, deleted_at
+       FROM node_time_overrides WHERE ${ALIVE}`,
+    );
+  }
+
+  async listRunOverrides(): Promise<RunOverrideRecord[]> {
+    const db = await getDb();
+    return this.aliveRunOverrides(db);
+  }
+
+  async setRunCustomTitle(nodeId: string, dueOn: string, customTitle: string | null): Promise<void> {
+    const db = await getDb();
+    const node = await this.getNode(nodeId);
+    if (!node || node.deleted_at !== null) throw new Error("節點不存在");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn) && dueOn !== "unscheduled") throw new Error("班次日格式不正確");
+    if (!parseRule(node.repeat_rule) && !node.is_placeholder) {
+      throw new Error("只有定期券或預留席能設定本班內容");
+    }
+    const oid = await overrideId(nodeId, dueOn);
+    const hit = (
+      await db.select<RunOverrideRecord[]>(
+        `SELECT id, node_id, due_on, hhmm, custom_title, seated_node_id, deleted_at FROM node_time_overrides WHERE id = $1`,
+        [oid],
+      )
+    )[0];
+    const title = customTitle?.trim() ? customTitle.trim() : null;
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    if (title === null) {
+      if (!hit || hit.deleted_at !== null || hit.custom_title === null) return;
+      if (hit.hhmm === TIME_OVERRIDE_INHERIT_HHMM && !hit.seated_node_id) {
+        b.stmts.push({
+          sql: `UPDATE node_time_overrides SET custom_title = NULL, deleted_at = $1, updated_at = $1 WHERE id = $2`,
+          args: [now, oid],
+        });
+        addOp(b, NTO, oid, "delete", { custom_title: null, deleted_at: now, updated_at: now });
+      } else {
+        b.stmts.push({
+          sql: `UPDATE node_time_overrides SET custom_title = NULL, updated_at = $1 WHERE id = $2`,
+          args: [now, oid],
+        });
+        addOp(b, NTO, oid, "upsert", {
+          node_id: nodeId,
+          due_on: dueOn,
+          hhmm: hit.hhmm,
+          custom_title: null,
+          seated_node_id: hit.seated_node_id,
+          deleted_at: null,
+          updated_at: now,
+        });
+      }
+    } else {
+      const hhmm = hit && hit.deleted_at === null ? hit.hhmm : TIME_OVERRIDE_INHERIT_HHMM;
+      const seated = hit && hit.deleted_at === null ? hit.seated_node_id : null;
+      b.stmts.push({
+        sql: `INSERT INTO node_time_overrides (id, node_id, due_on, hhmm, custom_title, seated_node_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+         ON CONFLICT(id) DO UPDATE SET hhmm = excluded.hhmm, custom_title = excluded.custom_title, seated_node_id = excluded.seated_node_id, deleted_at = NULL, updated_at = excluded.updated_at`,
+        args: [oid, nodeId, dueOn, hhmm, title, seated, now],
+      });
+      addOp(b, NTO, oid, "upsert", {
+        node_id: nodeId,
+        due_on: dueOn,
+        hhmm,
+        custom_title: title,
+        seated_node_id: seated,
+        deleted_at: null,
+        ...(hit ? {} : { created_at: now }),
+        updated_at: now,
+      });
+    }
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async seatTicketIntoSlot(slotNodeId: string, dueOn: string, ticketId: string): Promise<void> {
+    if (slotNodeId === ticketId) throw new Error("不能將車票入座到自己");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn) && dueOn !== "unscheduled") throw new Error("班次日格式不正確");
+    const db = await getDb();
+    const [slot, ticket] = await Promise.all([this.getNode(slotNodeId), this.getNode(ticketId)]);
+    if (!slot || slot.deleted_at !== null) throw new Error("預留空位不存在");
+    if (!ticket || ticket.deleted_at !== null) throw new Error("要入座的車票不存在");
+    if (!parseRule(slot.repeat_rule) && !slot.is_placeholder) {
+      throw new Error("只有定期券或預留席能讓待辦車票入座");
+    }
+    if (parseRule(ticket.repeat_rule)) throw new Error("定期券不能入座到另一個預留席");
+
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    // 若此車票先前已入座在其他空位，先釋出舊空位
+    const prevSeated = await db.select<RunOverrideRecord[]>(
+      `SELECT id, node_id, due_on, hhmm, custom_title, seated_node_id, deleted_at
+       FROM node_time_overrides WHERE ${ALIVE} AND seated_node_id = $1 AND NOT (node_id = $2 AND due_on = $3)`,
+      [ticketId, slotNodeId, dueOn],
+    );
+    for (const prev of prevSeated) {
+      this.stageReleaseOneOverride(b, prev, now);
+    }
+
+    // 對齊入座車票日期至班次日（期間自由券自動收斂為單日）
+    if (dueOn !== "unscheduled" && (ticket.scheduled_on !== dueOn || ticket.scheduled_end !== null)) {
+      b.stmts.push({
+        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = NULL, updated_at = $2 WHERE id = $3`,
+        args: [dueOn, now, ticketId],
+      });
+      addOp(b, "nodes", ticketId, "upsert", { scheduled_on: dueOn, scheduled_end: null, updated_at: now });
+    } else if (dueOn === "unscheduled" && (ticket.scheduled_on !== null || ticket.scheduled_end !== null)) {
+      b.stmts.push({
+        sql: `UPDATE nodes SET scheduled_on = NULL, scheduled_end = NULL, updated_at = $1 WHERE id = $2`,
+        args: [now, ticketId],
+      });
+      addOp(b, "nodes", ticketId, "upsert", { scheduled_on: null, scheduled_end: null, updated_at: now });
+    }
+
+    const oid = await overrideId(slotNodeId, dueOn);
+    const hit = (
+      await db.select<RunOverrideRecord[]>(
+        `SELECT id, node_id, due_on, hhmm, custom_title, seated_node_id, deleted_at FROM node_time_overrides WHERE id = $1`,
+        [oid],
+      )
+    )[0];
+    const hhmm = hit && hit.deleted_at === null ? hit.hhmm : TIME_OVERRIDE_INHERIT_HHMM;
+    const customTitle = hit && hit.deleted_at === null ? hit.custom_title : null;
+    b.stmts.push({
+      sql: `INSERT INTO node_time_overrides (id, node_id, due_on, hhmm, custom_title, seated_node_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+       ON CONFLICT(id) DO UPDATE SET hhmm = excluded.hhmm, custom_title = excluded.custom_title, seated_node_id = excluded.seated_node_id, deleted_at = NULL, updated_at = excluded.updated_at`,
+      args: [oid, slotNodeId, dueOn, hhmm, customTitle, ticketId, now],
+    });
+    addOp(b, NTO, oid, "upsert", {
+      node_id: slotNodeId,
+      due_on: dueOn,
+      hhmm,
+      custom_title: customTitle,
+      seated_node_id: ticketId,
+      deleted_at: null,
+      ...(hit ? {} : { created_at: now }),
+      updated_at: now,
+    });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async releaseSeatedSlot(slotNodeId: string, dueOn: string): Promise<void> {
+    const db = await getDb();
+    const oid = await overrideId(slotNodeId, dueOn);
+    const hit = (
+      await db.select<RunOverrideRecord[]>(
+        `SELECT id, node_id, due_on, hhmm, custom_title, seated_node_id, deleted_at
+         FROM node_time_overrides WHERE id = $1 AND ${ALIVE}`,
+        [oid],
+      )
+    )[0];
+    if (!hit || !hit.seated_node_id) return;
+    const b = newWriteBatch();
+    this.stageReleaseOneOverride(b, hit, nowUtcIso());
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  private stageReleaseOneOverride(b: WriteBatch, r: RunOverrideRecord, now: string): void {
+    if (r.hhmm === TIME_OVERRIDE_INHERIT_HHMM && !r.custom_title) {
+      b.stmts.push({
+        sql: `UPDATE node_time_overrides SET seated_node_id = NULL, deleted_at = $1, updated_at = $1 WHERE id = $2`,
+        args: [now, r.id],
+      });
+      addOp(b, NTO, r.id, "delete", { seated_node_id: null, deleted_at: now, updated_at: now });
+    } else {
+      b.stmts.push({
+        sql: `UPDATE node_time_overrides SET seated_node_id = NULL, updated_at = $1 WHERE id = $2`,
+        args: [now, r.id],
+      });
+      addOp(b, NTO, r.id, "upsert", {
+        node_id: r.node_id,
+        due_on: r.due_on,
+        hhmm: r.hhmm,
+        custom_title: r.custom_title,
+        seated_node_id: null,
+        deleted_at: null,
+        updated_at: now,
+      });
+    }
+  }
+
+  private async stageReleaseSeatedTickets(
+    db: Database,
+    b: WriteBatch,
+    ticketIds: readonly string[],
+    now: string,
+    keepDueOn?: string | null,
+  ): Promise<void> {
+    if (!ticketIds.length) return;
+    const rows = await db.select<RunOverrideRecord[]>(
+      `SELECT id, node_id, due_on, hhmm, custom_title, seated_node_id, deleted_at
+       FROM node_time_overrides WHERE ${ALIVE} AND seated_node_id IN (${placeholders(ticketIds.length, 1)})`,
+      [...ticketIds],
+    );
+    for (const r of rows) {
+      if (keepDueOn !== undefined) {
+        if (r.due_on === "unscheduled" && keepDueOn === null) continue;
+        if (r.due_on === keepDueOn) continue;
+      }
+      this.stageReleaseOneOverride(b, r, now);
+    }
+  }
+
+  private async stageSeatedComplete(
+    db: Database,
+    b: WriteBatch,
+    ticketIds: readonly string[],
+    done: boolean,
+    now: string,
+    _dateKey: string,
+    _dayStartHour: number,
+  ): Promise<string[]> {
+    if (!ticketIds.length) return [];
+    const rows = await db.select<RunOverrideRecord[]>(
+      `SELECT id, node_id, due_on, hhmm, custom_title, seated_node_id, deleted_at
+       FROM node_time_overrides WHERE ${ALIVE} AND seated_node_id IN (${placeholders(ticketIds.length, 1)})`,
+      [...ticketIds],
+    );
+    const syncSlotIds: string[] = [];
+    for (const ov of rows) {
+      const [slot, ticket] = await Promise.all([this.getNode(ov.node_id), this.getNode(ov.seated_node_id!)]);
+      if (!slot || slot.deleted_at !== null || !ticket || ticket.deleted_at !== null) continue;
+      const dateMatch =
+        ov.due_on === "unscheduled"
+          ? slot.scheduled_on === null && ticket.scheduled_on === null
+          : ticket.scheduled_on === ov.due_on;
+      if (!dateMatch) continue;
+      if (parseRule(slot.repeat_rule) && slot.status !== "done") {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(ov.due_on)) continue;
+        if (done) {
+          const wrote = await this.stampOccurrence(db, b, slot.id, ov.due_on, "done", now);
+          if (wrote) {
+            this.writeEvent(b, slot.id, "done", now);
+            syncSlotIds.push(slot.id);
+          }
+        } else {
+          const occs = await this.occurrencesOf(db, slot.id);
+          const target = occs.find((o) => o.due_on === ov.due_on && o.status === "done");
+          if (target) {
+            this.dropOccurrence(b, target.id);
+            await this.revokeLatestEvent(db, b, slot.id, "done");
+            syncSlotIds.push(slot.id);
+          }
+        }
+      } else if (slot.is_placeholder === 1) {
+        if (done && slot.status !== "done") {
+          b.stmts.push({
+            sql: `UPDATE nodes SET status = 'done', completed_at = $1, updated_at = $1 WHERE id = $2`,
+            args: [now, slot.id],
+          });
+          addOp(b, "nodes", slot.id, "upsert", { status: "done", completed_at: now, updated_at: now });
+          this.writeEvent(b, slot.id, "done", now);
+        } else if (!done && slot.status === "done") {
+          b.stmts.push({
+            sql: `UPDATE nodes SET status = 'todo', completed_at = NULL, updated_at = $1 WHERE id = $2`,
+            args: [now, slot.id],
+          });
+          addOp(b, "nodes", slot.id, "upsert", { status: "todo", completed_at: null, updated_at: now });
+          await this.revokeLatestEvent(db, b, slot.id, "done");
+        }
+      }
+    }
+    return syncSlotIds;
+  }
+
+  async migrateAdhocPlans(): Promise<number> {
+    const db = await getDb();
+    return this.runAdhocMigration(db);
+  }
+
+  private async runAdhocMigration(db: Database): Promise<number> {
+    const hasTable = await db.select<{ name: string }[]>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'time_plans'`,
+    );
+    if (!hasTable.length) return 0;
+    const adhocRows = await db.select<{
+      id: string;
+      day: string;
+      start_hm: string;
+      end_hm: string;
+      category_id: string | null;
+      node_id: string | null;
+      route_id: string | null;
+      label: string | null;
+    }[]>(
+      `SELECT id, day, start_hm, end_hm, category_id, node_id, route_id, label
+       FROM time_plans WHERE kind = 'adhoc' AND ${ALIVE} ORDER BY day, start_hm, created_at`,
+    );
+    if (!adhocRows.length) return 0;
+
+    const cats = await db.select<{ id: string; name: string }[]>(
+      `SELECT id, name FROM time_categories WHERE ${ALIVE}`,
+    );
+    const catName = new Map(cats.map((c) => [c.id, c.name]));
+    const aliveNodes = await db.select<Pick<NodeRow, "id" | "kind" | "parent_id" | "line_id" | "route_id" | "name" | "sort_key" | "position">[]>(
+      `SELECT id, kind, parent_id, line_id, route_id, name, sort_key, position FROM nodes WHERE ${ALIVE}`,
+    );
+    const nodeById = new Map(aliveNodes.map((n) => [n.id, n]));
+    const orderByGroup = new Map<string, { id: string; key: string | null }[]>();
+    const maxPosByGroup = new Map<string, number>();
+
+    const groupKeyOf = (g: SiblingGroup): string =>
+      g.type === "children" ? `c:${g.parentId}` : g.type === "routeTop" ? `rt:${g.routeId}` : g.type;
+
+    const getOrder = async (g: SiblingGroup) => {
+      const k = groupKeyOf(g);
+      let list = orderByGroup.get(k);
+      if (!list) {
+        const rows = await this.groupOrder(db, g);
+        list = rows.map((r) => ({ id: r.id, key: r.sort_key }));
+        orderByGroup.set(k, list);
+      }
+      return list;
+    };
+
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    for (const plan of adhocRows) {
+      const newId = await uuidv5(ADHOC_MIGRATION_NAMESPACE, `adhoc-to-ticket:${plan.id}`);
+      b.stmts.push({
+        sql: `UPDATE time_plans SET deleted_at = $1, updated_at = $1 WHERE id = $2`,
+        args: [now, plan.id],
+      });
+      addOp(b, "time_plans", plan.id, "delete", { deleted_at: now, updated_at: now });
+
+      const existed = await db.select<{ id: string }[]>(`SELECT id FROM nodes WHERE id = $1`, [newId]);
+      if (existed.length) continue;
+
+      const candParent = plan.node_id ? nodeById.get(plan.node_id) : undefined;
+      const parent = candParent && allowedChildKinds(candParent.kind).includes("ticket") ? candParent : undefined;
+      const candRoute = plan.route_id ? nodeById.get(plan.route_id) : undefined;
+      const route = candRoute && candRoute.kind === "route" ? candRoute : undefined;
+
+      const parentId = parent ? parent.id : null;
+      const routeId = parent ? parent.route_id : (route ? route.id : null);
+      const lineId = parent ? parent.line_id : (route ? route.line_id : null);
+      const title =
+        plan.label?.trim() ||
+        parent?.name ||
+        route?.name ||
+        (plan.category_id ? catName.get(plan.category_id) : undefined) ||
+        "預留席";
+      const sMin = clockMinutes(plan.start_hm);
+      const eMin = clockMinutes(plan.end_hm);
+      const estimateMin = sMin !== null && eMin !== null && eMin > sMin ? eMin - sMin : null;
+
+      const group = groupFor({ parentId, parentKind: parent?.kind ?? null, kind: "ticket", routeId });
+      let sortKey: string | null = null;
+      if (isOrderedGroup(group)) {
+        const order = await getOrder(group);
+        const writes = keysForSlot(order, [newId], order.length);
+        sortKey = writes.find((w) => w.id === newId)?.key ?? null;
+        this.stageKeyWrites(b, writes.filter((w) => w.id !== newId), now);
+        order.push({ id: newId, key: sortKey });
+      }
+      const posKey = parentId ? `p:${parentId}` : "root:ticket";
+      let pos = maxPosByGroup.get(posKey);
+      if (pos === undefined) {
+        const sibWhere = parentId ? `parent_id = $1` : `parent_id IS NULL AND kind = 'ticket'`;
+        const maxPos = await db.select<{ m: number | null }[]>(
+          `SELECT MAX(position) AS m FROM nodes WHERE ${sibWhere} AND ${ALIVE}`,
+          parentId ? [parentId] : [],
+        );
+        pos = maxPos[0]?.m ?? -1;
+      }
+      pos += 1;
+      maxPosByGroup.set(posKey, pos);
+
+      b.stmts.push({
+        sql: `INSERT INTO nodes
+           (id, kind, parent_id, line_id, route_id, name, position, sort_key, scheduled_on, scheduled_time, estimate_min, is_placeholder, priority, created_at, updated_at)
+         VALUES ($1,'ticket',$2,$3,$4,$5,$6,$7,$8,$9,$10,1,'mid',$11,$11)
+         ON CONFLICT(id) DO NOTHING`,
+        args: [newId, parentId, lineId, routeId, title, pos, sortKey, plan.day, plan.start_hm, estimateMin, now],
+      });
+      const cols: Record<string, unknown> = {
+        kind: "ticket",
+        parent_id: parentId,
+        name: title,
+        position: pos,
+        sort_key: sortKey,
+        scheduled_on: plan.day,
+        scheduled_time: plan.start_hm,
+        priority: "mid",
+        is_placeholder: 1,
+        created_at: now,
+        updated_at: now,
+      };
+      if (estimateMin !== null) cols.estimate_min = estimateMin;
+      if (!parentId && routeId) cols.route_id = routeId;
+      addOp(b, "nodes", newId, "upsert", cols);
+      this.writeEvent(b, newId, "issued", now);
+    }
+    await runWriteBatch(db, b.stmts, b.ops);
+    return adhocRows.length;
   }
 }

@@ -10,7 +10,7 @@
  */
 import { describeRule, parseRule, type NodeKind, type NodeRow, type Priority } from "../../domain";
 import type { TodayRow } from "../../data";
-import { isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
+import { effectiveEstimateMin, isTimeOverridden, timeOfRow, type SeatingSlotRef } from "../../domain/scheduledTime";
 import { canStampRow, mmdd, type DayRowModel } from "../calendar/DayRow";
 
 export interface TicketCardModel {
@@ -24,13 +24,21 @@ export interface TicketCardModel {
   routeId: string | null;
   /** null＝不畫票號（§0-1 第 12 條：手機沒載過票號表） */
   serial: string | null;
-  /** MobileTicket.tsx:68 同一條 */
-  fare: "定期券" | "臨時券" | "乘車券";
+  /** MobileTicket.tsx:68 同一條（第四梯 4A 補上「預留席」） */
+  fare: "定期券" | "預留席" | "臨時券" | "乘車券";
   /** describeRule(rule) */
   ruleText: string | null;
   isRepeat: boolean;
   /** 節點執行日（sheet 判「清除執行日」） */
   scheduledOn: string | null;
+  /** 4B：期間自由券訖日 */
+  scheduledEnd: string | null;
+  /** 4A：是否為免標題預留席車票 */
+  isPlaceholder: boolean;
+  /** 4C Mode A：本班填空標題 */
+  customTitle: string | null;
+  /** 4C Mode B：入座母預留空位參考 */
+  seatedInto: SeatingSlotRef | null;
   /** 這張卡在講的那一天（今日：occurrence?.due_on ?? scheduled_on；串流：entry.date；締切卡：due_on） */
   railDate: string | null;
   dueOn: string | null;
@@ -60,21 +68,21 @@ export interface TicketCardModel {
   doing: boolean;
 }
 
-/** MobileTicket.tsx:68 同一條：定期券＞臨時券（根層車票）＞乘車券 */
-function fareOf(isRepeat: boolean, parentId: string | null): TicketCardModel["fare"] {
-  return isRepeat ? "定期券" : parentId === null ? "臨時券" : "乘車券";
+/** MobileTicket.tsx:68 同一條：定期券＞預留席＞臨時券（根層車票）＞乘車券 */
+function fareOf(isRepeat: boolean, parentId: string | null, isPlaceholder = false): TicketCardModel["fare"] {
+  if (isRepeat) return "定期券";
+  if (isPlaceholder) return "預留席";
+  return parentId === null ? "臨時券" : "乘車券";
 }
 
-/**
- * 今日切片的一列 → 卡（MobileTicket.tsx:55-96 逐欄）。
- * `today` 收著不用：「延誤 N 天」與締切 chip 的赭色仍由 MobileTicket 以 `today` prop 算（元件那段沒搬），
- * 簽名留著是契約 §3.7 的形狀——三支轉換函式同款。
- */
 export function cardFromTodayRow(row: TodayRow, _today: string): TicketCardModel {
   const rule = parseRule(row.repeat_rule);
   const done = row.occurrence ? row.occurrence.status === "done" : row.status === "done";
   const suspended = row.occurrence?.status === "skipped";
   const settled = done || suspended;
+  const isPh = Boolean(row.is_placeholder);
+  const isRange = !rule && Boolean(row.scheduled_on && row.scheduled_end && row.scheduled_end > row.scheduled_on);
+  const effRail = row.occurrence?.due_on ?? (row.bucket === "late" && isRange ? row.scheduled_end : row.scheduled_on);
   return {
     key: row.id,
     nodeId: row.id,
@@ -83,11 +91,15 @@ export function cardFromTodayRow(row: TodayRow, _today: string): TicketCardModel
     priority: row.priority,
     routeId: row.route_id,
     serial: row.serial,
-    fare: fareOf(rule !== null, row.parent_id),
+    fare: fareOf(rule !== null, row.parent_id, isPh),
     ruleText: rule ? describeRule(rule) : null,
     isRepeat: rule !== null,
     scheduledOn: row.scheduled_on,
-    railDate: row.occurrence?.due_on ?? row.scheduled_on,
+    scheduledEnd: row.scheduled_end,
+    isPlaceholder: isPh,
+    customTitle: row.custom_title ?? null,
+    seatedInto: row.seated_into ?? null,
+    railDate: effRail,
     dueOn: row.due_on,
     carriedFrom: row.carried_from,
     done,
@@ -99,11 +111,11 @@ export function cardFromTodayRow(row: TodayRow, _today: string): TicketCardModel
     stampHint: null,
     readOnly: false,
     time: timeOfRow(row),
-    timeOverridden: isTimeOverridden(row, row.occurrence?.due_on ?? row.scheduled_on),
+    timeOverridden: isTimeOverridden(row, effRail),
     ruleTime: row.scheduled_time,
-    estimateMin: row.estimate_min,
+    estimateMin: effectiveEstimateMin(row),
     // 入鋏只算目前那一班：定期券的誤點班次（occurrence.due_on ≠ scheduled_on）不算
-    doing: row.status === "doing" && (rule === null || (row.occurrence?.due_on ?? row.scheduled_on) === row.scheduled_on),
+    doing: row.status === "doing" && (rule === null || effRail === row.scheduled_on),
   };
 }
 
@@ -125,6 +137,8 @@ export function cardFromDayRow(row: DayRowModel, serial: string | null, _today: 
   const node = row.node;
   const rule = node ? parseRule(node.repeat_rule) : null;
   const settled = row.done || row.skipped;
+  const isPh = Boolean(node?.is_placeholder);
+  const seated = row.entry.seated_into ?? null;
   return {
     key: row.key,
     nodeId: row.entry.node_id,
@@ -133,10 +147,14 @@ export function cardFromDayRow(row: DayRowModel, serial: string | null, _today: 
     priority: node?.priority,
     routeId: node?.route_id ?? null,
     serial,
-    fare: fareOf(row.isRepeat, node?.parent_id ?? null),
+    fare: fareOf(row.isRepeat, node?.parent_id ?? null, isPh),
     ruleText: rule ? describeRule(rule) : null,
     isRepeat: row.isRepeat,
     scheduledOn: node?.scheduled_on ?? null,
+    scheduledEnd: node?.scheduled_end ?? null,
+    isPlaceholder: isPh,
+    customTitle: row.entry.custom_title ?? null,
+    seatedInto: seated,
     railDate: row.entry.date,
     dueOn: node?.due_on ?? null,
     carriedFrom: node?.carried_from ?? null,
@@ -151,7 +169,7 @@ export function cardFromDayRow(row: DayRowModel, serial: string | null, _today: 
     time: row.entry.time,
     timeOverridden: node ? isTimeOverridden(node, row.entry.date) : false,
     ruleTime: node?.scheduled_time ?? null,
-    estimateMin: node?.estimate_min ?? null,
+    estimateMin: node ? effectiveEstimateMin({ estimate_min: node.estimate_min, seated_into: seated }) : null,
     // 入鋏只算目前那一班（同 DayRow／TimeGrid）：定期券 status=doing 時，別的誤點班次照轉赭
     doing: node?.status === "doing" && (!row.isRepeat || node.scheduled_on === row.entry.date),
   };
@@ -164,6 +182,7 @@ export function cardFromDayRow(row: DayRowModel, serial: string | null, _today: 
 export function cardFromDue(node: NodeRow, date: string, serial: string | null, today: string): TicketCardModel {
   const rule = parseRule(node.repeat_rule);
   const done = node.status === "done";
+  const isPh = Boolean(node.is_placeholder);
   return {
     key: `due-${date}-${node.id}`,
     nodeId: node.id,
@@ -172,10 +191,14 @@ export function cardFromDue(node: NodeRow, date: string, serial: string | null, 
     priority: node.priority,
     routeId: node.route_id,
     serial,
-    fare: fareOf(rule !== null, node.parent_id),
+    fare: fareOf(rule !== null, node.parent_id, isPh),
     ruleText: rule ? describeRule(rule) : null,
     isRepeat: rule !== null,
     scheduledOn: node.scheduled_on,
+    scheduledEnd: node.scheduled_end,
+    isPlaceholder: isPh,
+    customTitle: null,
+    seatedInto: null,
     railDate: date,
     dueOn: node.due_on,
     carriedFrom: node.carried_from,

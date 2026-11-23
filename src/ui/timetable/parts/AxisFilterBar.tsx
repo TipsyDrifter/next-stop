@@ -33,6 +33,7 @@ import { placeBelow, useOutsideDismiss } from "../../common/anchorPop";
 import { IconChevron, IconClose, IconSearch } from "../../common/icons";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { PopMenu, type PopMenuItem } from "../../common/PopMenu";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { CategoryBadge } from "../CategoryBadge";
 import { RouteRoundel } from "./LinkPicker";
 import { tagNameOf } from "./TimetableTagChips";
@@ -101,7 +102,9 @@ export function AxisFilterBar() {
   const toggleAxisTagKey = useTimetableStore((s) => s.toggleAxisTagKey);
   const setAxisRouteFilter = useTimetableStore((s) => s.setAxisRouteFilter);
 
+  const liveLines = useNodeStore((s) => s.liveLines);
   const liveRoutes = useNodeStore((s) => s.liveRoutes);
+  const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, liveLines), [liveRoutes, liveLines]);
   const tagIndex = useTagStore((s) => s.index);
 
   useEffect(() => {
@@ -365,53 +368,58 @@ export function AxisFilterBar() {
           <RouteRoundel route={null} />
           <span className="ns-tt-fopt-name">未掛路線</span>
         </button>
-        {liveRoutes.map((r) => {
-          const rOn = axisFilter.routeId === r.id;
-          const branches = branchesByRoute[r.id] ?? [];
-          return (
-            <div key={r.id} className="ns-tt-fcat-grp">
-              <button
-                type="button"
-                className={"ns-tt-fopt" + (rOn ? " is-on" : "")}
-                aria-pressed={rOn}
-                onClick={() => {
-                  void setAxisRouteFilter(r.id, false);
-                  closeMenu();
-                }}
-              >
-                <span className="ns-tt-fopt-check" aria-hidden="true">
-                  {rOn ? "✓" : ""}
-                </span>
-                <RouteRoundel route={r} />
-                <span className="ns-tt-fopt-name">{r.name}</span>
-              </button>
-              {branches.map((b) => {
-                const bOn = axisFilter.routeId === b.id;
-                return (
+        {routeGroups.map((lg) => (
+          <div key={lg.lineId ?? "other"} className="ns-tt-fline-sec">
+            <div className="ns-tt-fline-hd">{lg.header}</div>
+            {lg.routes.map((r) => {
+              const rOn = axisFilter.routeId === r.id;
+              const branches = branchesByRoute[r.id] ?? [];
+              return (
+                <div key={r.id} className="ns-tt-fcat-grp">
                   <button
-                    key={b.id}
                     type="button"
-                    className={"ns-tt-fopt is-branch" + (bOn ? " is-on" : "")}
-                    aria-pressed={bOn}
+                    className={"ns-tt-fopt" + (rOn ? " is-on" : "")}
+                    aria-pressed={rOn}
                     onClick={() => {
-                      void setAxisRouteFilter(b.id, true);
+                      void setAxisRouteFilter(r.id, false);
                       closeMenu();
                     }}
                   >
                     <span className="ns-tt-fopt-check" aria-hidden="true">
-                      {bOn ? "✓" : ""}
+                      {rOn ? "✓" : ""}
                     </span>
-                    <span className="ns-tt-fopt-branchmark" aria-hidden="true">
-                      ›
-                    </span>
-                    <span className="ns-tt-fopt-name">{b.name}</span>
-                    <span className="ns-tt-fopt-hint">支線</span>
+                    <RouteRoundel route={r} />
+                    <span className="ns-tt-fopt-name">{r.name}</span>
                   </button>
-                );
-              })}
-            </div>
-          );
-        })}
+                  {branches.map((b) => {
+                    const bOn = axisFilter.routeId === b.id;
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        className={"ns-tt-fopt is-branch" + (bOn ? " is-on" : "")}
+                        aria-pressed={bOn}
+                        onClick={() => {
+                          void setAxisRouteFilter(b.id, true);
+                          closeMenu();
+                        }}
+                      >
+                        <span className="ns-tt-fopt-check" aria-hidden="true">
+                          {bOn ? "✓" : ""}
+                        </span>
+                        <span className="ns-tt-fopt-branchmark" aria-hidden="true">
+                          ›
+                        </span>
+                        <span className="ns-tt-fopt-name">{b.name}</span>
+                        <span className="ns-tt-fopt-hint">支線</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -1,0 +1,471 @@
+/*
+ * station-track.css——路線主畫面「站點軌道條（StationTrackBar）」（第三梯 D-FB-5；操作 6）。
+ *
+ * 視覺語彙：日系私鐵駅名標／路線案内図——
+ *   - 水平軌道線串接各站（已到站至下一站為路線實線 `--rc`，未到站區段為虛線 `--color-dash`）
+ *   - 站點圖記：● 已到站（實心圓＋迷你朱色「着」章）、◎ 下一站（雙圈高亮）、○ 未到站（空心圓）
+ *   - 每站顯示站名、站內車票完成數 `済 d/t`（附 2px 微型進度線，根治「蓋了車票但車站進度 0%」的困惑）與預定日
+ *   - 嚴守《視覺規範》：零裸色碼、零 8px–16px 大圓角（控件 `--radius-ctl`、紙卡 `--radius-card`、圓章 `50%`），朱色僅用於「着／済」章。
+ */
+
+.ns-stbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 8px;
+  margin: 0 0 6px;
+  border-bottom: 1px dashed var(--color-line);
+  min-width: 0;
+}
+
+/* 尚未建立任何車站時的溫潤一行引導 */
+.ns-stbar.is-empty {
+  padding: 5px 0 7px;
+}
+.ns-stbar-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ctl-h-sm);
+  padding: 0 10px 0 8px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  letter-spacing: .06em;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-stbar-empty:hover {
+  color: var(--color-ink);
+  border-color: var(--accent);
+  background: var(--color-paper-used);
+}
+.ns-stbar-empty:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.ns-stbar-empty .mark {
+  color: var(--rc, var(--accent));
+  font-size: var(--fs-body);
+  line-height: 1;
+}
+
+/* 左側「全部 ／ 未排站」切換錨 */
+.ns-stbar-left {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ns-stbar-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--ctl-h-sm);
+  padding: 0 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-stbar-all:hover {
+  border-color: var(--color-ink-faint);
+  color: var(--color-ink);
+}
+.ns-stbar-all.is-on {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-weight: 600;
+}
+.ns-stbar-all:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.ns-stbar-all[data-drop-over="ok"] {
+  border-color: var(--accent);
+  background: var(--sel-bg);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+.ns-stbar-all[data-drop-over="no"] {
+  opacity: var(--disabled);
+}
+
+/* 橫向軌道捲動帶 */
+.ns-stbar-rail {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 2px 2px;
+}
+.ns-stbar-rail::-webkit-scrollbar {
+  height: 3px;
+}
+
+/* 單一車站節點（連同軌道連接線） */
+.ns-stbar-item {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.ns-stbar-link {
+  width: 16px;
+  height: 0;
+  flex: none;
+  border-top: 1.5px dashed var(--color-dash);
+}
+.ns-stbar-link.is-solid {
+  border-top-style: solid;
+  border-top-color: var(--rc, var(--accent));
+}
+
+.ns-stbar-stop {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 3px 6px 4px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-high) 72%, transparent);
+  transition:
+    border-color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    box-shadow var(--dur-fast) var(--ease-soft);
+}
+.ns-stbar-stop::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  background: transparent;
+}
+.ns-stbar-stop.is-next {
+  border-color: color-mix(in srgb, var(--rc, var(--accent)) 60%, var(--color-line));
+}
+.ns-stbar-stop.is-next::before {
+  background: var(--rc, var(--accent));
+}
+.ns-stbar-stop.is-arrived {
+  background: color-mix(in srgb, var(--color-paper-used) 65%, transparent);
+}
+.ns-stbar-stop.is-active {
+  border-color: var(--accent);
+  background: var(--sel-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+/* 拖曳項目懸停於站點上（直接歸站） */
+.ns-stbar-stop[data-drop-over="ok"] {
+  border-color: var(--accent);
+  background: var(--sel-bg);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.ns-stbar-stop[data-drop-over="no"] {
+  opacity: var(--disabled);
+}
+
+/* 站點主按鈕（點擊切換單站聚焦篩選） */
+.ns-stbar-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 2px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.ns-stbar-main:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-ctl);
+}
+.ns-stbar-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 172px;
+}
+.ns-stbar-dot {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--color-ink-faint);
+}
+.ns-stbar-stop.is-arrived .ns-stbar-dot {
+  color: var(--rc, var(--color-ink-soft));
+}
+.ns-stbar-stop.is-next .ns-stbar-dot {
+  color: var(--rc, var(--accent));
+  font-weight: 700;
+}
+.ns-stbar-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ns-stbar-stop.is-active .ns-stbar-name {
+  color: var(--sel-fg);
+}
+.ns-stbar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 16px;
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  letter-spacing: .04em;
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ns-stbar-cnt b {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.ns-stbar-date {
+  color: var(--color-ink-faint);
+}
+.ns-stbar-prog {
+  width: 100%;
+  padding-left: 16px;
+  box-sizing: border-box;
+}
+.ns-stbar-prog-bg {
+  display: block;
+  width: 100%;
+  min-width: 44px;
+  height: 2px;
+  background: color-mix(in srgb, var(--color-line) 85%, transparent);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.ns-stbar-prog-fill {
+  display: block;
+  height: 100%;
+  background: var(--rc, var(--accent));
+  transition: width var(--dur) var(--ease);
+}
+
+/* 站點右側迷你動作：方針小卡 ＋ 到站「着」章 */
+.ns-stbar-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+}
+.ns-stbar-aim {
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-micro);
+  letter-spacing: .06em;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  opacity: var(--dim);
+  transition: opacity var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.ns-stbar-stop:hover .ns-stbar-aim,
+.ns-stbar-aim.has-aims,
+.ns-stbar-aim:focus-visible {
+  opacity: 1;
+}
+.ns-stbar-aim:hover {
+  color: var(--accent);
+}
+.ns-stbar-aim:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-stbar-arr {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px dashed var(--color-dash);
+  background: transparent;
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  opacity: var(--dim);
+  transition:
+    opacity var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-stbar-stop:hover .ns-stbar-arr,
+.ns-stbar-arr:focus-visible {
+  opacity: 1;
+  border-color: var(--color-ink-faint);
+}
+.ns-stbar-arr.is-arrived {
+  opacity: 1;
+  border: 1.3px solid var(--color-seal);
+  color: var(--color-seal);
+  transform: rotate(-8deg);
+}
+.ns-stbar-arr:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* 尾端「＋ 車站」與行內快速建立表單 */
+.ns-stbar-addbtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  padding: 0 8px;
+  margin-left: 6px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  letter-spacing: .06em;
+  color: var(--color-ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-stbar-addbtn:hover {
+  color: var(--color-ink);
+  border-color: var(--accent);
+}
+.ns-stbar-addbtn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ns-stbar-form {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+.ns-stbar.is-empty .ns-stbar-form {
+  margin-left: 0;
+}
+.ns-stbar-input {
+  width: 168px;
+  height: var(--ctl-h-sm);
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+}
+
+/* 單站篩選啟用時的柔和篩選列提示 */
+.ns-stbar-filter-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  margin: 0 0 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--color-line));
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--sel-bg) 55%, transparent);
+  font-size: var(--fs-xs);
+  letter-spacing: .06em;
+  color: var(--color-ink-soft);
+}
+.ns-stbar-filter-banner b {
+  color: var(--sel-fg);
+  font-weight: 600;
+}
+
+/* ═══ 手機緊湊橫滑版 ═══ */
+[data-shell="mobile"] .ns-stbar {
+  padding: 6px var(--m-gutter) 8px;
+  margin: 0 0 4px;
+  gap: 6px;
+}
+[data-shell="mobile"] .ns-stbar-rail {
+  scrollbar-width: none;
+}
+[data-shell="mobile"] .ns-stbar-rail::-webkit-scrollbar {
+  display: none;
+}
+[data-shell="mobile"] .ns-stbar-all {
+  height: 32px;
+  padding: 0 9px;
+}
+[data-shell="mobile"] .ns-stbar-stop {
+  min-height: 40px;
+  padding: 4px 7px 4px 8px;
+}
+[data-shell="mobile"] .ns-stbar-arr {
+  width: 26px;
+  height: 26px;
+  opacity: 1;
+}
+[data-shell="mobile"] .ns-stbar-aim {
+  height: 26px;
+  opacity: 1;
+}
+[data-shell="mobile"] .ns-stbar-addbtn {
+  height: 32px;
+  padding: 0 10px;
+}
+[data-shell="mobile"] .ns-stbar-empty {
+  min-height: 36px;
+  padding: 0 12px 0 10px;
+}
+[data-shell="mobile"] .ns-stbar-filter-banner {
+  margin: 0 var(--m-gutter) 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-stbar-empty,
+  .ns-stbar-all,
+  .ns-stbar-stop,
+  .ns-stbar-prog-fill,
+  .ns-stbar-aim,
+  .ns-stbar-arr,
+  .ns-stbar-addbtn {
+    transition: none;
+  }
+}

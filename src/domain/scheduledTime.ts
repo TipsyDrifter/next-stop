@@ -24,12 +24,38 @@ export type TimeOverrides = Record<string, ClockText | null>;
  */
 export const OVERRIDE_ID_NAMESPACE = "e6b1c4d2-8f3a-5d7e-9b20-4c6a1f8e3d57";
 
+/** `node_time_overrides.hhmm` 用空字串代表「本班僅設填空標題或入座頂替，時刻沿用母定期規則（不覆寫）」 */
+export const TIME_OVERRIDE_INHERIT_HHMM = "";
+
 /** `node_time_overrides` 一列裡讀取要用的欄（repository 撈出來直接餵） */
 export interface TimeOverrideRow {
   node_id: string;
   due_on: string;
   hhmm: string | null;
+  custom_title?: string | null;
+  seated_node_id?: string | null;
   deleted_at?: string | null;
+}
+
+/** 含 0025 逐班填空／待辦入座的完整覆寫紀錄（供 store／UI／時刻表投影讀取） */
+export interface RunOverrideRecord {
+  id: string;
+  node_id: string;
+  due_on: string;
+  hhmm: string | null;
+  custom_title: string | null;
+  seated_node_id: string | null;
+  deleted_at: string | null;
+}
+
+/** 入座車票攜帶的母預留空位摘要（UI 顯示 `入座 ↻ 原名 · 時長` 與「釋出預留席」） */
+export interface SeatingSlotRef {
+  slotNodeId: string;
+  slotName: string;
+  dueOn: string;
+  slotTime: ClockText | null;
+  slotEstimateMin: number | null;
+  isRecurring: boolean;
 }
 
 /** `node_time_overrides.id` ＝ uuid v5(OVERRIDE_ID_NAMESPACE, `${nodeId}|${dueOn}`) */
@@ -39,6 +65,7 @@ export function overrideId(nodeId: string, dueOn: string): Promise<string> {
 
 /**
  * 一張票的覆寫列 → 表。已軟刪、日期或時刻不合格式的列靜默丟掉（同 parseTimeOverrides 的寬容）。
+ * `hhmm === ""` 代表「僅填空或入座、時刻不覆寫」，不寫進 TimeOverrides 表（effectiveTime 會照舊回 scheduled_time）。
  * `keep`＝讀取守門（呼叫端依目前規則決定哪些班次日算數，見 nodeRepository 的 `overrideKeepOf`）：
  * 換規則時只軟刪得到這台看過的未來列，另一台併發設的覆寫會活下來；落在新規則的非班次日就在這裡被忽略。
  */
@@ -50,6 +77,7 @@ export function overridesFromRows(
   for (const r of rows) {
     if (r.deleted_at) continue;
     if (!DATE_RE.test(r.due_on)) continue;
+    if (r.hhmm === TIME_OVERRIDE_INHERIT_HHMM) continue;
     if (r.hhmm !== null && !CLOCK_RE.test(r.hhmm)) continue;
     if (keep && !keep(r.due_on)) continue;
     out[r.due_on] = r.hhmm as ClockText | null;
@@ -141,11 +169,33 @@ export interface TodayLike
   extends Pick<NodeRow, "id" | "scheduled_time" | "time_overrides" | "repeat_rule" | "scheduled_on"> {
   bucket: "late" | "due" | "today";
   occurrence: { due_on: string } | null;
+  seated_into?: Pick<SeatingSlotRef, "slotTime"> | null;
 }
 
-/** 今日列的有效時刻＝effectiveTime(row, row.occurrence?.due_on ?? row.scheduled_on)（railDate 同一把尺；due 分區沒有執行日 ⇒ 退到 scheduled_time） */
+/** 今日列的有效時刻＝自身 effectiveTime，若為無自訂時刻的入座車票則繼承母空位時刻 */
 export function timeOfRow(row: TodayLike): ClockText | null {
-  return effectiveTime(row, row.occurrence?.due_on ?? row.scheduled_on);
+  return effectiveTime(row, row.occurrence?.due_on ?? row.scheduled_on) ?? row.seated_into?.slotTime ?? null;
+}
+
+/** 有效預估分鐘（單一計算絕不雙算：有自身預估取自身，否則繼承母預留席預估） */
+export function effectiveEstimateMin(
+  row: Pick<NodeRow, "estimate_min"> & { seated_into?: Pick<SeatingSlotRef, "slotEstimateMin"> | null },
+): number | null {
+  if (typeof row.estimate_min === "number" && row.estimate_min > 0) return row.estimate_min;
+  const slotEst = row.seated_into?.slotEstimateMin ?? null;
+  return typeof slotEst === "number" && slotEst > 0 ? slotEst : null;
+}
+
+/** 彙總今日清單已排預估總分鐘數（入座頂替因母空位已被投影隱藏，只會算一次） */
+export function totalEstimateMin(
+  rows: readonly (Pick<NodeRow, "estimate_min" | "status"> & { seated_into?: Pick<SeatingSlotRef, "slotEstimateMin"> | null })[],
+): number {
+  let sum = 0;
+  for (const r of rows) {
+    if (r.status === "paused") continue;
+    sum += effectiveEstimateMin(r) ?? 0;
+  }
+  return sum;
 }
 
 /** 手排座標系（三處同一條）：沒時刻的 today 列 id，依傳入順序 */

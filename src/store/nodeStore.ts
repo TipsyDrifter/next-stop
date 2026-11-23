@@ -21,10 +21,12 @@ import {
   type CurrentOccurrence,
   type DueEntry,
   type NodePatch,
+  type RunOverrideRecord,
   type ScheduleEntry,
   type TodayRow,
 } from "../data";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds } from "../domain/scheduledTime";
+import { dedupeSubtreeRoots } from "../domain/moveTo";
 import type { SlotAnchor } from "../domain/nodeOrder";
 import { liveLinesOf, liveRoutesOf, type ArrivalWrite } from "../domain/depot";
 import { todayKey } from "../lib/date";
@@ -245,6 +247,10 @@ interface NodeStore {
   serials: Record<string, string>;
   /** 今日視圖的資料（與 tree 平行，今日列多半不在當前路線樹裡） */
   today: TodayIndex;
+  /** 進行中的期間自由券（今日頁抽屜；依到期日迫近排序） */
+  rangeTickets: TodayRow[];
+  /** 全站未刪除之逐班覆寫（時刻／本班填空／待辦入座） */
+  runOverrides: RunOverrideRecord[];
   /** 日曆視圖的資料（M3 ⑤）：目前載進來的那個區間的班次／締切／節點表 */
   calendar: CalendarIndex;
   /**
@@ -289,7 +295,9 @@ interface NodeStore {
   /** 臨時車票掛／卸路線標籤（同步寫 line_id） */
   setRouteTag: (ticketId: string, routeId: string | null) => Promise<ActionResult>;
   /** 改執行日的唯一入口：推遲／T／Shift+T／日期 chip／清除執行日；順帶寫繰越、清今日序 */
-  reschedule: (id: string, date: string | null) => Promise<void>;
+  reschedule: (id: string, date: string | null, opts?: { scheduledEnd?: string | null }) => Promise<void>;
+  /** 把期間自由券拉進今日清單（收斂為單日今日票，清除 scheduled_end） */
+  pullRangeTicketToToday: (id: string, todayKey?: string) => Promise<ActionResult>;
   refresh: () => Promise<void>;
   createNode: (input: CreateNodeInput) => Promise<NodeRow | null>;
   /**
@@ -345,6 +353,12 @@ interface NodeStore {
   setRunTime: (id: string, dueOn: string, time: string | null) => Promise<ActionResult>;
   /** 改回每班時刻＝拿掉 dueOn 那一班的覆寫 */
   clearRunTime: (id: string, dueOn: string) => Promise<ActionResult>;
+  /** Mode A：設定定期券或預留席該班次之當班填空標題（傳 null／空白＝清除） */
+  setRunCustomTitle: (nodeId: string, dueOn: string, customTitle: string | null) => Promise<ActionResult>;
+  /** Mode B：讓既有待辦車票入座到該預留空位，並同步該車票日期 */
+  seatTicketIntoSlot: (slotNodeId: string, dueOn: string, ticketId: string) => Promise<ActionResult>;
+  /** Mode B：解除該班次的待辦入座，恢復為預留空位 */
+  releaseSeatedSlot: (slotNodeId: string, dueOn: string) => Promise<ActionResult>;
   searchNodes: (query: string) => Promise<NodeRow[]>;
   /**
    * 路線／幹線到站或回到運行（車庫與回顧 D-主-201）：寫入計畫由 `planArrival`／`planDeparture` 給。
@@ -403,6 +417,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   tree: EMPTY_TREE,
   serials: {},
   today: EMPTY_TODAY,
+  rangeTickets: [],
+  runOverrides: [],
   calendar: EMPTY_CALENDAR,
   currentOccurrences: {},
   workLogs: {},
@@ -412,6 +428,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   async loadSidebar() {
     try {
+      await nodeRepo.migrateAdhocPlans().catch((e) => console.warn("adhoc 預留席遷移失敗", e));
       const data = await nodeRepo.listSidebar();
       const liveRoutes = liveRoutesOf(data.routes);
       set({
@@ -483,11 +500,13 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     try {
       // 先把定期券的班次推到位（lazy 同步 D-④-7），再聚合——否則今天的班次日還是上一班的
       await nodeRepo.syncRepeats(key, h);
-      const [rows, currentOccurrences] = await Promise.all([
+      const [rows, rangeTickets, currentOccurrences, runOverrides] = await Promise.all([
         nodeRepo.listToday(key, h),
+        nodeRepo.listRangeTickets(key, h),
         nodeRepo.listCurrentOccurrences(key, h),
+        nodeRepo.listRunOverrides(),
       ]);
-      set({ today: indexToday(rows, key), currentOccurrences, error: null });
+      set({ today: indexToday(rows, key), rangeTickets, currentOccurrences, runOverrides, error: null });
     } catch (e) {
       set({ error: message(e) });
     }
@@ -505,11 +524,12 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
         // 目前班次表跟著日曆一起載（與 loadToday／reloadRoute 同一把尺）：浮層要判「這一列在講的
         // 是不是這一班」——直接進日曆頁（?page=calendar）時 loadToday 沒跑過，沒有它就會把今天
         // 剛交代掉的那一班當成歷史鎖住（蓋済之後引擎已把 scheduled_on 推到下一班）
-        const [data, currentOccurrences] = await Promise.all([
+        const [data, currentOccurrences, runOverrides] = await Promise.all([
           nodeRepo.listCalendar(from, to, { todayDateKey: key, dayStartHour: h }),
           nodeRepo.listCurrentOccurrences(key, h),
+          nodeRepo.listRunOverrides(),
         ]);
-        set({ calendar: { from, to, dateKey: key, ...data }, currentOccurrences, error: null });
+        set({ calendar: { from, to, dateKey: key, ...data }, currentOccurrences, runOverrides, error: null });
       } catch (e) {
         set({ error: message(e) });
       }
@@ -550,12 +570,25 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }
   },
 
-  async reschedule(id, date) {
+  async reschedule(id, date, opts) {
     try {
-      await nodeRepo.reschedule(id, date, currentDateKey());
+      await nodeRepo.reschedule(id, date, currentDateKey(), opts);
       await get().refresh();
     } catch (e) {
       set({ error: message(e) });
+    }
+  },
+
+  async pullRangeTicketToToday(id, todayKeyArg) {
+    const key = todayKeyArg ?? currentDateKey();
+    try {
+      await nodeRepo.reschedule(id, key, key, { scheduledEnd: null });
+      await get().refresh();
+      return { ok: true };
+    } catch (e) {
+      const reason = message(e);
+      useUiStore.getState().showToast({ message: reason }, 4000);
+      return { ok: false, reason };
     }
   },
 
@@ -608,16 +641,20 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     // 執行日一律改道 reschedule：繰越（carried_from）與今日序清空的規則只留一份，
     // 側板日期 chip／T／Shift+T／推遲 popover 走哪條路進來都一樣。
     // repeat_rule 同理改道 setRepeatRule（身分驗證＋掛規則後立刻算目前班次日只留一份，M3 ④）。
-    const { scheduled_on, repeat_rule, ...rest } = patch;
-    if ("scheduled_on" in patch) {
+    const { scheduled_on, scheduled_end, repeat_rule, ...rest } = patch;
+    if ("scheduled_on" in patch || "scheduled_end" in patch) {
       // 定期券在這裡會被 repository throw 掉（D-④-3）。那不是「壞掉」而是一句指路：
       // 走 toast＋ActionResult，不寫 error 欄位（紅字橫幅是常駐的，要等下一次成功 refresh 才清）。
       try {
         // 磨光⑦（D-主-67）：日期欄親手選了今天以前 ⇒ 補記（repository 判條件、同一個交易裡済在那一天）
-        const before = opts?.backfill ? await nodeRepo.getNode(id) : null;
-        const r = await nodeRepo.reschedule(id, scheduled_on ?? null, currentDateKey(), {
-          backfill: opts?.backfill === true,
+        const needBefore = opts?.backfill || !("scheduled_on" in patch);
+        const before = needBefore ? await nodeRepo.getNode(id) : null;
+        const targetStart = "scheduled_on" in patch ? (scheduled_on ?? null) : (before?.scheduled_on ?? null);
+        const targetEnd = "scheduled_end" in patch ? (scheduled_end ?? null) : undefined;
+        const r = await nodeRepo.reschedule(id, targetStart, currentDateKey(), {
+          backfill: opts?.backfill === true && "scheduled_on" in patch,
           dayStartHour: dayStart(),
+          scheduledEnd: targetEnd,
         });
         if (r.backfilled && before && scheduled_on) showBackfillToast(id, scheduled_on, before);
       } catch (e) {
@@ -667,10 +704,28 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     try {
       const parent = parentId ? await nodeRepo.getNode(parentId) : null;
       if (parentId && (!parent || parent.deleted_at)) return { ok: false, reason: "要放進去的地方已經不在了" };
-      const items: MoveManyItem[] = [];
+      const fetched = new Map<string, NodeRow>();
+      const parentMap = new Map<string, string | null>();
       for (const id of ids) {
         const node = await nodeRepo.getNode(id);
         if (!node || node.deleted_at) return { ok: false, reason: "找不到這個項目" };
+        fetched.set(id, node);
+        parentMap.set(id, node.parent_id);
+        let cur = node.parent_id;
+        const seen = new Set<string>([id]);
+        while (cur && !seen.has(cur) && !parentMap.has(cur)) {
+          seen.add(cur);
+          const p = await nodeRepo.getNode(cur);
+          const next = p && p.deleted_at === null ? p.parent_id : null;
+          parentMap.set(cur, next);
+          cur = next;
+        }
+      }
+      // Bug 1 ＋ 操作 8：樹祖先去重，避免把父列車與子車票拆開攤平
+      const rootIds = dedupeSubtreeRoots(ids, (id) => parentMap.get(id) ?? null);
+      const items: MoveManyItem[] = [];
+      for (const id of rootIds) {
+        const node = fetched.get(id)!;
         if (opts?.kind) {
           items.push({ id, parentId, kind: opts.kind });
         } else if (node.kind === "ticket" && (!parent || parent.kind === "route")) {
@@ -857,6 +912,42 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   async clearRunTime(id, dueOn) {
     try {
       await nodeRepo.clearRunTime(id, dueOn);
+      await get().refresh();
+      return { ok: true };
+    } catch (e) {
+      const reason = message(e);
+      useUiStore.getState().showToast({ message: reason }, 4000);
+      return { ok: false, reason };
+    }
+  },
+
+  async setRunCustomTitle(nodeId, dueOn, customTitle) {
+    try {
+      await nodeRepo.setRunCustomTitle(nodeId, dueOn, customTitle);
+      await get().refresh();
+      return { ok: true };
+    } catch (e) {
+      const reason = message(e);
+      useUiStore.getState().showToast({ message: reason }, 4000);
+      return { ok: false, reason };
+    }
+  },
+
+  async seatTicketIntoSlot(slotNodeId, dueOn, ticketId) {
+    try {
+      await nodeRepo.seatTicketIntoSlot(slotNodeId, dueOn, ticketId);
+      await get().refresh();
+      return { ok: true };
+    } catch (e) {
+      const reason = message(e);
+      useUiStore.getState().showToast({ message: reason }, 4000);
+      return { ok: false, reason };
+    }
+  },
+
+  async releaseSeatedSlot(slotNodeId, dueOn) {
+    try {
+      await nodeRepo.releaseSeatedSlot(slotNodeId, dueOn);
       await get().refresh();
       return { ok: true };
     } catch (e) {

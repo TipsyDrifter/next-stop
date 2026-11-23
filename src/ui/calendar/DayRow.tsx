@@ -29,12 +29,21 @@ import { useCallback, useRef, useState, type KeyboardEvent, type MouseEvent } fr
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import type { NodeRow } from "../../domain";
 import { parseRule } from "../../domain";
+import { formatDateRangeBadge, isRangeTicket } from "../../domain/dateRange";
 import type { DueEntry, ScheduleEntry } from "../../data";
-import { isTimeOverridden } from "../../domain/scheduledTime";
+import { effectiveEstimateMin, isTimeOverridden } from "../../domain/scheduledTime";
 import { clockMinutes, isClockPast, nextDayNote, todayKey } from "../../lib/date";
+import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { roundelStyle } from "../common/roundel";
 import { PopMenu, hotkeyCaps, rowsOf, type PopMenuItem } from "../common/PopMenu";
+import {
+  DesktopSeatPicker,
+  canActAsSeatSlot,
+  formatRunOriginText,
+  formatSeatBadgeText,
+  releaseSeatedFlow,
+} from "../common/seating";
 import { toggleStopoverFlow } from "../outline/nodeFlows";
 import { IconDots } from "../common/icons";
 import { SealSuspended } from "../stamps";
@@ -216,10 +225,24 @@ export function TicketTime({
 export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now, menu, picked = false, dragId }: DayRowProps) {
   useHotkeyRevision();
   const [inlineEdit, setInlineEdit] = useState<{ picker: Exclude<QuickChipKey, "dest"> | null } | null>(null);
+  const [runFillOpen, setRunFillOpen] = useState(false);
+  const [runFillText, setRunFillText] = useState("");
+  const runComposing = useRef(false);
+  const [seatAnchor, setSeatAnchor] = useState<HTMLElement | null>(null);
+  const [seatOpen, setSeatOpen] = useState(false);
   /** 圓牌改掛（v1.31 D-1.31-5）：收起後焦點回這一列（浮層／串流鍵盤流的落點） */
   const rowRef = useRef<HTMLDivElement>(null);
   const reattach = useReattach(row.node, () => rowRef.current?.focus({ preventScroll: true }));
   const name = row.node?.name ?? "";
+  const customTitle = row.entry.custom_title ?? null;
+  const seatedInto = row.entry.seated_into ?? null;
+  const displayTitle = customTitle || name;
+  const isPh = Boolean(row.node?.is_placeholder);
+  const effEst = effectiveEstimateMin({ estimate_min: row.node?.estimate_min ?? null, seated_into: seatedInto });
+  const rangeBadge =
+    row.node && isRangeTicket(row.node) && row.node.scheduled_on
+      ? formatDateRangeBadge(row.node.scheduled_on, row.node.scheduled_end)
+      : null;
   const disc = roundelStyle(row.route?.color);
   const serif = !row.route;
   // 時刻（主線②）：赭＝已過、沒入鋏、沒結局。入鋏是節點層的狀態，定期券只算目前那一班（同 TimeGrid 的口徑）
@@ -227,6 +250,14 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
   const settled = row.done || row.skipped;
   const doing = row.node?.status === "doing" && (!row.isRepeat || row.node.scheduled_on === row.entry.date);
   const past = time !== null && now !== undefined && !settled && !doing && isClockPast(row.entry.date, time, now);
+  const canSlot = row.node ? canActAsSeatSlot(row.node, settled || row.isHistory) : false;
+
+  const commitRunFill = () => {
+    if (!row.node) return;
+    setRunFillOpen(false);
+    const trimmed = runFillText.trim() || null;
+    if (trimmed !== customTitle) void useNodeStore.getState().setRunCustomTitle(row.node.id, row.entry.date, trimmed);
+  };
 
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const tMin = time !== null ? clockMinutes(time) : null;
@@ -251,27 +282,67 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
     ? (anchor: HTMLElement | null): PopMenuItem[] => {
         const base = menu(anchor);
         const node = row.node;
-        if (
-          !node ||
-          node.kind === "branch" ||
-          row.isHistory ||
-          row.done ||
-          row.skipped ||
-          (row.isRepeat && !row.isCurrent) ||
-          base.some((it) => it.key === "stopover" || it.key === "status:paused")
-        ) {
+        if (!node || node.kind === "branch" || row.isHistory || row.done || row.skipped) {
           return base;
         }
-        const stopItem: PopMenuItem = {
-          key: "stopover",
-          label: node.status === "paused" ? "解除途中下車" : "途中下車",
-          onSelect: () => void toggleStopoverFlow(node.id),
-        };
+        const extras: PopMenuItem[] = [];
+        if (isPh) {
+          extras.push({
+            key: "fill-ph",
+            label: "填入具體內容…",
+            onSelect: () => setInlineEdit({ picker: null }),
+          });
+        }
+        if (row.isRepeat && (row.isCurrent || row.isFuture)) {
+          extras.push({
+            key: "run-title",
+            label: customTitle ? "修改本班內容…" : "填入本班內容…",
+            onSelect: () => {
+              setRunFillText(customTitle ?? "");
+              setRunFillOpen(true);
+            },
+          });
+          if (customTitle) {
+            extras.push({
+              key: "reset-run-title",
+              label: "還原本班原名",
+              onSelect: () => void useNodeStore.getState().setRunCustomTitle(node.id, row.entry.date, null),
+            });
+          }
+        }
+        if (canSlot && !seatedInto) {
+          extras.push({
+            key: "seat-pick",
+            label: "配對待辦入座…",
+            onSelect: () => {
+              setSeatAnchor(anchor ?? rowRef.current);
+              setSeatOpen(true);
+            },
+          });
+        }
+        if (seatedInto) {
+          extras.push({
+            key: "seat-release",
+            label: "釋出預留席",
+            onSelect: () => void releaseSeatedFlow(seatedInto.slotNodeId, seatedInto.dueOn, node.id),
+          });
+        }
+        if (
+          (!row.isRepeat || row.isCurrent) &&
+          !base.some((it) => it.key === "stopover" || it.key === "status:paused")
+        ) {
+          extras.push({
+            key: "stopover",
+            label: node.status === "paused" ? "解除途中下車" : "途中下車",
+            onSelect: () => void toggleStopoverFlow(node.id),
+          });
+        }
+        if (!extras.length) return base;
         const delIdx = base.findIndex((it) => it.danger);
-        const next = delIdx >= 0 ? [...base.slice(0, delIdx), stopItem, ...base.slice(delIdx)] : [...base, stopItem];
+        const next = delIdx >= 0 ? [...base.slice(0, delIdx), ...extras, ...base.slice(delIdx)] : [...base, ...extras];
         if (rowsOf(next).length > 7) {
           const deferGroup = next.find((it) => it.group === "改期" || it.group === "排程")?.group ?? "編排";
-          stopItem.group = deferGroup;
+          for (const ex of extras) ex.group = deferGroup;
         }
         return next;
       }
@@ -299,6 +370,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         row.skipped && "skipped",
         row.late && "late",
         row.rin && "rin",
+        isPh && "is-placeholder",
         fresh && "fresh",
         picked && "is-picked",
       )}
@@ -306,14 +378,14 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
       data-drag-id={dragId}
       tabIndex={selected ? 0 : -1}
       role="group"
-      aria-label={name}
+      aria-label={displayTitle}
       onMouseDown={(e) => {
-        if (inlineEdit) return;
+        if (inlineEdit || runFillOpen) return;
         onSelect(e);
         armOpenDetail(e, row.node?.id);
       }}
       onDoubleClick={(e) => {
-        if (inlineEdit || row.isHistory || !row.node) return;
+        if (inlineEdit || runFillOpen || row.isHistory || !row.node) return;
         e.stopPropagation();
         setInlineEdit({ picker: null });
       }}
@@ -348,7 +420,47 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         </span>
       )}
       {reattach.picker}
-      {inlineEdit && row.node ? (
+      {seatOpen && row.node && (
+        <DesktopSeatPicker
+          slotId={row.node.id}
+          slotName={displayTitle}
+          dueOn={row.entry.date}
+          anchor={seatAnchor}
+          onClose={() => setSeatOpen(false)}
+        />
+      )}
+      {runFillOpen && row.node ? (
+        <div className="ns-run-fillbox" style={{ flex: 1, minWidth: 0, marginTop: 0 }}>
+          <input
+            type="text"
+            value={runFillText}
+            placeholder={`本班具體內容（留空顯示「${name}」）`}
+            aria-label="本班具體內容"
+            autoFocus
+            onChange={(e) => setRunFillText(e.target.value)}
+            onCompositionStart={() => {
+              runComposing.current = true;
+            }}
+            onCompositionEnd={() => {
+              runComposing.current = false;
+            }}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229 || runComposing.current) return;
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitRunFill();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setRunFillOpen(false);
+              }
+            }}
+            onBlur={commitRunFill}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <span className="ns-run-hint">Enter 儲存 · Esc</span>
+        </div>
+      ) : inlineEdit && row.node ? (
         <div style={{ flex: 1, minWidth: 0 }}>
           <InlineTicketEditor
             node={row.node}
@@ -373,7 +485,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
             >
               <TicketTime
                 time={time}
-                estimateMin={row.node?.estimate_min}
+                estimateMin={effEst}
                 overridden={row.node ? isTimeOverridden(row.node, row.entry.date) : false}
                 past={past}
                 outOfAxis={outOfAxis}
@@ -382,7 +494,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
           )}
           <span
             className="t"
-            title={!row.isHistory && row.node ? `${name}（雙擊行內編輯）` : name}
+            title={!row.isHistory && row.node ? `${displayTitle}（雙擊行內編輯）` : displayTitle}
             onDoubleClick={(e) => {
               if (row.isHistory || !row.node) return;
               e.stopPropagation();
@@ -397,8 +509,22 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
             ) : (
               <PriorityMark priority={row.node?.priority} />
             )}
-            {name}
+            {displayTitle}
+            {customTitle && <span className="ns-run-origin">（{formatRunOriginText(name, effEst)}）</span>}
           </span>
+          {seatedInto ? (
+            <span className="ns-seat-badge" title="已入座預留席">
+              {formatSeatBadgeText(seatedInto)}
+            </span>
+          ) : isPh && !settled ? (
+            <span className="ns-ph-tag" title="預留席">
+              預留席
+            </span>
+          ) : rangeBadge ? (
+            <span className="ns-ph-tag" title="期間自由券">
+              {rangeBadge}
+            </span>
+          ) : null}
         </>
       )}
       {!menu && <DetailButton nodeId={row.node?.id} />}
@@ -641,11 +767,14 @@ export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
         <QuickExecChip
           nodeId={node.id}
           scheduledOn={exec}
+          scheduledEnd={node.scheduled_end}
           today={today}
           className={cx(exec ? "due-tag" : "noexec", "ns-due-exec-btn")}
-          title={exec ? "點擊修改乘車日" : "點擊排定乘車日"}
+          title={exec ? "點擊修改乘車日／區間" : "點擊排定乘車日／區間"}
         >
-          {exec ? `執行 ${mmdd(exec)}` : "＋排乘車日"}
+          {exec
+            ? `執行 ${node.scheduled_end ? formatDateRangeBadge(exec, node.scheduled_end) : mmdd(exec)}`
+            : "＋排乘車日"}
         </QuickExecChip>
       ) : exec ? (
         <span className="due-tag">執行 {mmdd(exec)}</span>

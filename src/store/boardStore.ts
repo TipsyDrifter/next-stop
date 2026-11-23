@@ -14,11 +14,11 @@ import { nodeRepo, settingsRepo, type TaskHolderRow } from "../data";
 import { parseBoardGroup, type BoardGroup } from "../domain/board";
 import {
   DEFAULT_TASK_FILTER,
+  TASK_SORT_LABEL,
   followTagRenames,
   isDefaultTaskFilter,
   parseFilterLayout,
   parseSavedFilters,
-  parseTaskSort,
   serializeSavedFilters,
   type FilterLayout,
   type SavedFilter,
@@ -39,6 +39,17 @@ const KEY_FILTER_LAYOUT = "task_filter_layout";
 
 export type RouteLayout = "outline" | "board";
 export type OverviewTab = "routes" | "filter";
+/** 篩選清單排序：預設 `"outline"`（依路線與子樹階層縮排呈現）；其餘為平面時間／優先排序 */
+export type FilterListSort = "outline" | TaskSort;
+
+export const FILTER_SORT_ORDER: readonly FilterListSort[] = ["outline", "smart", "scheduled", "priority", "updated"];
+export const FILTER_SORT_LABEL: Record<FilterListSort, string> = {
+  outline: "路線順序",
+  ...TASK_SORT_LABEL,
+};
+
+export const parseFilterSort = (raw: string | null): FilterListSort =>
+  raw === "smart" || raw === "scheduled" || raw === "priority" || raw === "updated" ? raw : "outline";
 
 interface BoardStore {
   /** 本機偏好讀回來了沒（第一次畫大綱或看板要等它，不然會閃一下） */
@@ -48,7 +59,7 @@ interface BoardStore {
   overviewTab: OverviewTab;
   filter: TaskFilter;
   activeSavedId: string | null;
-  sort: TaskSort;
+  sort: FilterListSort;
   layout: FilterLayout;
   saved: SavedFilter[];
   tasks: TaskRow[];
@@ -67,7 +78,7 @@ interface BoardStore {
   consumeCardReveal(): void;
   setBoardGroup(v: BoardGroup): void;
   setOverviewTab(v: OverviewTab): void;
-  setSort(v: TaskSort): void;
+  setSort(v: FilterListSort): void;
   setLayout(v: FilterLayout): void;
   /** 改條件：跟目前那條常用篩選不一樣了就不再算套用著 */
   setFilter(patch: Partial<TaskFilter>): void;
@@ -152,7 +163,7 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
   overviewTab: "routes",
   filter: DEFAULT_TASK_FILTER,
   activeSavedId: null,
-  sort: "smart",
+  sort: "outline",
   layout: "list",
   saved: [],
   tasks: [],
@@ -173,7 +184,7 @@ export const useBoardStore = create<BoardStore>((set, get) => ({
         routeLayout: routeLayout === "board" ? "board" : "outline",
         boardGroup: parseBoardGroup(boardGroup),
         overviewTab: overviewTab === "filter" ? "filter" : "routes",
-        sort: parseTaskSort(sort),
+        sort: parseFilterSort(sort),
         layout: parseFilterLayout(layout),
         // 讀回來之前本機已經改了常用篩選（App 剛開就存）：讀到的是舊的，不蓋
         ...(rev === savedRev && pendingWrites === 0 ? { saved: parseSavedFilters(saved) } : {}),

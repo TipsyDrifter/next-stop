@@ -330,7 +330,12 @@ export class MemoryNoteRepository implements NoteRepository {
   async listFootprints(day: string, dayStartHour: number): Promise<FootprintDay> {
     const w = dayWindow(day, dayStartHour);
     const src = await this.footprintSources();
-    return groupFootprints(day, footprintSeals(w, src.nodes, src.occurrences), footprintLogs(w, src.logs, src.nodes), null);
+    return groupFootprints(
+      day,
+      footprintSeals(w, src.nodes, src.occurrences, src.customTitleOf, src.isSeatedSlot),
+      footprintLogs(w, src.logs, src.nodes),
+      null,
+    );
   }
 
   async listFootprintDays(from: string, to: string, dayStartHour: number): Promise<string[]> {
@@ -338,7 +343,7 @@ export class MemoryNoteRepository implements NoteRepository {
     const w = { start: dayWindow(from, dayStartHour).start, end: dayWindow(to, dayStartHour).end };
     const src = await this.footprintSources();
     const isos = [
-      ...footprintSeals(w, src.nodes, src.occurrences).map((s) => s.at),
+      ...footprintSeals(w, src.nodes, src.occurrences, src.customTitleOf, src.isSeatedSlot).map((s) => s.at),
       ...footprintLogs(w, src.logs, src.nodes).map((l) => l.at),
     ];
     return footprintDayKeys(isos, (iso) => dayKeyOf(iso, dayStartHour));
@@ -349,11 +354,36 @@ export class MemoryNoteRepository implements NoteRepository {
    * 班次逐節點 listOccurrences（不帶班次日區間——補済的班次 completed_at 可能不在 due_on 那天，交給 TS 以完成時刻篩）；
    * 手記逐節點 listWorkLogs。記憶體、N 次無妨。
    */
-  private async footprintSources(): Promise<{ nodes: NodeRow[]; occurrences: Occurrence[]; logs: WorkLog[] }> {
-    const side = await this.nodeRepo.listSidebar();
+  private async footprintSources(): Promise<{
+    nodes: NodeRow[];
+    occurrences: Occurrence[];
+    logs: WorkLog[];
+    customTitleOf: (nodeId: string, dueOn: string) => string | null | undefined;
+    isSeatedSlot: (nodeId: string, dueOn: string) => boolean;
+  }> {
+    const [side, overrides] = await Promise.all([
+      this.nodeRepo.listSidebar(),
+      this.nodeRepo.listRunOverrides?.() ?? Promise.resolve([]),
+    ]);
     const byId = new Map<string, NodeRow>();
     for (const n of [...side.lines, ...side.routes, ...side.stations]) byId.set(n.id, n);
     for (const r of side.routes) for (const n of await this.nodeRepo.listRouteTree(r.id)) byId.set(n.id, n);
+    const customTitles = new Map<string, string>();
+    const seatedSlots = new Set<string>();
+    for (const ov of overrides) {
+      if (ov.deleted_at !== null) continue;
+      if (ov.custom_title?.trim()) {
+        customTitles.set(`${ov.node_id}|${ov.due_on}`, ov.custom_title.trim());
+      }
+      if (ov.seated_node_id) {
+        const ticket = byId.get(ov.seated_node_id) ?? (await this.nodeRepo.getNode(ov.seated_node_id));
+        if (ticket && ticket.deleted_at === null) {
+          const matches =
+            ov.due_on === "unscheduled" ? ticket.scheduled_on === null : ticket.scheduled_on === ov.due_on;
+          if (matches) seatedSlots.add(`${ov.node_id}|${ov.due_on}`);
+        }
+      }
+    }
     const nodes = [...byId.values()];
     const occurrences: Occurrence[] = [];
     const logs: WorkLog[] = [];
@@ -363,7 +393,13 @@ export class MemoryNoteRepository implements NoteRepository {
       }
       logs.push(...(await this.nodeRepo.listWorkLogs(n.id)));
     }
-    return { nodes, occurrences, logs };
+    return {
+      nodes,
+      occurrences,
+      logs,
+      customTitleOf: (nodeId, dueOn) => customTitles.get(`${nodeId}|${dueOn}`),
+      isSeatedSlot: (nodeId, dueOn) => seatedSlots.has(`${nodeId}|${dueOn}`),
+    };
   }
 
   // ───────────── 車次③・荷札用（不在 NoteRepository 介面；只給 MemoryTagRepository） ─────────────

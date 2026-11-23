@@ -596,7 +596,7 @@ test("groupFootprints：moods 只取非 null、依完成時刻", () => {
   );
   assert.deepEqual(f.moods, ["green", "red"]);
 });
-test("groupFootprints：車票的心情不認（收官磨光 Q1：車票沒有心情欄，舊值改不掉也清不掉，讀取面一律當沒有）", () => {
+test("groupFootprints：車票的心情正常保留並計入 moods（Bug 4）", () => {
   const f = groupFootprints(
     "2026-10-08",
     [
@@ -606,8 +606,8 @@ test("groupFootprints：車票的心情不認（收官磨光 Q1：車票沒有�
     [],
     null,
   );
-  assert.deepEqual(f.moods, ["green"]);
-  assert.equal(f.seals.find((s) => s.id === "t")?.mood, null);
+  assert.deepEqual(f.moods, ["red", "green"]);
+  assert.equal(f.seals.find((s) => s.id === "t")?.mood, "red");
   assert.equal(f.seals.find((s) => s.id === "r")?.mood, "green");
 });
 test("groupFootprints：不改輸入陣列", () => {
@@ -839,8 +839,8 @@ test("excerpt／noteTitle：圍欄內的行照留、圍欄標記行不出現", (
   assert.equal(noteTitle({ title: null, body: "```\n# 註解\n```" }), "# 註解");
 });
 
-test("NOTE_NODE_KINDS：路線／支線／列車／車廂，沒有車票", () => {
-  assert.deepEqual([...NOTE_NODE_KINDS], ["route", "branch", "train", "car"]);
+test("NOTE_NODE_KINDS：路線／支線／列車／車廂／車票（Bug 4）", () => {
+  assert.deepEqual([...NOTE_NODE_KINDS], ["route", "branch", "train", "car", "ticket"]);
 });
 
 test("descendantIds：深度優先前序、不含自己、沒有子孫＝空", () => {

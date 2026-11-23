@@ -22,6 +22,7 @@ import { APPEND } from "../../../store/batchActions";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { AttachPicker } from "../AttachPicker";
+import type { AttachKind } from "../../notes/useAttachOptions";
 import { moveNodeTo } from "../moveTo";
 import { AnchoredLayer } from "./QuickAddPickers";
 import { rememberNodeName } from "../../notes/notesBits";
@@ -157,16 +158,18 @@ export function ReattachPicker({ node, anchor, onClose, onPick }: ReattachPicker
 
   if (!rule || value === null) return null;
   const pick = (t: AttachTarget | null) => {
-    onClose();
     if (onPick) onPick(t);
-    else void reattachTo(node, t);
+    else {
+      onClose();
+      void reattachTo(node, t);
+    }
   };
   return (
     <StopBubble>
       <AnchoredLayer anchor={anchor} onClose={onClose} selfDismiss>
         <AttachPicker
           depth={rule.depth}
-          kinds={rule.depth === "node" ? rule.kinds : undefined}
+          kinds={rule.depth === "node" ? (rule.kinds as AttachKind[]) : undefined}
           routeSelectable={rule.routeSelectable}
           float
           label={rule.label}

@@ -423,7 +423,7 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
         {
           name: "車票.csv",
           rows: [
-            ["幹線", "路線", "上層", "車站", "種類", "名稱", "概要", "優先順序", "狀態", "乘車日", "幾點", "長度（分）", "締切日", "完成時刻", "重複", "荷札", "建立時刻"],
+            ["幹線", "路線", "上層", "車站", "種類", "名稱", "概要", "優先順序", "狀態", "乘車日", "乘車訖日", "幾點", "長度（分）", "締切日", "完成時刻", "重複", "預留席", "荷札", "建立時刻"],
             ...nodes
               .filter((n) => n.kind !== "line" && n.kind !== "route")
               .map((n): CsvCell[] => {
@@ -439,11 +439,13 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
                   PRIORITY_TEXT[str(n.priority)] ?? str(n.priority),
                   STATUS_TEXT[str(n.status)] ?? str(n.status),
                   str(n.scheduled_on),
+                  str(n.scheduled_end),
                   str(n.scheduled_time),
                   num(n.estimate_min),
                   str(n.due_on),
                   localStamp(n.completed_at),
                   repeatText(n.repeat_rule),
+                  n.is_placeholder ? "是" : "",
                   tagsOf("node", n.id),
                   localStamp(n.created_at),
                 ];

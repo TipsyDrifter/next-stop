@@ -152,6 +152,7 @@ export type {
   CreateNodeInput,
   MoveManyItem,
   NodePatch,
+  RescheduleOpts,
   SidebarData,
   TodayRow,
   TodayBucket,
@@ -163,6 +164,8 @@ export type {
   CalendarData,
   DueEntry,
   TaskHolderRow,
+  RunOverrideRecord,
+  SeatingSlotRef,
 } from "./nodeRepository";
 export {
   todayBucketOf,
@@ -173,6 +176,8 @@ export {
   toCurrentOccurrence,
   countByDate,
   buildCalendar,
+  applyTodaySeating,
+  resolveRunSeatings,
   // M3 ④ 重複引擎的共用常數（UI 的 toast 與 repository 擋下的那句話是同一份字）
   REPEATABLE_KINDS,
   REPEAT_DONE_MSG,

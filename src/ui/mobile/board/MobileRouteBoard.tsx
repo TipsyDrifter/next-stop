@@ -7,7 +7,7 @@
  * 手機多的：點卡開詳情頁、⋯ 開底部面板；長按原地放開＝多選（D-主-152），多選中點卡＝加選或取消、拖其中一張＝整批。
  * 建票列跟著目前那一欄：依列車＝掛到那一欄的節點、依車站＝建好掛到那一站；依狀態新票都在未開始，建好跳過去（建好的東西要出現在眼前）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { NodeRow } from "../../../domain";
 import { BOARD_GROUP_LABEL, type BoardCard as BoardCardModel, type BoardGroup } from "../../../domain/board";
 import { PARKED_ADD_WHY } from "../../../domain/depot";
@@ -18,8 +18,15 @@ import { useUiStore } from "../../../store/uiStore";
 import { BoardCard } from "../../board/BoardCard";
 import { stampCard } from "../../board/boardActions";
 import { moveBoardCards, trainDropVerdict } from "../../board/boardDrop";
-import { TOP_COL, type useRouteBoard, type BoardColumnModel } from "../../board/useRouteBoard";
+import { NO_STATION_COL, TOP_COL, type useRouteBoard, type BoardColumnModel } from "../../board/useRouteBoard";
 import type { DropPlace } from "../../common/dragReorder";
+import {
+  STATION_DROP_TYPE,
+  dropOnStation,
+  resolveActiveStationFilter,
+  stationTargetVerdict,
+  useRouteStationFilter,
+} from "../../outline/StationTrackBar";
 import { IconChevron } from "../../common/icons";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { DoneToggleChip, MobileQuickAdd, type QuickDefaults, type QuickDest, type QuickHere } from "../../common/quickadd";
@@ -149,6 +156,7 @@ export function MobileRouteBoard({ board, group, routeId, tree, zoom, parked, to
 
   const resolve = (ids: readonly string[], place: DropPlace) => {
     if (place.kind === "target") {
+      if (place.type === STATION_DROP_TYPE) return stationTargetVerdict(ids, place.target, routeId, parked);
       if (place.type !== DOCK_TYPE) return "這裡放不下";
       return group === "train" ? trainDropVerdict({ id: topId, kind: topKind }, ids, place.target, null, null) : true;
     }
@@ -158,7 +166,16 @@ export function MobileRouteBoard({ board, group, routeId, tree, zoom, parked, to
 
   const renderCard = (card: BoardCardModel<NodeRow>) => {
     const n = card.node;
-    const path = card.crumb.length ? card.crumb.join(" › ") : n.parent_id === null ? "臨時車票" : null;
+    const path =
+      n.kind === "branch"
+        ? card.crumb.length
+          ? `支線・${card.crumb.join(" › ")}`
+          : "支線（主題）"
+        : card.crumb.length
+          ? card.crumb.join(" › ")
+          : n.parent_id === null
+            ? "臨時車票"
+            : null;
     const isPicked = picked.includes(n.id);
     return (
       <BoardCard
@@ -172,7 +189,7 @@ export function MobileRouteBoard({ board, group, routeId, tree, zoom, parked, to
         selected={revealId === n.id}
         picked={isPicked}
         fresh={freshId === n.id}
-        stampWhy={parked ? PARKED_ADD_WHY : undefined}
+        stampWhy={parked ? PARKED_ADD_WHY : n.kind === "branch" ? "支線是主題章節，不蓋済章" : undefined}
         leading={selecting ? <SelectCheck picked={isPicked} /> : undefined}
         onStamp={stamp}
         menu={() => []}
@@ -222,8 +239,13 @@ export function MobileRouteBoard({ board, group, routeId, tree, zoom, parked, to
         resolve={resolve}
         onDrop={(ids, place) => {
           const ctx = { group, columns, tree: useNodeStore.getState().tree, routeId, topId, onStamped: flashFresh };
-          if (place.kind === "target") moveBoardCards(ctx, ids, place.target);
-          else moveBoardCards(ctx, ids, place.col ?? TOP_COL, { after: place.after, before: place.before });
+          if (place.kind === "target") {
+            if (place.type === STATION_DROP_TYPE) {
+              dropOnStation(ids, place.target, routeId);
+              return;
+            }
+            moveBoardCards(ctx, ids, place.target);
+          } else moveBoardCards(ctx, ids, place.col ?? TOP_COL, { after: place.after, before: place.before });
         }}
         onPressRelease={(id) => {
           if (parked) useUiStore.getState().showToast({ message: PARKED_DRAG_WHY }, 3600);
@@ -242,16 +264,20 @@ function destOf(c: BoardColumnModel | undefined, routeId: string, zoom: NodeRow 
   return { routeId, nodeId: null, nodeKind: "route" };
 }
 
-/** 頁底建票列（殼的直接子節點，同大綱那一條）：跟著目前那一欄 */
+/** 頁底建票列（殼的直接子節點，同大綱那一條）：跟著目前那一欄或單站聚焦篩選 */
 export function MobileBoardAdd({ column, routeId, zoom, onCreated }: { column: BoardColumnModel | undefined; routeId: string; zoom: NodeRow | null; onCreated(row: NodeRow): void }) {
   const zoomId = zoom?.id ?? null;
-  const stationId = column?.station?.id ?? null;
-  const stationRef = useRef(stationId);
-  stationRef.current = stationId;
+  const [rawFilter] = useRouteStationFilter(routeId);
+  const allStations = useNodeStore((s) => s.stations);
+  const activeFilter = resolveActiveStationFilter(rawFilter, allStations, routeId);
+  const defaultStationId =
+    column?.station?.id ??
+    (column?.key === NO_STATION_COL ? null : activeFilter && activeFilter !== NO_STATION_COL ? activeFilter : null);
+  const defaultStationName = defaultStationId ? allStations.find((s) => s.id === defaultStationId)?.name : undefined;
   const defaults = useMemo<QuickDefaults>(
-    () => ({ dest: destOf(column, routeId, zoom), scheduledOn: null }),
+    () => ({ dest: destOf(column, routeId, zoom), stationId: defaultStationId, scheduledOn: null }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [column?.key, routeId, zoomId],
+    [column?.key, routeId, zoomId, defaultStationId],
   );
   const here = useMemo<QuickHere>(() => ({ kind: "route", routeId }), [routeId]);
   return (
@@ -259,9 +285,9 @@ export function MobileBoardAdd({ column, routeId, zoom, onCreated }: { column: B
       defaults={defaults}
       here={here}
       routeKind="ticket"
-      placeholder={column?.station ? `新增車票到「${column.station.name}」…` : "新增車票…"}
+      hideRouteKind
+      placeholder={defaultStationName ? `新增車票到「${defaultStationName}」…` : "新增車票…"}
       onCreated={(row) => {
-        if (stationRef.current) void useNodeStore.getState().updateNode(row.id, { station_id: stationRef.current });
         onCreated(row);
       }}
     />

@@ -40,12 +40,14 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { describeRule, parseRule, type NodeRow } from "../../domain";
+import { formatDateRangeBadge, isRangeTicket } from "../../domain/dateRange";
 import type { CurrentOccurrence } from "../../data";
 import { scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
+import { useSelectionStore } from "../../store/selectionStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { isGuideKey } from "../shell/hotkeys";
-import { DatePicker } from "./DatePicker";
+import { DatePicker, dateRangeQuickSet } from "./DatePicker";
 import { INBOX_TOAST, showRescheduleToast } from "../today/useTodayController";
 import { SETTLED_DEFER_MSG } from "../mobile/useMobileToday";
 import { moveRunFlow } from "../outline/nodeFlows";
@@ -114,7 +116,13 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
   const nodeId = row.id;
   const storedKey = useNodeStore((s) => s.today.dateKey);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
   const dateKey = storedKey ?? todayKey(dayStartHour);
+
+  // 操作 3（互斥）：開啟單張推遲小卡時自動退出多選
+  useEffect(() => {
+    if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
+  }, []);
 
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -184,21 +192,50 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
    */
   const applyDate = (next: string) => {
     const prev = scheduleSnapshot(row);
-    void ns().reschedule(nodeId, next);
+    const prevEnd = row.scheduled_end ?? null;
+    void ns().reschedule(nodeId, next, { scheduledEnd: null });
     onClose();
-    // 今天→今天（同一天）不出收據；但誤點／未來的票挪到今天時，在日曆／行程表裡它會離開眼前那一天，同樣補一張可反悔的收據
-    if (next !== dateKey || showToday) showRescheduleToast(nodeId, prev, next);
+    // 今天→今天（同一天且非期間券收斂）不出收據；誤點／未來的票或期間自由券收斂為單日時，補一張可反悔的收據
+    if (next !== dateKey || showToday || prevEnd !== null) {
+      if (prevEnd !== null) {
+        ui().showToast({
+          message: next === dateKey ? "已排到今天" : `已移至 ${whenLabel(next)}`,
+          actionLabel: "復原",
+          onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd }),
+        });
+      } else {
+        showRescheduleToast(nodeId, prev, next);
+      }
+    }
   };
 
-  /** 清除乘車日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原乘車日放回去 */
+  /** 期間區間改期（週末／本週／下週／本月或自訂區間） */
+  const applyRange = (start: string, end: string | null) => {
+    if (!end || end <= start) {
+      applyDate(start);
+      return;
+    }
+    const prev = scheduleSnapshot(row);
+    const prevEnd = row.scheduled_end ?? null;
+    void ns().reschedule(nodeId, start, { scheduledEnd: end });
+    onClose();
+    ui().showToast({
+      message: `已排入期間 ${formatDateRangeBadge(start, end)}`,
+      actionLabel: "復原",
+      onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd }),
+    });
+  };
+
+  /** 清除乘車日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原乘車日（含訖日）放回去 */
   const clearDate = () => {
     const prev = scheduleSnapshot(row);
+    const prevEnd = row.scheduled_end ?? null;
     void ns().reschedule(nodeId, null);
     onClose();
     ui().showToast({
       message: INBOX_TOAST,
       actionLabel: "復原",
-      onAction: () => void ns().updateNode(nodeId, prev),
+      onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd }),
     });
   };
 
@@ -294,6 +331,9 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     ui().setPanelOpen(true);
   };
 
+  const rangeQuicks = dateRangeQuickSet(dateKey, weekStart);
+  const rangeActive = isRangeTicket(row);
+
   return (
     <div
       ref={ref}
@@ -301,7 +341,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
       aria-label={rule ? `定期券「${row.name}」` : `推遲「${row.name}」`}
       onKeyDown={onKeyDown}
       onMouseDown={(e) => e.stopPropagation()}
-      className="ns-defer techo-card"
+      className={"ns-defer techo-card" + (picking ? " is-picking" : "")}
       style={{
         top: pos?.top ?? 0,
         left: pos?.left ?? 0,
@@ -341,17 +381,17 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
         </ul>
       ) : (
       <ul className="ns-defer-list">
-        {showToday && (
+        {(showToday || rangeActive) && (
           <li>
             <button type="button" data-defer-item className="ns-defer-item" onClick={() => applyDate(dateKey)}>
-              <span>今天</span>
+              <span>{rangeActive ? "排今天（單日）" : "今天"}</span>
               <span className="when">{whenLabel(dateKey)}</span>
             </button>
           </li>
         )}
         <li>
           <button type="button" data-defer-item className="ns-defer-item" onClick={() => applyDate(tomorrow)}>
-            <span>{future ? "往後推一天" : "明天"}</span>
+            <span>{future && !rangeActive ? "往後推一天" : "明天"}</span>
             <span className="when">{whenLabel(tomorrow)}</span>
           </button>
         </li>
@@ -361,16 +401,42 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
             <span className="when">{whenLabel(monday)}</span>
           </button>
         </li>
+        <li className="cut">
+          <div className="ns-defer-ranges" role="group" aria-label="期間自由券快選">
+            {rangeQuicks.map((rq) => {
+              const on = row.scheduled_on === rq.from && row.scheduled_end === rq.to;
+              return (
+                <button
+                  key={rq.label}
+                  type="button"
+                  data-defer-item
+                  className={"chip ns-chip" + (on ? " is-on" : "")}
+                  aria-pressed={on}
+                  title={`${rq.label}（${formatDateRangeBadge(rq.from, rq.to)}）`}
+                  onClick={() => applyRange(rq.from, rq.to)}
+                >
+                  {rq.label}
+                </button>
+              );
+            })}
+          </div>
+        </li>
         <li>
           <button
             type="button"
             data-defer-item
             aria-expanded={picking}
             className="ns-defer-item"
-            onClick={() => setPicking(true)}
+            onClick={() => setPicking((o) => !o)}
           >
-            <span>選日期…</span>
-            <span className="when">{row.scheduled_on ? whenLabel(row.scheduled_on) : "—"}</span>
+            <span>選日期／區間…</span>
+            <span className="when">
+              {row.scheduled_on
+                ? rangeActive
+                  ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end)
+                  : whenLabel(row.scheduled_on)
+                : "—"}
+            </span>
           </button>
         </li>
         <li className="cut">
@@ -390,18 +456,26 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
 
       {picking && (
         <div className="ns-defer-pick">
-          {/* 共用挑選器（D-筆-30）：沒有快選（明天／下週一已在上面）；開啟時焦點落在月格上的那一天（磨光⑤ S8 起自畫月格）；
-              Esc 只收起挑選器（DatePicker 自己 stopPropagation），再按一次才關整張卡。
-              min＝今天：挑不到過去（P10／驗收 #13，主線車次① ☎4）；定期券版改的是 railDate 那一班，「改回原日」走收據的復原與検印區 */}
           <DatePicker
-            label={rule ? "這一班改到" : "選乘車日"}
+            label={rule ? "這一班改到" : "選乘車日或區間"}
             value={(rule ? railDate : row.scheduled_on) ?? dateKey}
+            endValue={rule ? null : row.scheduled_end}
+            allowRange={!rule}
+            rangeQuick={[]}
             min={dateKey}
             onPick={(v) => {
               if (!isSaneDateKey(v)) return;
               if (rule) moveRun(v);
               else applyDate(v);
             }}
+            onPickRange={
+              rule
+                ? undefined
+                : (s, e) => {
+                    if (!isSaneDateKey(s) || (e && !isSaneDateKey(e))) return;
+                    applyRange(s, e);
+                  }
+            }
             onClose={closePicker}
           />
         </div>

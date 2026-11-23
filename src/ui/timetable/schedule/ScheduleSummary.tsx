@@ -9,7 +9,7 @@
  */
 import { Fragment } from "react";
 import { TT_TEXT } from "../../../store/timetableStore";
-import { MIN } from "../../../domain/timetable";
+import { MIN, fmtDur } from "../../../domain/timetable";
 import { DateNav } from "../../common/DateNav";
 import { Segmented } from "../../common/Segmented";
 import { DnTitle } from "../parts/DateNavTitle";
@@ -93,13 +93,14 @@ function SumLine({ text }: { text: string }) {
 export function ScheduleSummary({ page }: { page: SchedulePage }) {
   const { summary, isFuture } = page.cmp;
   const loaded = page.grid !== null && page.grid.date === page.date;
+  const estSuffix = !isFuture && summary.plannedMin > 0 ? `・預計 ${fmtDur(summary.plannedMin * MIN)}` : "";
   const text = !loaded
     ? " "
     : summary.planned === 0
       ? null
       : isFuture
         ? TT_TEXT.schedFuture(summary.planned, summary.plannedMin * MIN, summary.noEstimate)
-        : TT_TEXT.schedPlanned(summary.planned, summary.stamped, summary.timedOnly, summary.onTime);
+        : `${TT_TEXT.schedPlanned(summary.planned, summary.stamped, summary.timedOnly, summary.onTime)}${estSuffix}`;
   // ⑦（C 席）：作息那一句（「作息 8 段・照表 5」；0 段不印；未來日只寫段數）。桌機接在車票那句後面；
   // 手機另起第二行：〔作息：工作日 ▾〕8 段・照表 5（原型回報 2：鈕已經寫「作息」）
   const rs = loaded ? page.routineSummary : null;

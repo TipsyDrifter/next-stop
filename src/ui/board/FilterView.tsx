@@ -10,23 +10,27 @@
  * 蓋済的那一列在原地停一下才離開（useStampLinger）。車庫裡的票唯讀：不能蓋章、換欄，也進不了多選。
  * 指到已刪路線、荷札的條件：chip 淡掉，選單裡列出來可以拿掉；存檔不改寫（復原路線就回來）。
  */
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { NodeRow } from "../../domain";
+import type { NodeKind, NodeRow } from "../../domain";
 import { STATUS_COLUMN_LABEL, cardStatus, type BoardCard as BoardCardModel, type BoardStatus } from "../../domain/board";
 import { PARKED_ADD_WHY } from "../../domain/depot";
 import {
   DUE_LABEL,
   STATUS_COND_LABEL,
-  TASK_SORT_LABEL,
   TEMP_ROUTE,
   isTaskDone,
   isTaskLate,
   type DueCond,
-  type TaskSort,
   type TaskStatusCond,
 } from "../../domain/taskFilter";
-import { hasFilterConditions, useBoardStore } from "../../store/boardStore";
+import {
+  FILTER_SORT_LABEL,
+  FILTER_SORT_ORDER,
+  hasFilterConditions,
+  useBoardStore,
+  type FilterListSort,
+} from "../../store/boardStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useSelectionStore } from "../../store/selectionStore";
 import { useUiStore } from "../../store/uiStore";
@@ -38,11 +42,13 @@ import { OverlineText } from "../common/PageHeader";
 import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { PriorityMark } from "../common/PriorityMark";
 import { DoneToggleChip } from "../common/quickadd";
+import { roundelStyle } from "../common/roundel";
 import { dragBatch, pickClick } from "../common/selection/desktopSelection";
 import { armOpenOnClick } from "../common/selection/openOnClick";
 import { SelectionBar } from "../common/selection/SelectionBar";
 import { useSelectable } from "../common/selection/useSelectable";
 import { Tabs } from "../common/Tabs";
+import { ProgressRing } from "../outline/ProgressRing";
 import { SealSuspended } from "../stamps";
 import { BoardCard, cardMeta } from "./BoardCard";
 import { BoardColumns } from "./BoardColumns";
@@ -52,7 +58,7 @@ import { OVERVIEW_PANEL } from "./RouteViewTabs";
 import { useBoardKeyboard } from "./useBoardKeyboard";
 import { useCardDefer } from "./useCardDefer";
 import { useStampLinger } from "./useStampLinger";
-import { useTaskFilter, type FilterOption, type FilterRow, type TaskRow } from "./useTaskFilter";
+import { useTaskFilter, type FilterOption, type FilterRow, type FilteredOutlineItem, type TaskRow } from "./useTaskFilter";
 
 type ChipKey = "routes" | "tags" | "due" | "status";
 
@@ -176,22 +182,30 @@ function CheckMenu({ anchor, label, options, picked, onToggle, onClose }: { anch
     >
       <ul className="ns-popmenu-list" role="none">
         {options.length === 0 && <li className="ns-bd-checkempty">沒有可選的</li>}
-        {options.map((o) => {
+        {options.map((o, idx) => {
           const on = picked.includes(o.value);
+          const showGroup = !!o.group && o.group !== options[idx - 1]?.group;
           return (
-            <li key={o.value} role="none">
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={on}
-                className={"ns-popmenu-item" + (on ? " is-on" : "")}
-                style={o.depth ? { paddingLeft: 14 + o.depth * 14 } : undefined}
-                onClick={() => onToggle(o.value)}
-              >
-                <span>{o.label}</span>
-                <kbd className="caps">{on ? "✓" : o.count}</kbd>
-              </button>
-            </li>
+            <Fragment key={o.value}>
+              {showGroup && (
+                <li role="presentation" className="ns-bd-checkgroup">
+                  {o.group}
+                </li>
+              )}
+              <li role="none">
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={on}
+                  className={"ns-popmenu-item" + (on ? " is-on" : "")}
+                  style={o.depth ? { paddingLeft: 14 + o.depth * 14 } : undefined}
+                  onClick={() => onToggle(o.value)}
+                >
+                  <span>{o.label}</span>
+                  <kbd className="caps">{on ? "✓" : o.count}</kbd>
+                </button>
+              </li>
+            </Fragment>
           );
         })}
       </ul>
@@ -404,7 +418,161 @@ function SavedRow({ onRename }: { onRename(id: string, name: string, anchor: HTM
 
 /* ───────── 清單版面的一列（票形＋路線圓牌；.ticket 同大綱） ───────── */
 
-const ResultRow = memo(function ResultRow({ row, today, selected, picked, fresh, parked, on }: { row: FilterRow; today: string; selected: boolean; picked: boolean; fresh: boolean; parked: boolean; on: RowHandlers }) {
+const CONTAINER_GLYPH: Partial<Record<NodeKind, string>> = { branch: "支", train: "列", car: "廂" };
+const CONTAINER_LABEL: Partial<Record<NodeKind, string>> = { branch: "支線", train: "列車", car: "車廂" };
+
+/** 子樹縮排視圖的上層支線／列車／車廂群組母列（Bug 2）：徽章＋名稱＋進度環／完成數 */
+const OutlineGroupRow = memo(function OutlineGroupRow({
+  item,
+  route,
+  row,
+  today,
+  selected,
+  picked,
+  on,
+  onOpenContext,
+}: {
+  item: FilteredOutlineItem<TaskRow>;
+  route: NodeRow | null;
+  row: FilterRow | undefined;
+  today: string;
+  selected: boolean;
+  picked: boolean;
+  on: RowHandlers;
+  onOpenContext(id: string): void;
+}) {
+  const node = row?.node ?? null;
+  const occ = useNodeStore((s) => (node ? s.currentOccurrences[node.id] : undefined));
+  const m = node ? cardMeta(node, occ, today) : null;
+  const status = node ? cardStatus(node, occ) : null;
+  const late = node ? isTaskLate(node, occ, today) : false;
+  const btn = useRef<HTMLButtonElement>(null);
+  const [items, setItems] = useState<PopMenuItem[] | null>(null);
+  const indentStyle = item.depth > 0 ? { paddingLeft: item.depth * 20 } : undefined;
+  const routeColor = route?.color ?? "var(--route-none)";
+  const isContext = item.role === "ancestor" || !node;
+
+  return (
+    <li
+      className={"ticket-li ns-bf-grp-li" + (item.depth > 0 ? " ns-bf-indent" : "")}
+      style={indentStyle}
+      data-node-id={node ? node.id : undefined}
+      onMouseDown={
+        node
+          ? (e) => on.press(node, e)
+          : (e) => {
+              if (e.button === 0) {
+                e.preventDefault();
+                onOpenContext(item.id);
+              }
+            }
+      }
+      onContextMenu={
+        node
+          ? rowContextMenu(() => ({
+              overline: cardOverline(node),
+              label: `「${node.name}」的動作`,
+              items: on.menu(node),
+              before: () => useUiStore.getState().select(node.id),
+            }))
+          : undefined
+      }
+    >
+      <div
+        className={
+          "ns-bf-grp" +
+          (isContext ? " is-context" : " is-hit") +
+          (selected ? " selected" : "") +
+          (picked ? " is-picked" : "") +
+          (late ? " is-late" : "")
+        }
+      >
+        <span className="ns-bf-grp-badge" style={{ color: routeColor }} aria-hidden>
+          {CONTAINER_GLYPH[item.kind] ?? "項"}
+        </span>
+        <div className="ns-bf-grp-main">
+          <div className="ns-bf-grp-head">
+            {node && <PriorityMark priority={node.priority} />}
+            <span className="ns-bf-grp-title">{item.name}</span>
+            <span className="ns-bf-grp-kind">{CONTAINER_LABEL[item.kind]}</span>
+          </div>
+          {row && m && (
+            <div className="meta ns-bf-grp-meta">
+              {(status === "doing" || status === "paused") && <span className="chip is-st">{STATUS_COLUMN_LABEL[status]}</span>}
+              {m.run && <span className={"chip" + (m.run.late ? " late" : "")}>{m.run.text}</span>}
+              {m.due && <span className={"chip" + (m.due.late ? " late" : "")}>{m.due.text}</span>}
+              {row.tags.map((t) => (
+                <span key={t} className="ns-bd-tag">
+                  #{t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        {late && <span className="ns-bf-grp-late">延着</span>}
+        {item.progress && (
+          <ProgressRing done={item.progress.done} total={item.progress.total} size={34} className="ns-ring is-sm" />
+        )}
+        {node && (
+          <button
+            ref={btn}
+            type="button"
+            tabIndex={-1}
+            className="row-more"
+            aria-haspopup="menu"
+            aria-expanded={items !== null}
+            aria-label={`「${node.name}」的更多動作`}
+            title="更多動作"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setItems((cur) => (cur ? null : on.menu(node)));
+            }}
+          >
+            <IconDots size={14} />
+          </button>
+        )}
+        {items && node && (
+          <span onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+            <PopMenu
+              anchor={btn.current}
+              overline={cardOverline(node)}
+              label={`「${node.name}」的動作`}
+              items={items}
+              onClose={() => setItems(null)}
+              returnFocus={() => {
+                on.focusBack();
+                return null;
+              }}
+            />
+          </span>
+        )}
+      </div>
+    </li>
+  );
+});
+
+const ResultRow = memo(function ResultRow({
+  row,
+  today,
+  selected,
+  picked,
+  fresh,
+  parked,
+  indent = 0,
+  hideCrumb = false,
+  on,
+}: {
+  row: FilterRow;
+  today: string;
+  selected: boolean;
+  picked: boolean;
+  fresh: boolean;
+  parked: boolean;
+  indent?: number;
+  hideCrumb?: boolean;
+  on: RowHandlers;
+}) {
   const { node, route, crumb, tags } = row;
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
   const m = cardMeta(node, occ, today);
@@ -413,9 +581,11 @@ const ResultRow = memo(function ResultRow({ row, today, selected, picked, fresh,
   const done = isTaskDone(node, occ);
   const btn = useRef<HTMLButtonElement>(null);
   const [items, setItems] = useState<PopMenuItem[] | null>(null);
+  const containerGlyph = CONTAINER_GLYPH[node.kind];
   return (
     <li
-      className="ticket-li"
+      className={"ticket-li" + (indent > 0 ? " ns-bf-indent" : "")}
+      style={indent > 0 ? { paddingLeft: indent * 20 } : undefined}
       data-node-id={node.id}
       onMouseDown={(e) => on.press(node, e)}
       onContextMenu={rowContextMenu(() => ({ overline: cardOverline(node), label: `「${node.name}」的動作`, items: on.menu(node), before: () => useUiStore.getState().select(node.id) }))}
@@ -430,11 +600,16 @@ const ResultRow = memo(function ResultRow({ row, today, selected, picked, fresh,
         <div className="body">
           {m.teiki && <span className="fare-class teiki">定期券</span>}
           <p className="title">
+            {containerGlyph && (
+              <span className="ns-bf-kind-inline" style={{ color: route?.color ?? "var(--route-none)" }} aria-hidden>
+                {containerGlyph}
+              </span>
+            )}
             <PriorityMark priority={node.priority} />
             {node.name}
           </p>
           <div className="meta">
-            {crumb.length > 0 && <span className="ns-bd-crumb">{crumb.join(" › ")}</span>}
+            {!hideCrumb && crumb.length > 0 && <span className="ns-bd-crumb">{crumb.join(" › ")}</span>}
             {(status === "doing" || status === "paused") && <span className="chip is-st">{STATUS_COLUMN_LABEL[status]}</span>}
             {m.next && <span className="chip next">{m.next}</span>}
             {m.run && <span className={"chip" + (m.run.late ? " late" : "")}>{m.run.text}</span>}
@@ -514,7 +689,7 @@ const ResultRow = memo(function ResultRow({ row, today, selected, picked, fresh,
 /* ───────── 頁 ───────── */
 
 export function FilterView() {
-  const { rows, columns, order, doneCount, boardLayout, deadRoutes, deadTags, options, today, tagName } = useTaskFilter();
+  const { rows, columns, order, doneCount, boardLayout, outlineMode, buildOutlineSections, deadRoutes, deadTags, options, today, tagName } = useTaskFilter();
   const filter = useBoardStore((s) => s.filter);
   const sort = useBoardStore((s) => s.sort);
   const layout = useBoardStore((s) => s.layout);
@@ -537,6 +712,22 @@ export function FilterView() {
   const { shown, stamp: stampRow, flash, freshId } = useStampLinger(rows, !boardLayout);
 
   const rowById = useMemo(() => new Map(shown.map((r) => [r.node.id, r])), [shown]);
+  const outlineSections = useMemo(
+    () => (outlineMode ? buildOutlineSections(shown) : []),
+    [outlineMode, buildOutlineSections, shown],
+  );
+  const openContextNode = useCallback(
+    (id: string) => {
+      const ui = useUiStore.getState();
+      if (ui.selectedId === id) ui.setPanelOpen(true);
+      else {
+        ui.select(id);
+        ui.setPanelOpen(true);
+      }
+      focusBack();
+    },
+    [focusBack],
+  );
   // 車庫裡的票不進多選（跨路線：只濾掉那幾張）；判準在 selectionStore 那一關
   useSelectable("board", (id) => !rowById.get(id)?.route?.arrived_on);
   useEffect(() => useSelectionStore.getState().prune("board", order), [order]);
@@ -672,6 +863,65 @@ export function FilterView() {
         )}
       </p>
     );
+  else if (outlineMode)
+    body = (
+      <div className="ns-rm-read ns-bf-outline">
+        {outlineSections.map((sec) => (
+          <section key={sec.routeKey} className="ns-bf-rsec" aria-label={sec.route?.name ?? "臨時車票"}>
+            <header className="ns-bf-rsec-hd">
+              <span
+                aria-hidden
+                className={"roundel ns-bf-rbadge" + (sec.route ? "" : " is-temp")}
+                style={sec.route ? roundelStyle(sec.route.color) : undefined}
+              >
+                {sec.route ? (sec.route.code ?? sec.route.name.slice(0, 1)) : "臨"}
+              </span>
+              <span className="ns-bf-rname">
+                {sec.route ? (sec.route.arrived_on ? `${sec.route.name}・車庫` : sec.route.name) : "臨時車票"}
+              </span>
+              <span className="ns-bf-rrule" aria-hidden />
+              <span className="ns-bf-rcnt">{sec.hitCount} 項</span>
+            </header>
+            <ul className="ticket-list ns-bd-results ns-bf-tree">
+              {sec.items.map((it) => {
+                const r = rowById.get(it.id);
+                const isContainerRow =
+                  it.kind === "branch" || ((it.kind === "train" || it.kind === "car") && it.progress !== null);
+                if (isContainerRow || !r) {
+                  return (
+                    <OutlineGroupRow
+                      key={it.id}
+                      item={it}
+                      route={sec.route}
+                      row={r}
+                      today={today}
+                      selected={selectedId === it.id}
+                      picked={!!picked?.includes(it.id)}
+                      on={handlers}
+                      onOpenContext={openContextNode}
+                    />
+                  );
+                }
+                return (
+                  <ResultRow
+                    key={it.id}
+                    row={r}
+                    today={today}
+                    selected={selectedId === it.id}
+                    picked={!!picked?.includes(it.id)}
+                    fresh={freshId === it.id}
+                    parked={!!r.route?.arrived_on}
+                    indent={it.depth}
+                    hideCrumb
+                    on={handlers}
+                  />
+                );
+              })}
+            </ul>
+          </section>
+        ))}
+      </div>
+    );
   else
     body = (
       <div className="ns-rm-read">
@@ -777,7 +1027,7 @@ export function FilterView() {
           onClick={(e) => openChip("sort")(e.currentTarget)}
         >
           <span className="lb">排序</span>
-          <b>{TASK_SORT_LABEL[sort]}</b>
+          <b>{FILTER_SORT_LABEL[sort]}</b>
           <IconChevron open size={12} className="chev" />
         </button>
       </div>
@@ -825,9 +1075,9 @@ export function FilterView() {
           anchor={pop.anchor}
           overline={{ zh: "排序", latin: "Sort" }}
           label="排序"
-          items={(["smart", "scheduled", "priority", "updated"] as const).map((s: TaskSort) => ({
+          items={FILTER_SORT_ORDER.map((s: FilterListSort) => ({
             key: s,
-            label: TASK_SORT_LABEL[s],
+            label: s === "outline" ? `${FILTER_SORT_LABEL[s]}（預設）` : FILTER_SORT_LABEL[s],
             caps: sort === s ? "✓" : undefined,
             onSelect: () => store().setSort(s),
           }))}

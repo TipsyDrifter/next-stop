@@ -36,7 +36,7 @@ import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { parseRule, type NodeRow } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
-import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
+import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow, totalEstimateMin } from "../../domain/scheduledTime";
 import { dayCountParts, lateCount, lateCountText } from "../../domain/dayCount";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
 import { batchSetDate } from "../../store/batchActions";
@@ -51,15 +51,22 @@ import { LogInlineInput } from "./LogInlineInput";
 import { DeferPopover } from "./DeferPopover";
 import { useTodayController } from "./useTodayController";
 import { useTodayKeyboard } from "./useTodayKeyboard";
-import { indexOfAnchor, useDragReorder } from "../common/dragReorder";
+import { indexOfAnchor, useDragReorder, type DropPlace } from "../common/dragReorder";
 import { useSelectionStore } from "../../store/selectionStore";
 import { SelectionBar } from "../common/selection/SelectionBar";
-import { dragBatch } from "../common/selection/desktopSelection";
-import { lineTodayStats } from "../../lines/runtime";
+import { dismissOnBlankClick, dragBatch } from "../common/selection/desktopSelection";
+import { lineTodayHotkey, lineTodayStats } from "../../lines/runtime";
 import { hotkeyCaps } from "../common/PopMenu";
 import { EmblemMini, PageHeader } from "../common/PageHeader";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
+import { preloadLocalFlag, useLocalFlag } from "../common/useLocalFlag";
+import {
+  DesktopSeatPicker,
+  canActAsSeatSlot,
+  canBeSeatedCandidate,
+  seatTicketFlow,
+} from "../common/seating";
 import { WeekAimsBand } from "../weekAims/WeekAimsBand";
 import { useStationCard } from "../weekAims/StationCard";
 import "./today.css";
@@ -146,30 +153,82 @@ function NowLine({ text }: { text: string }): ReactNode {
   );
 }
 
+const KEY_RANGE_OPEN_DESK = "today_range_open_desk";
+preloadLocalFlag(KEY_RANGE_OPEN_DESK);
+const DEPART_HOTKEY = "timetable.today.depart";
+
 export function TodayView() {
   useHotkeyRevision();
   const containerRef = useRef<HTMLDivElement>(null);
   const c = useTodayController(containerRef);
   const onKeyDown = useTodayKeyboard(c.keys, c.blocked);
-  // 拖曳排序（回饋乙：換成共用元件 useDragReorder；只有 today 分區、沒時刻的票能手排，同 Alt+↑↓ 的 moveToday）
+  const [rangeOpen, setRangeOpen] = useLocalFlag(KEY_RANGE_OPEN_DESK, true);
+  // 拖曳排序（回饋乙：換成共用元件 useDragReorder；只有 today 分區、沒時刻的票能手排，同 Alt+↑↓ 的 moveToday；4C 起亦支援拖入預留席入座）
   const [todayList, setTodayList] = useState<HTMLUListElement | null>(null);
   const [lateList, setLateList] = useState<HTMLUListElement | null>(null);
+  const [rangeList, setRangeList] = useState<HTMLUListElement | null>(null);
   // 已完成開關（回饋甲 D-主-131）：只藏「今天的列車」裡済的票；頁首「完成 d/t」照舊算全部（c.stats 不動）
   const todayHideDone = useUiStore((s) => s.todayHideDone);
   const toggleTodayHideDone = useUiStore((s) => s.toggleTodayHideDone);
+  const rangeTickets = useNodeStore((s) => s.rangeTickets);
+  const runOverrides = useNodeStore((s) => s.runOverrides);
   const doneToday = c.todayRows.filter(isDoneRow).length;
   const shownToday = todayHideDone ? c.todayRows.filter((r) => !isDoneRow(r)) : c.todayRows;
   const manual = manualOrderIds(c.todayRows);
   const picked = useSelectionStore((s) => (s.scope === "today" ? s.ids : null));
+
+  const seatedSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of runOverrides) if (!o.deleted_at && o.seated_node_id) set.add(o.seated_node_id);
+    return set;
+  }, [runOverrides]);
+
+  const hasSeatSlots = useMemo(
+    () => c.rows.some((r) => !r.seated_into && canActAsSeatSlot(r, isSettled(r))),
+    [c.rows],
+  );
+
+  const resolveSeatDrop = (ids: readonly string[], place: DropPlace): true | string => {
+    if (place.kind !== "target" || place.type !== "seat-slot") return true;
+    if (ids.length !== 1) return "一次只能讓一張車票入座";
+    const st = useNodeStore.getState();
+    const ticket = st.today.byId[ids[0]] ?? st.rangeTickets.find((r) => r.id === ids[0]);
+    if (!ticket || !canBeSeatedCandidate(ticket, place.target, seatedSet)) {
+      return "這張車票不能入座（預留席與定期券不能塞進另一個預留席）";
+    }
+    return true;
+  };
+
+  const dropIntoSeat = (slotId: string, ticketId: string) => {
+    const slot = useNodeStore.getState().today.byId[slotId];
+    const dueOn = slot?.occurrence?.due_on ?? slot?.scheduled_on;
+    if (!slot || !dueOn) return;
+    void seatTicketFlow(slotId, dueOn, ticketId, slot.custom_title || slot.name);
+  };
+
   useDragReorder({
     root: todayList,
     // 畫面上有的才給拖（藏起來的済票不在 DOM 裡）；落點換算照舊對全部的手排順序
     items: manual.filter((id) => shownToday.some((r) => r.id === id)).map((id) => ({ id })),
     // 多選裡拖其中一張＝整批（只帶能手排的那幾張；回饋乙 ☎3③）
-    dragIds: (id) => dragBatch("today", id, manual, (x) => manual.includes(x)),
-    canDrag: (id) => (manual.includes(id) ? true : TIME_FIXED_ORDER_MSG),
+    dragIds: (id) => (manual.includes(id) ? dragBatch("today", id, manual, (x) => manual.includes(x)) : [id]),
+    canDrag: (id) => {
+      if (manual.includes(id)) return true;
+      const row = c.todayRows.find((r) => r.id === id);
+      if (hasSeatSlots && row && canBeSeatedCandidate(row, "", seatedSet)) return true;
+      return TIME_FIXED_ORDER_MSG;
+    },
+    resolve: (ids, place) => {
+      if (place.kind === "target" && place.type === "seat-slot") return resolveSeatDrop(ids, place);
+      if (place.kind === "slot" && !ids.every((id) => manual.includes(id))) return TIME_FIXED_ORDER_MSG;
+      return true;
+    },
     onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
     onDrop: (ids, place) => {
+      if (place.kind === "target" && place.type === "seat-slot" && ids[0]) {
+        dropIntoSeat(place.target, ids[0]);
+        return;
+      }
       if (place.kind !== "slot") return;
       // 一張一張放、每張都對最新的順序換算：第一張照落點錨，其餘接在前一張後面（多張一起拖保持相對順序）
       void (async () => {
@@ -188,7 +247,7 @@ export function TodayView() {
       })();
     },
   });
-  // 誤點區的票可單張或多選批量拖進下方「今天的列車」直接排到今天
+  // 誤點區的票可單張或多選批量拖進下方「今天的列車」直接排到今天，或單張拖進預留席入座
   useDragReorder({
     root: lateList,
     items: c.lateRows.map((r) => ({ id: r.id })),
@@ -202,19 +261,48 @@ export function TodayView() {
       if (r && parseRule(r.repeat_rule)) return "定期券誤點班次請點票面原定日推遲";
       return true;
     },
+    resolve: (ids, place) => resolveSeatDrop(ids, place),
     onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
     onDrop: (ids, place) => {
+      if (place.kind === "target" && place.type === "seat-slot" && ids[0]) {
+        dropIntoSeat(place.target, ids[0]);
+        return;
+      }
       if (place.kind === "target" && place.type === "today") {
         void batchSetDate(ids, c.dateKey, "已排到今天");
+      }
+    },
+  });
+  // 期間自由券抽屜亦可拖進「今天的列車」排今天，或拖入預留席入座
+  useDragReorder({
+    root: rangeList,
+    items: rangeTickets.map((r) => ({ id: r.id })),
+    slots: false,
+    canDrag: () => true,
+    resolve: (ids, place) => resolveSeatDrop(ids, place),
+    onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
+    onDrop: (ids, place) => {
+      if (place.kind === "target" && place.type === "seat-slot" && ids[0]) {
+        dropIntoSeat(place.target, ids[0]);
+        return;
+      }
+      if (place.kind === "target" && place.type === "today" && ids[0]) {
+        const row = useNodeStore.getState().rangeTickets.find((r) => r.id === ids[0]);
+        if (row) c.pullToToday(row);
       }
     },
   });
   const stations = useNodeStore((s) => s.stations);
   const routes = useNodeStore((s) => s.routes);
   const todayById = useNodeStore((s) => s.today.byId);
-  const lookupToday = useCallback((id: string) => todayById[id], [todayById]);
-  // 推遲小卡的那一列：⑤ 起由呼叫端注入（小卡不再自己查 today.byId，才共用得了日曆浮層）
-  const deferRow = useNodeStore((s) => (c.deferTarget ? (s.today.byId[c.deferTarget.id] ?? null) : null));
+  const lookupToday = useCallback(
+    (id: string) => todayById[id] ?? rangeTickets.find((r) => r.id === id),
+    [todayById, rangeTickets],
+  );
+  // 推遲小卡的那一列：⑤ 起由呼叫端注入（含期間自由券抽屜列）
+  const deferRow = useNodeStore((s) =>
+    c.deferTarget ? (s.today.byId[c.deferTarget.id] ?? s.rangeTickets.find((r) => r.id === c.deferTarget!.id) ?? null) : null,
+  );
   // 現在（主線②）：赭色、現在線、「下一班」每分鐘自己更新
   const now = useMinuteTick();
   // 現在線、小標的位置照畫面上那幾列算（隱藏已完成時列數變了）；下一班本來就跳過済票，結果一樣
@@ -233,9 +321,11 @@ export function TodayView() {
   // 口徑統一交給 controller 的 c.stats：定期券看班次（済／運休都算已交代），M3 ④。
   const { total, left, allDone } = c.stats;
   const countParts = dayCountParts(c.stats);
+  const plannedMin = totalEstimateMin(c.todayRows);
   const focusMin = c.rows.reduce((sum, r) => sum + (r.time_spent_min ?? 0), 0);
   /** 別線的統計段（插槽 todayStats，接縫 #66）；沒有線填＝空陣列，頁首照舊畫核心「專注」 */
   const lineStats = lineTodayStats("desktop");
+  const departHotkey = lineTodayHotkey(DEPART_HOTKEY);
 
   // 紀念章：全部路線中「預定到站日最近且未到站」的車站（D-③-2 甲；沒有就不畫）。
   // 車庫與回顧 D-主-206 #10：只看還在跑的路線（收進車庫的路線的車站不再預告）
@@ -254,7 +344,7 @@ export function TodayView() {
   // 紀念章點了開車站小卡（方針擴充 辛 §3 #7）
   const stationCard = useStationCard();
 
-  const noRows = c.rows.length === 0 && !c.draft;
+  const noRows = c.rows.length === 0 && rangeTickets.length === 0 && !c.draft;
   const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
 
   // 建票列（回饋甲 D-主-127、128）：預設掛到無路線；Enter 開的＝乘車日今天、Shift+Enter 開的＝無日期（進收件匣）
@@ -278,6 +368,14 @@ export function TodayView() {
         </b>
         <span className="sep">・</span>
         {countParts.tail}
+      </>,
+    );
+  }
+  if (plannedMin > 0) {
+    stats.push(
+      <>
+        {stats.length > 0 && <span className="sep">・</span>}
+        已排 <b>{fmtMinutes(plannedMin)}</b>
       </>,
     );
   }
@@ -318,6 +416,7 @@ export function TodayView() {
       ref={containerRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onClick={dismissOnBlankClick}
       aria-label="今日"
       className="page ns-today"
     >
@@ -532,6 +631,61 @@ export function TodayView() {
                 <QuickAddLauncher label="新增車票…" onOpen={c.openDraft} />
               )}
             </ul>
+
+            {/* ═══ 4B：期間自由券（涵蓋今日）可收合抽屜（0 張時整塊隱藏） ═══ */}
+            {rangeTickets.length > 0 && (
+              <div className="ns-range-drawer">
+                <div className="sec">
+                  <h3>期間自由券</h3>
+                  <span className="rule" />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    aria-expanded={rangeOpen}
+                    aria-label={`期間自由券（涵蓋今日）${rangeTickets.length} 張，${rangeOpen ? "收起" : "展開"}`}
+                    title={rangeOpen ? "收起期間自由券抽屜" : "展開期間自由券抽屜"}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setRangeOpen(!rangeOpen)}
+                    className="note fold"
+                  >
+                    涵蓋今日 {rangeTickets.length} 張
+                    <span className="caret" aria-hidden>
+                      ▾
+                    </span>
+                  </button>
+                </div>
+                {rangeOpen && (
+                  <ul ref={setRangeList} role="listbox" aria-label="期間自由券（涵蓋今日）" className="ticket-list">
+                    {rangeTickets.map((r) => (
+                      <Fragment key={r.id}>
+                        <TodayRow
+                          row={r}
+                          route={c.routeOf(r)}
+                          selected={c.selectedId === r.id}
+                          picked={!!picked?.includes(r.id)}
+                          fresh={c.freshId === r.id}
+                          dateKey={c.dateKey}
+                          actions={c.row}
+                          onFreshEnd={c.clearFresh}
+                          dndProps={{ "data-drag-id": r.id }}
+                          now={now}
+                          menu={(anchor) => c.menuFor(r, anchor)}
+                          rangeDrawer={{
+                            onPullToday: () => c.pullToToday(r),
+                            onDepart: departHotkey ? () => departHotkey(r.id) : undefined,
+                          }}
+                        />
+                        {c.logTarget === r.id && (
+                          <li role="presentation" className="log-row">
+                            <LogInlineInput nodeId={r.id} onDone={c.closeLog} onCancel={c.closeLog} />
+                          </li>
+                        )}
+                      </Fragment>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -558,6 +712,15 @@ export function TodayView() {
       {/* 推遲小卡（WP3 填內容；WP2 是空殼，事件已接）。⑤ 起資料由呼叫端注入（DeferRow） */}
       {c.deferTarget && deferRow && (
         <DeferPopover row={deferRow} anchor={c.deferTarget.anchor} onClose={c.closeDefer} />
+      )}
+      {c.seatTarget && (
+        <DesktopSeatPicker
+          slotId={c.seatTarget.slotId}
+          slotName={c.seatTarget.slotName}
+          dueOn={c.seatTarget.dueOn}
+          anchor={c.seatTarget.anchor}
+          onClose={c.closeSeatPicker}
+        />
       )}
     </section>
     </>

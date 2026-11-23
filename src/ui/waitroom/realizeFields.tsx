@@ -10,7 +10,9 @@
 import type { CompositionEvent, KeyboardEvent, ReactNode } from "react";
 import { DateChip } from "../common/DateChip";
 import { ClockInput } from "../common/ClockInput";
+import { DurationPicker } from "../common/DurationPicker";
 import { Select } from "../common/Select";
+import { groupRoutesByLine } from "../notes/useAttachOptions";
 import { BLOCKED_TEXT, REALIZE_TEXT, type RealizeDraft } from "./waitroomParts";
 
 type Ime = {
@@ -56,21 +58,6 @@ export function RealizeFields({ d, shell, ime }: { d: RealizeDraft; shell: "desk
       />
     );
 
-  const chips = (label: string, items: { id: string | null; name: string }[], value: string | null, pick: (id: string | null) => void) => (
-    <div className="ns-wr-mchips" role="group" aria-label={label}>
-      {items.map((it) => (
-        <button
-          key={it.id ?? "none"}
-          type="button"
-          className={"chip ns-chip" + (value === it.id ? " is-on" : "")}
-          aria-pressed={value === it.id}
-          onClick={() => pick(it.id)}
-        >
-          {it.name}
-        </button>
-      ))}
-    </div>
-  );
   const select = (label: string, value: string, onChange: (v: string) => void, children: ReactNode) => (
     <span className="ns-select-wrap">
       <Select className="techo-input" aria-label={label} value={value} onChange={onChange}>
@@ -78,6 +65,7 @@ export function RealizeFields({ d, shell, ime }: { d: RealizeDraft; shell: "desk
       </Select>
     </span>
   );
+  const routeGroups = groupRoutesByLine(d.liveRoutes, d.liveLines);
   const clock = (label: string, value: number, onChange: (ms: number) => void, last = false) => (
     <ClockInput
       key={`${label}-${d.day}`}
@@ -104,18 +92,20 @@ export function RealizeFields({ d, shell, ime }: { d: RealizeDraft; shell: "desk
         <>
           {field({
             label: "放哪",
-            children: m
-              ? chips("放哪", [{ id: null, name: "收件匣" }, ...d.liveRoutes.map((r) => ({ id: r.id, name: r.name }))], d.routeId, d.setRouteId)
-              : select("放哪", d.routeId ?? "", (v) => d.setRouteId(v || null), (
-                  <>
-                    <option value="">收件匣</option>
-                    {d.liveRoutes.map((r) => (
+            children: select("放哪", d.routeId ?? "", (v) => d.setRouteId(v || null), (
+              <>
+                <option value="">收件匣</option>
+                {routeGroups.map((g) => (
+                  <optgroup key={g.lineId ?? "other"} label={g.header}>
+                    {g.routes.map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.name}
                       </option>
                     ))}
-                  </>
-                )),
+                  </optgroup>
+                ))}
+              </>
+            )),
           })}
           {field({ label: "日期", children: <DateChip date={d.day} onPick={d.setDay} quick="forward" clearable /> })}
         </>
@@ -126,8 +116,6 @@ export function RealizeFields({ d, shell, ime }: { d: RealizeDraft; shell: "desk
           children:
             d.blocked === "noLine" ? (
               <span className="ns-wr-hint">{BLOCKED_TEXT.noLine}</span>
-            ) : m ? (
-              chips("幹線", d.liveLines.map((l) => ({ id: l.id, name: l.name })), d.lineId, (id) => id && d.setLineId(id))
             ) : (
               select("幹線", d.lineId ?? "", d.setLineId, d.liveLines.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -157,27 +145,46 @@ export function RealizeFields({ d, shell, ime }: { d: RealizeDraft; shell: "desk
                 )))
               ),
           })}
-          {d.day &&
-            (m ? (
-              <>
-                {/* 手機：開始、結束各一列（兩顆框並排放不下；常用時刻 chip 不給，起訖靠錶盤） */}
-                {field({ label: "開始", children: clock("開始", d.span.start, d.setStart) })}
-                {field({ label: "結束", children: clock("結束", d.span.end, d.setEnd, true) })}
-              </>
-            ) : (
-              field({
-                label: "起訖",
-                children: (
-                  <span className="ns-wr-span" key={d.day}>
-                    {clock("開始", d.span.start, d.setStart)}
-                    <span className="sep" aria-hidden>
-                      –
+          {d.day && (
+            <>
+              {m ? (
+                <>
+                  {/* 手機：開始、結束各一列（兩顆框並排放不下；常用時刻 chip 不給，起訖靠錶盤） */}
+                  {field({ label: "開始", children: clock("開始", d.span.start, d.setStart) })}
+                  {field({ label: "結束", children: clock("結束", d.span.end, d.setEnd, true) })}
+                </>
+              ) : (
+                field({
+                  label: "起訖",
+                  children: (
+                    <span className="ns-wr-span" key={d.day}>
+                      {clock("開始", d.span.start, d.setStart)}
+                      <span className="sep" aria-hidden>
+                        –
+                      </span>
+                      {clock("結束", d.span.end, d.setEnd, true)}
                     </span>
-                    {clock("結束", d.span.end, d.setEnd, true)}
-                  </span>
+                  ),
+                })
+              )}
+              {field({
+                label: "時長",
+                top: true,
+                children: (
+                  <DurationPicker
+                    value={d.durationMin}
+                    onChange={(min) => {
+                      if (min !== null) d.setDurationMin(min);
+                    }}
+                    allowNull={false}
+                    compact={!m}
+                    liveCommit
+                    ariaLabel="持續時長"
+                  />
                 ),
-              })
-            ))}
+              })}
+            </>
+          )}
           {d.blocked === "badSpan" && <p className="ns-wr-hint is-err">{BLOCKED_TEXT.badSpan}</p>}
         </>
       )}

@@ -65,6 +65,47 @@
 .ns-selbar-pop.is-move { width: 320px; }
 .ns-selbar-pop.is-move .ns-notes-pop.float { top: auto; bottom: 0; left: 0; width: 320px; }
 
+/* 批量設定定期規則小卡＆手機橫向動作條（第二梯 D-FB-4；操作 9） */
+.ns-selbar-repeat {
+  width: 328px; box-sizing: border-box; padding: 12px 14px 10px;
+  display: grid; gap: 10px;
+  background: linear-gradient(var(--float-bg), var(--float-bg)), var(--color-paper);
+  background-color: var(--color-paper);
+}
+.ns-selbar-repeat-desc {
+  margin: -4px 0 0; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-soft);
+}
+.ns-selbar-repeat-grid {
+  display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 8px 10px;
+}
+.ns-selbar-repeat-grid .lbl {
+  font-size: var(--fs-xs); letter-spacing: .12em; color: var(--color-ink-soft); white-space: nowrap;
+}
+.ns-selbar-repeat-grid .inline-num {
+  display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--color-ink);
+}
+.ns-selbar-wk7 { display: flex; flex-wrap: wrap; gap: 4px; }
+.ns-selbar-wk7 button {
+  width: 28px; height: 28px; padding: 0;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: transparent;
+  font-family: var(--font-body); font-size: var(--fs-sm); color: var(--color-ink-soft); cursor: pointer;
+}
+.ns-selbar-wk7 button:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-selbar-wk7 button.is-on {
+  border-color: var(--accent); background: var(--sel-bg); color: var(--sel-fg); font-weight: 600;
+}
+.ns-selbar-wk7.is-mobile button { width: 36px; height: 36px; }
+.ns-selbar-mstep { display: flex; align-items: center; gap: 8px; font-size: var(--fs-body); color: var(--color-ink); }
+
+[data-shell="mobile"] .m-selbar-cnt { flex: none; margin-right: 4px; }
+[data-shell="mobile"] .m-selbar-acts {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; justify-content: flex-end; gap: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+[data-shell="mobile"] .m-selbar-acts::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .m-selbar-acts .m-selbar-ib { width: 44px; }
+
 /* 選取列開著：toast 往上讓（兩條不互蓋；Toast 是 fixed bottom-6） */
 html[data-selbar="desktop"] .ns-toast.fixed { bottom: 78px; }
 

@@ -44,6 +44,12 @@ export const MODE_OPTIONS: readonly { value: EditMode; label: string }[] = [
   { value: "after", label: "完成後間隔" },
 ];
 
+/** 展開重複區塊（定期券）後的模式分段鈕：只列兩種排程（切回一般票直接點上方「票種 → 乘車券／臨時券」） */
+export const ACTIVE_MODE_OPTIONS: readonly { value: Exclude<EditMode, "none">; label: string }[] = [
+  { value: "fixed", label: "固定排程" },
+  { value: "after", label: "完成後間隔" },
+];
+
 export const FREQ_OPTIONS: readonly { value: RepeatFreq; label: string }[] = [
   { value: "daily", label: "每日" },
   { value: "weekly", label: "每週" },

@@ -46,6 +46,7 @@ function CompleteCardInner({ id, className }: { id: string; className?: string }
 
   const [mood, setMood] = useState<Mood | null>(null);
   const [text, setText] = useState("");
+  const cardRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const savingRef = useRef(false);
 
@@ -59,6 +60,19 @@ function CompleteCardInner({ id, className }: { id: string; className?: string }
   }, []);
 
   const close = () => setCompleteCardFor(null);
+
+  // 點外跳過（不阻擋點另一張票的検印圈直接換卡）
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      if (cardRef.current?.contains(t)) return;
+      if (t.closest(".stamp-zone, .stamp, .ns-bd-stamp, .pop-stamp")) return;
+      setCompleteCardFor(null);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, [setCompleteCardFor]);
 
   const save = async () => {
     if (savingRef.current) return;
@@ -86,11 +100,14 @@ function CompleteCardInner({ id, className }: { id: string; className?: string }
     }
   };
 
-  const name = node?.name ?? "這班列車";
-  const kindLabel = node ? KIND_LABEL[node.kind] : "列車";
+  const isTicket = node?.kind === "ticket";
+  const name = node?.name ?? "這張車票";
+  const heading = isTicket ? "乘車完成" : `${node ? KIND_LABEL[node.kind] : "列車"}到站`;
+  const placeholder = isTicket ? "記一句剛才的乘務感想…（選填）" : "這一趟做了什麼？（選填）";
 
   return (
     <div
+      ref={cardRef}
       role="dialog"
       aria-label={`完成卡：${name}`}
       onKeyDown={onKeyDown}
@@ -105,7 +122,7 @@ function CompleteCardInner({ id, className }: { id: string; className?: string }
       </div>
 
       <div className="body">
-        <span className="fare-class">{kindLabel}到站</span>
+        <span className="fare-class">{heading}</span>
         <p className="title">{name}</p>
 
         <div className="meta">
@@ -135,7 +152,7 @@ function CompleteCardInner({ id, className }: { id: string; className?: string }
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="這一趟做了什麼？（選填）"
+            placeholder={placeholder}
             aria-label="一行工作日誌"
             spellCheck={false}
             autoComplete="off"

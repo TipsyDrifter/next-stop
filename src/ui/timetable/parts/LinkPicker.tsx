@@ -31,6 +31,8 @@ import { useNodeStore } from "../../../store/nodeStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { EmptyState } from "../../common/EmptyState";
 import { roundelStyle } from "../../common/roundel";
+import { Select } from "../../common/Select";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { useTodayTicketRows } from "./TodayTickets";
 
 /**
@@ -313,11 +315,29 @@ export interface LinkPickerProps {
 export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
   const rows = useTodayTicketRows(true);
   // 「只連路線」只列還在跑的路線（車庫與回顧 D-主-206 #12：收進車庫的不再新掛）
+  const lines = useNodeStore((s) => s.liveLines);
   const routes = useNodeStore((s) => s.liveRoutes);
   const branches = useLiveBranches(routes);
+  const routeGroups = useMemo(() => groupRoutesByLine(routes, lines), [routes, lines]);
+  const branchesByRoute = useMemo(() => {
+    const m = new Map<string, NodeRow[]>();
+    for (const b of branches) {
+      if (!b.route_id) continue;
+      const list = m.get(b.route_id);
+      if (list) list.push(b);
+      else m.set(b.route_id, [b]);
+    }
+    return m;
+  }, [branches]);
   const routeById = useRouteById();
   const catById = useTimetableStore((s) => s.catById);
   const cur = value && (value.nodeId !== null || value.routeId !== null) ? value : null;
+  const routeSelectValue = useMemo(() => {
+    if (!cur) return "";
+    if (cur.nodeId === null && cur.routeId && routes.some((r) => r.id === cur.routeId)) return `r:${cur.routeId}`;
+    if (cur.nodeId !== null && branches.some((b) => b.id === cur.nodeId)) return `b:${cur.nodeId}`;
+    return "";
+  }, [cur, routes, branches]);
 
   const [q, setQ] = useState("");
   const [composing, setComposing] = useState(false);
@@ -483,39 +503,42 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
                 {TT_TEXT.LINK_ROUTE_ONLY}
                 <span>不指定車票，直接記在這條路線或支線下</span>
               </div>
-              <div className="ns-tt-link-routes">
-                {routes.map((r) => {
-                  const on = cur !== null && cur.nodeId === null && cur.routeId === r.id;
-                  return (
-                    <button
-                      type="button"
-                      key={r.id}
-                      className={"ns-tt-link-rk" + (on ? " is-on" : "")}
-                      aria-pressed={on}
-                      onClick={() => onPick({ nodeId: null, routeId: r.id })}
-                    >
-                      <RouteRoundel route={r} />
-                      <span>{r.name}</span>
-                    </button>
-                  );
-                })}
-                {branches.map((b) => {
-                  const on = cur !== null && cur.nodeId === b.id;
-                  const r = b.route_id ? (routeById[b.route_id] ?? null) : null;
-                  return (
-                    <button
-                      type="button"
-                      key={b.id}
-                      className={"ns-tt-link-rk" + (on ? " is-on" : "")}
-                      aria-pressed={on}
-                      onClick={() => pickNode(b)}
-                    >
-                      <RouteRoundel route={r} />
-                      <span>{r ? `${r.name} › ${b.name}` : b.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <span className="ns-select-wrap ns-tt-link-select">
+                <Select
+                  className="techo-input"
+                  aria-label={TT_TEXT.LINK_ROUTE_ONLY}
+                  value={routeSelectValue}
+                  onChange={(val) => {
+                    if (!val) {
+                      onPick(null);
+                      return;
+                    }
+                    if (val.startsWith("r:")) {
+                      onPick({ nodeId: null, routeId: val.slice(2) });
+                    } else if (val.startsWith("b:")) {
+                      const bid = val.slice(2);
+                      const b = branches.find((x) => x.id === bid);
+                      if (b) pickNode(b);
+                    }
+                  }}
+                >
+                  <option value="">選擇路線或支線…</option>
+                  {routeGroups.map((g) => (
+                    <optgroup key={g.lineId ?? "other"} label={g.header}>
+                      {g.routes.flatMap((r) => [
+                        <option key={`r:${r.id}`} value={`r:${r.id}`}>
+                          {r.code ? `${r.code} ${r.name}` : r.name}
+                        </option>,
+                        ...(branchesByRoute.get(r.id) ?? []).map((b) => (
+                          <option key={`b:${b.id}`} value={`b:${b.id}`}>
+                            {`　› ${b.name}（支線）`}
+                          </option>
+                        )),
+                      ])}
+                    </optgroup>
+                  ))}
+                </Select>
+              </span>
             </>
           )}
         </>

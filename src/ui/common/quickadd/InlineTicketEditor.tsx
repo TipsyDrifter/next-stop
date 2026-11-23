@@ -14,9 +14,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { tagRepo } from "../../../data/tagRepo";
 import type { NodeRow } from "../../../domain";
+import { moveTargetRule } from "../../../domain/moveTo";
 import type { AttachTarget } from "../../../domain/notes";
 import { useNodeStore } from "../../../store/nodeStore";
+import { useSelectionStore } from "../../../store/selectionStore";
 import { useTagStore } from "../../../store/tagStore";
+import type { AttachKind } from "../../notes/useAttachOptions";
 import type { CommitVia } from "../InlineInput";
 import { QuickChips, QuickField } from "./QuickAddParts";
 import { QuickPickers } from "./QuickAddPickers";
@@ -77,7 +80,9 @@ export function InlineTicketEditor({
   const defaults = useMemo(
     () => ({
       dest: movable ? (hereDest as QuickDest) : NO_DEST,
+      stationId: node.station_id,
       scheduledOn: node.scheduled_on,
+      scheduledEnd: node.scheduled_end,
       scheduledTime: node.scheduled_time,
       estimateMin: node.estimate_min,
       dueOn: node.due_on,
@@ -85,14 +90,38 @@ export function InlineTicketEditor({
       tags: initialTags,
       noDateLabel: false,
     }),
-    [movable, hereDest, node.scheduled_on, node.scheduled_time, node.estimate_min, node.due_on, node.priority, initialTags],
+    [
+      movable,
+      hereDest,
+      node.station_id,
+      node.scheduled_on,
+      node.scheduled_end,
+      node.scheduled_time,
+      node.estimate_min,
+      node.due_on,
+      node.priority,
+      initialTags,
+    ],
   );
+
+  const moveRule = useMemo(() => moveTargetRule(node.kind), [node.kind]);
+  const wasPlaceholder = Boolean(node.is_placeholder);
 
   const api = useQuickAdd({
     defaults,
-    positional: { kind: node.kind },
-    initialText: node.name,
-    initialSyncDue: Boolean(node.due_on && node.scheduled_on && node.due_on === node.scheduled_on),
+    inlineEdit: {
+      kind: node.kind,
+      allowDest: movable,
+      excludeId: node.id,
+      allowedDestKinds: moveRule?.depth === "node" ? (moveRule.kinds as AttachKind[]) : undefined,
+      routeSelectable: moveRule ? (moveRule.routeSelectable ?? moveRule.depth === "route") : false,
+    },
+    initialText: wasPlaceholder ? "" : node.name,
+    initialSyncDue: Boolean(
+      node.due_on &&
+        node.scheduled_on &&
+        (node.due_on === (node.scheduled_end ?? node.scheduled_on) || node.due_on === node.scheduled_on),
+    ),
     here: { kind: "none" },
   });
 
@@ -102,6 +131,7 @@ export function InlineTicketEditor({
   const openRef = useRef(open);
   openRef.current = open;
   const savingRef = useRef(false);
+  const outsidePressAtRef = useRef(0);
 
   const refocus = useCallback(() => {
     const el = inputRef.current;
@@ -109,6 +139,29 @@ export function InlineTicketEditor({
     el.focus({ preventScroll: true });
     el.setSelectionRange(el.value.length, el.value.length);
   }, []);
+
+  // 操作 3（互斥）：開啟雙擊行內編輯時，自動退出多選
+  useEffect(() => {
+    if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
+  }, []);
+
+  // 記錄子浮層開啟期間最後一次指標按下是否落在整個行內編輯框＋浮層之外
+  useEffect(() => {
+    if (!open) {
+      outsidePressAtRef.current = 0;
+      return;
+    }
+    const onDown = (e: PointerEvent | MouseEvent) => {
+      const t = e.target;
+      outsidePressAtRef.current = t instanceof Element && !isInside(t, rootRef.current) ? Date.now() : 0;
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("mousedown", onDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("mousedown", onDown, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     const el = inputRef.current;
@@ -131,10 +184,18 @@ export function InlineTicketEditor({
     try {
       const { api: a, node: n, onClose: close, onCommitNext: next, hereDest: here, movable: canMove } = live.current;
       const v = a.values;
-      const name = v.name.trim() || n.name;
+      const typedName = v.name.trim();
+      const name = typedName || n.name;
+      const promotePlaceholder = Boolean(n.is_placeholder) && Boolean(typedName);
+      // 掛到（v1.31）：膠囊改過、而且真的換了地方才搬（moveNodeTo 自己出 toast＋復原）；先搬再寫欄位，避免換路線時洗掉剛選的新車站
+      const needMove = canMove && v.on.has("dest") && !sameDest(v.dest, here);
+      const moved = needMove ? await reattachTo(n, v.dest.routeId ? { routeId: v.dest.routeId, nodeId: v.dest.nodeId } : null) : true;
       await useNodeStore.getState().updateNode(n.id, {
         name,
+        ...(promotePlaceholder ? { is_placeholder: null } : {}),
+        station_id: needMove && !moved ? n.station_id : v.stationId,
         scheduled_on: v.scheduledOn,
+        scheduled_end: v.scheduledEnd,
         scheduled_time: v.scheduledTime,
         estimate_min: v.estimateMin,
         due_on: v.dueOn,
@@ -143,10 +204,6 @@ export function InlineTicketEditor({
       if (v.on.has("tags")) {
         await tagRepo.setTags("node", n.id, v.tags);
         await useTagStore.getState().loadIndex();
-      }
-      // 掛到（v1.31）：膠囊改過、而且真的換了地方才搬（moveNodeTo 自己出 toast＋復原）；routeId null＝摘掉路線變臨時車票
-      if (canMove && v.on.has("dest") && !sameDest(v.dest, here)) {
-        await reattachTo(n, v.dest.routeId ? { routeId: v.dest.routeId, nodeId: v.dest.nodeId } : null);
       }
       close();
       if (via === "ctrl-enter") next?.();
@@ -181,6 +238,27 @@ export function InlineTicketEditor({
     }, 60);
   };
 
+  const handlePickerDismiss = () => {
+    const clickedOutside = Date.now() - outsidePressAtRef.current < 400;
+    outsidePressAtRef.current = 0;
+    openRef.current = null;
+    setOpen(null);
+    if (clickedOutside) {
+      window.setTimeout(() => {
+        const root = rootRef.current;
+        if (!root?.isConnected || !document.hasFocus() || openRef.current) return;
+        const a = document.activeElement;
+        if (a instanceof Element && isInside(a, root)) return;
+        void saveAndClose("blur");
+      }, 60);
+      return;
+    }
+    window.setTimeout(() => {
+      const a = document.activeElement;
+      if (!a || a === document.body) refocus();
+    }, 0);
+  };
+
   return (
     <div
       ref={rootRef}
@@ -196,30 +274,16 @@ export function InlineTicketEditor({
         <QuickField
           api={api}
           inputRef={inputRef}
-          placeholder="車票名稱…"
+          placeholder={
+            wasPlaceholder
+              ? `填入具體內容（目前預留：${node.name}）…`
+              : compact
+                ? "車票名稱…（@ # 本週 =）"
+                : "車票名稱…（可打 @路線 #荷札 14:00-15:30 10/2~10/4 =）"
+          }
           ariaLabel="行內編輯：名稱與快速語法"
           onKeyDown={onKeyDown}
         />
-        <div className="ns-qa-inline-acts">
-          <button
-            type="button"
-            className="ns-btn btn-seal ns-qa-inline-save"
-            title="Enter 儲存 · Esc 取消"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={(e) => void saveAndClose(e.ctrlKey || e.metaKey ? "ctrl-enter" : "enter")}
-          >
-            儲存
-          </button>
-          <button
-            type="button"
-            className="ns-btn btn-ghost ns-qa-inline-cancel"
-            title="Esc 取消"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onClose()}
-          >
-            取消
-          </button>
-        </div>
       </div>
       <QuickChips
         api={api}
@@ -230,12 +294,22 @@ export function InlineTicketEditor({
         open={open?.key ?? null}
         keepFocus
         onOpen={(key, anchor) => setOpen((cur) => (cur?.key === key ? null : { key, anchor }))}
+        trailing={
+          <span
+            className="ns-qa-inline-hint"
+            aria-hidden
+            title="Enter 儲存 · Ctrl+Enter 儲存並換下一筆 · 點外面自動儲存 · Esc 取消"
+          >
+            {compact ? "Esc 取消" : "Enter 儲存 · Esc 取消"}
+          </span>
+        }
       />
       <QuickPickers
         api={api}
         open={open && open.key !== "dest" ? open.key : null}
         anchor={open?.anchor ?? null}
         onClose={() => setOpen(null)}
+        onDismiss={handlePickerDismiss}
         refocus={refocus}
       />
       {/* 掛到（v1.31）：改掛專用挑選器，只回報挑了什麼——存檔時才搬 */}
@@ -244,17 +318,13 @@ export function InlineTicketEditor({
           node={node}
           anchor={open.anchor}
           onPick={(t: AttachTarget | null) => {
+            outsidePressAtRef.current = 0;
+            openRef.current = null;
+            setOpen(null);
             api.setDest(t ? (t as QuickDest) : NO_DEST);
             window.setTimeout(refocus, 0);
           }}
-          onClose={() => {
-            setOpen(null);
-            // 沒挑就收（Esc、點外面）：焦點掉到 body 才拉回輸入框（同 QuickPickers 的 dismiss）
-            window.setTimeout(() => {
-              const a = document.activeElement;
-              if (!a || a === document.body) refocus();
-            }, 0);
-          }}
+          onClose={handlePickerDismiss}
         />
       )}
     </div>

@@ -14,6 +14,7 @@ import {
   SUB_ROW,
   TOP_COL,
   boardCards,
+  effectiveStation,
   resolveTrainDrop,
   stationColumns,
   statusColumns,
@@ -23,6 +24,7 @@ import {
   type BoardStatus,
   type BoardTree,
 } from "../../domain/board";
+import { matchesStationFilter } from "../../domain/stationTrack";
 import { compareSiblings } from "../../domain/nodeOrder";
 import { isTaskDone, type OccurrenceLike } from "../../domain/taskFilter";
 
@@ -67,6 +69,8 @@ export interface RouteBoardInput {
   occurrences: Readonly<Record<string, OccurrenceLike | undefined>>;
   group: BoardGroup;
   hideDone: boolean;
+  /** 站點軌道條的單站篩選（null＝全部；NO_STATION_COL＝還沒排站；站 id＝該站） */
+  filterStationId?: string | null;
 }
 
 const md = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
@@ -83,13 +87,35 @@ function stationNote(s: NodeRow, nextId: string | null): string | undefined {
   return s.expected_on ? `預定 ${md(s.expected_on)}` : undefined;
 }
 
-export function useRouteBoard({ tree, routeId, zoom, rootIds, stations, occurrences, group, hideDone }: RouteBoardInput) {
+export function useRouteBoard({
+  tree,
+  routeId,
+  zoom,
+  rootIds,
+  stations,
+  occurrences,
+  group,
+  hideDone,
+  filterStationId = null,
+}: RouteBoardInput) {
   return useMemo(() => {
     const done = (n: NodeRow) => isTaskDone(n, occurrences[n.id]);
-    const count = (cards: readonly BoardCard<NodeRow>[]) => ({ total: cards.length, done: cards.filter((c) => done(c.node)).length });
-    const visible = (cards: readonly BoardCard<NodeRow>[]) => (hideDone ? cards.filter((c) => !done(c.node)) : cards);
+    const count = (cards: readonly BoardCard<NodeRow>[]) => ({
+      total: cards.filter((c) => c.node.kind !== "branch").length,
+      done: cards.filter((c) => c.node.kind !== "branch" && done(c.node)).length,
+    });
+    const visible = (cards: readonly BoardCard<NodeRow>[]) =>
+      hideDone ? cards.filter((c) => c.node.kind === "branch" || !done(c.node)) : cards;
     const asRows = (cards: readonly BoardCard<NodeRow>[]): BoardRow[] => cards.map((card) => ({ type: "card", card }));
-    const allCards = boardCards(tree, rootIds);
+
+    const list = routeStations(stations, routeId);
+    const stationMap = new Map(list.map((s) => [s.id, s]));
+    const filterTarget = filterStationId === NO_STATION_COL ? null : filterStationId;
+    const matchesCard = (n: NodeRow) =>
+      filterStationId === null ? true : effectiveStation(n, stationMap, tree.byId) === filterTarget;
+
+    const rawCards = boardCards(tree, rootIds, [], group === "station" ? { includeEmptyBranches: true } : undefined);
+    const allCards = filterStationId === null ? rawCards : rawCards.filter((c) => matchesCard(c.node));
 
     let columns: BoardColumnModel[];
     if (group === "status") {
@@ -98,9 +124,8 @@ export function useRouteBoard({ tree, routeId, zoom, rootIds, stations, occurren
         return { key: c.status, title: STATUS_COLUMN_LABEL[c.status], status: c.status, shut, rows: shut ? [] : asRows(c.cards), ...count(c.cards) };
       });
     } else if (group === "station") {
-      const list = routeStations(stations, routeId);
       const nextId = list.find((s) => !s.arrived_on)?.id ?? null;
-      columns = stationColumns(allCards, list).map((c) =>
+      const builtCols = stationColumns(rawCards, list, tree.byId).map((c) =>
         c.station
           ? {
               key: c.station.id,
@@ -114,9 +139,13 @@ export function useRouteBoard({ tree, routeId, zoom, rootIds, stations, occurren
             }
           : { key: NO_STATION_COL, title: "還沒排站", station: null, rows: asRows(visible(c.cards)), ...count(c.cards) },
       );
+      columns = filterStationId === null ? builtCols : builtCols.filter((c) => c.key === filterStationId);
     } else {
-      columns = trainColumns(tree, rootIds).map((c) => {
-        const cards = visible(c.cards);
+      const filteredRoots =
+        filterStationId === null ? rootIds : rootIds.filter((id) => matchesStationFilter(id, filterStationId, tree, stationMap));
+      columns = trainColumns(tree, filteredRoots).map((c) => {
+        const holderCards = filterStationId === null ? c.cards : c.cards.filter((x) => matchesCard(x.node));
+        const cards = visible(holderCards);
         // 直屬的在前、車廂一段一段（同一節車廂的票在 DFS 裡本來就連著）
         const rows: BoardRow[] = asRows(cards.filter((x) => !x.crumb.length));
         let sub: string | null = null;
@@ -136,14 +165,15 @@ export function useRouteBoard({ tree, routeId, zoom, rootIds, stations, occurren
             pre: zoom ? "直屬" : "最上層",
             holder: null,
             rows,
-            ...count(c.cards),
+            ...count(holderCards),
           };
         }
-        return { key: c.holder.id, title: c.holder.name, pre: c.holder.kind === "branch" ? "支線" : undefined, holder: c.holder, rows, ...count(c.cards) };
+        return { key: c.holder.id, title: c.holder.name, pre: c.holder.kind === "branch" ? "支線" : undefined, holder: c.holder, rows, ...count(holderCards) };
       });
     }
 
     const cardRows = columns.flatMap((c) => c.rows.flatMap((r) => (r.type === "card" ? [r.card] : [])));
+    const countableCards = allCards.filter((c) => c.node.kind !== "branch");
     return {
       columns,
       /** 看得到的卡（畫面順序）：多選、全選用 */
@@ -151,10 +181,10 @@ export function useRouteBoard({ tree, routeId, zoom, rootIds, stations, occurren
       /** 拖曳清單（含依列車的小標假列） */
       items: columns.flatMap((c) => c.rows.map((r) => ({ id: r.type === "card" ? r.card.node.id : r.id }))),
       /** 範圍內全部的卡（含隱藏的）：済 N 的 N */
-      doneCount: allCards.filter((c) => done(c.node)).length,
-      cardCount: allCards.length,
+      doneCount: countableCards.filter((c) => done(c.node)).length,
+      cardCount: countableCards.length,
       topId: zoom ? zoom.id : routeId,
       topKind: zoom ? zoom.kind : ("route" as const),
     };
-  }, [tree, routeId, zoom, rootIds, stations, occurrences, group, hideDone]);
+  }, [tree, routeId, zoom, rootIds, stations, occurrences, group, hideDone, filterStationId]);
 }

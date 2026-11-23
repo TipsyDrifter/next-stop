@@ -17,17 +17,24 @@
  * 返回層：改的面板 "core.waitroom.sheet"、實現的面板 "core.waitroom.realize"、管番線 "core.waitroom.kinds"
  * （本檔登記，面板 MSheet 給同一個 backId 合併成一層）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTicketStore } from "../../store/ticketStore";
 import { readLastNav, writeLastNav } from "../../store/uiStore";
 import { useTagStore } from "../../store/tagStore";
 import { useBackLayer } from "../mobile/backStack";
+import { SelectCheck } from "../mobile/mobileSelect";
 import { indexOfAnchor, useDragReorder } from "../common/dragReorder";
 import { IconGear, IconPlus } from "../common/icons";
 import { Select } from "../common/Select";
+import { runOnBlankClick } from "../common/selection/desktopSelection";
 import { WISH_ACTION_LABEL, moneyText, type WishRow } from "../../domain/ticket";
 import { useImeGuard } from "../ticket/dialogs/dialogBits";
 import { bootWaitroom, buyFromWaitroom, gotoRealized } from "./waitroomActs";
+import {
+  MobileWaitroomSelectionBar,
+  usePruneWaitroomSelection,
+  useWaitroomSelectStore,
+} from "./WaitroomSelectionBar";
 import {
   KindChips,
   KindMark,
@@ -67,6 +74,12 @@ export default function MobileWaitroom() {
     writeLastNav({ waitroomFilter: next });
   };
   const { shown, move } = useShown(filter);
+  const shownIds = useMemo(() => shown.map((w) => w.id), [shown]);
+  usePruneWaitroomSelection(shownIds);
+  const selIds = useWaitroomSelectStore((s) => s.ids);
+  const mobileMode = useWaitroomSelectStore((s) => s.mobileMode);
+  const selecting = mobileMode || selIds.length > 0;
+  const selSet = useMemo(() => new Set(selIds), [selIds]);
   const filtered = filter !== "all";
 
   useEffect(() => {
@@ -128,17 +141,24 @@ export default function MobileWaitroom() {
 
   /** 實現鈕：記一筆＝回售票口；其他＝開實現面板（從改的面板按的，先收改的面板） */
   const act = (w: WishRow) => {
+    useWaitroomSelectStore.getState().clear();
     setEditId(null);
     if (actionOf(w) === "entry") buyFromWaitroom(w.id);
     else setRealizeId(w.id);
   };
 
-  /* ── 長按拖曳（只在「全部」籤下） ── */
+  /* ── 長按拖曳（只在「全部」籤下；原地放開＝進多選） ── */
   const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
   useDragReorder({
     root: listEl,
     items: shown.map((w) => ({ id: w.id })),
+    disabled: selecting,
     canDrag: () => (filtered ? "回到「全部」再拖" : true),
+    onPressRelease: (id) => {
+      setEditId(null);
+      setRealizeId(null);
+      useWaitroomSelectStore.getState().start(id);
+    },
     onDrop: (ids, place) => {
       if (place.kind !== "slot") return;
       const latest = useTicketStore.getState().wish.want.map((w) => w.id);
@@ -154,24 +174,43 @@ export default function MobileWaitroom() {
   const row = (w: WishRow) => {
     const action = actionOf(w);
     const label = WISH_ACTION_LABEL[action];
+    const picked = selSet.has(w.id);
     return (
-      <li key={w.id} className="ns-wr-mrow" data-drag-id={w.id}>
-        <span className={"grip" + (filtered ? " is-off" : "")} aria-hidden>
-          <IconGrip />
-        </span>
+      <li
+        key={w.id}
+        className={"ns-wr-mrow" + (selecting ? " is-selecting" : "") + (picked ? " is-picked" : "")}
+        data-drag-id={w.id}
+        onClick={selecting ? () => useWaitroomSelectStore.getState().toggle(w.id, shownIds) : undefined}
+      >
+        {selecting ? (
+          <SelectCheck picked={picked} />
+        ) : (
+          <span className={"grip" + (filtered ? " is-off" : "")} aria-hidden>
+            <IconGrip />
+          </span>
+        )}
         <KindMark kind={kindById[w.kind_id]} />
         {/* 點列＝改（不用 button：長按要能從這裡起拖；共用拖曳元件在按鈕上按下不起拖） */}
         <div
           className="main"
           role="button"
           tabIndex={0}
-          aria-haspopup="dialog"
-          aria-label={`改「${w.name}」`}
-          onClick={() => setEditId(w.id)}
+          aria-haspopup={selecting ? undefined : "dialog"}
+          aria-pressed={selecting ? picked : undefined}
+          aria-label={selecting ? `${picked ? "取消選取" : "選取"}「${w.name}」` : `改「${w.name}」`}
+          onClick={(e) => {
+            if (selecting) {
+              e.stopPropagation();
+              useWaitroomSelectStore.getState().toggle(w.id, shownIds);
+              return;
+            }
+            setEditId(w.id);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              setEditId(w.id);
+              if (selecting) useWaitroomSelectStore.getState().toggle(w.id, shownIds);
+              else setEditId(w.id);
             }
           }}
         >
@@ -190,30 +229,61 @@ export default function MobileWaitroom() {
             </span>
           )}
         </div>
-        <button
-          type="button"
-          className="ns-btn btn-ghost act"
-          aria-haspopup={action === "entry" ? undefined : "dialog"}
-          aria-label={`${label}：「${w.name}」`}
-          onClick={() => act(w)}
-        >
-          {label}
-        </button>
+        {!selecting && (
+          <button
+            type="button"
+            className="ns-btn btn-ghost act"
+            aria-haspopup={action === "entry" ? undefined : "dialog"}
+            aria-label={`${label}：「${w.name}」`}
+            onClick={() => act(w)}
+          >
+            {label}
+          </button>
+        )}
       </li>
     );
   };
 
   return (
-    <div className="m-page ns-waitroom ns-waitroom-m" aria-label="候車室">
-      <div className="ns-wr-mhead">
-        <p className="ns-wr-msum">
-          <WaitroomStats />
-        </p>
-        <button type="button" className="ns-wr-mmanage" aria-haspopup="dialog" onClick={() => setManageOpen(true)}>
-          <IconGear size={14} />
-          管番線
-        </button>
-      </div>
+    <>
+      <div
+        className="m-page ns-waitroom ns-waitroom-m"
+        aria-label="候車室"
+        onClick={(e) => {
+          if (selecting) {
+            runOnBlankClick(e, ".ns-wr-mlist > li, .ns-wr-madd, .ns-wr-chips, .ns-wr-mhead", () =>
+              useWaitroomSelectStore.getState().clear(),
+            );
+          }
+        }}
+      >
+        <div className="ns-wr-mhead">
+          <p className="ns-wr-msum">
+            <WaitroomStats />
+          </p>
+          {shown.length > 0 && (
+            <button
+              type="button"
+              className="ns-wr-mmanage"
+              aria-pressed={selecting}
+              onClick={() => useWaitroomSelectStore.getState().setMobileMode(!selecting)}
+            >
+              {selecting ? "完成" : "選取"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="ns-wr-mmanage is-sub"
+            aria-haspopup="dialog"
+            onClick={() => {
+              useWaitroomSelectStore.getState().clear();
+              setManageOpen(true);
+            }}
+          >
+            <IconGear size={14} />
+            管番線
+          </button>
+        </div>
       <div className="ns-wr-paper ns-wr-mcard">
         <KindChips value={filter} onChange={setFilter} />
         <div className={"ns-wr-madd" + (entry ? " has-amt" : "")}>
@@ -307,6 +377,8 @@ export default function MobileWaitroom() {
           return a === "entry" ? null : <RealizeSheet wish={realizing} action={a} onClose={() => setRealizeId(null)} />;
         })()}
       {manageOpen && <KindManagerSheet onClose={() => setManageOpen(false)} />}
-    </div>
+      </div>
+      <MobileWaitroomSelectionBar visibleIds={shownIds} />
+    </>
   );
 }

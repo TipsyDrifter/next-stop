@@ -9,14 +9,18 @@
 import { nowUtcIso, uuid } from "../lib/db";
 import { addDays, dayWindow, todayKey } from "../lib/date";
 import {
+  TIME_OVERRIDE_INHERIT_HHMM,
   TIME_REPEAT_ONLY_MSG,
   assertClockWritable,
   hasRepeatRule,
   manualOrderIds,
   parseTimeOverrides,
+  type RunOverrideRecord,
   type TimeOverrideRow,
 } from "../domain/scheduledTime";
+import { compareRangeDrawerRows, normalizeDateRange } from "../domain/dateRange";
 import { promotedKindForParent } from "../domain/node";
+import { dedupeSubtreeRoots } from "../domain/moveTo";
 import {
   KIND_LABEL,
   allowedChildKinds,
@@ -74,6 +78,7 @@ import {
 import { keysForSlot, planSortKeyBackfill, slotFromAnchor, type KeyWrite } from "../domain/nodeSortKey";
 import { STARTER_LINES } from "../domain/starterLines";
 import {
+  applyTodaySeating,
   attachTimeOverrides,
   backfillAtOf,
   buildCalendar,
@@ -105,9 +110,9 @@ import type { SettingsRepository } from "./settingsRepository";
 
 // repeat_rule 不在這裡：寫規則的唯一入口是 setRepeatRule（patch 收到會改道，M3 ④）
 const PATCHABLE = new Set<string>([
-  "name", "description", "color", "code", "status", "scheduled_on", "due_on", "priority",
+  "name", "description", "color", "code", "status", "scheduled_on", "scheduled_end", "due_on", "priority",
   "estimate_min", "progress", "time_spent_min", "mood", "expected_on", "arrived_on",
-  "carried_from", "route_id", "scheduled_time", "today_position", "station_id",
+  "carried_from", "route_id", "scheduled_time", "today_position", "station_id", "is_placeholder",
 ]);
 
 const isAlive = (n: { deleted_at: string | null }): boolean => n.deleted_at === null;
@@ -138,7 +143,17 @@ export class MemoryNodeRepository implements NodeRepository {
    * 讀取面：`NodeRow.time_overrides` 在這裡當**推導快取**存著（列一變就重摺，見 refreshOverrides），讀取路徑照舊複製節點即可；
    * SQLite 版則是每次讀取時從列摺（舊欄停用）。兩邊摺法同一支 attachTimeOverrides。
    */
-  private readonly ovr = new Map<string, TimeOverrideRow & { created_at: string; updated_at: string }>();
+  private readonly ovr = new Map<
+    string,
+    TimeOverrideRow & {
+      id: string;
+      custom_title: string | null;
+      seated_node_id: string | null;
+      deleted_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+  >();
   /** 存量搬移做過了沒（SQLite 版是 settings 的本地鍵；記憶體版不持久化，記在實例上） */
   private ovrBackfilled = false;
   /** 排序鍵存量回填做過了沒（同 ovrBackfilled，記在實例上） */
@@ -184,8 +199,10 @@ export class MemoryNodeRepository implements NodeRepository {
 
   async listTaskHolders(): Promise<TaskHolderRow[]> {
     this.ensureLeafTicketBackfill();
+    this.backfillSortKeys();
     return this.alive()
       .filter((n) => n.kind === "branch" || n.kind === "train" || n.kind === "car")
+      .sort(compareSiblings)
       .map((n) => ({ id: n.id, name: n.name, parent_id: n.parent_id }));
   }
 
@@ -238,7 +255,18 @@ export class MemoryNodeRepository implements NodeRepository {
     const node = this.nodes.get(id);
     if (!node) throw new Error("節點不存在");
     if (node.kind === kind) return;
-    const parent = node.parent_id ? (this.nodes.get(node.parent_id) ?? null) : null;
+    // 操作 2：根層帶路線標籤的車票（parent_id=null, route_id!=null）轉支線／列車時，同步將 parent_id 寫為 route_id
+    let parent = node.parent_id ? (this.nodes.get(node.parent_id) ?? null) : null;
+    let attachRouteId: string | undefined;
+    let attachLineId: string | null | undefined;
+    if (!parent && node.kind === "ticket" && node.route_id && (kind === "branch" || kind === "train")) {
+      const route = this.nodes.get(node.route_id) ?? null;
+      if (route && isAlive(route) && route.kind === "route") {
+        parent = route;
+        attachRouteId = route.id;
+        attachLineId = route.line_id;
+      }
+    }
     if (!allowedChildKinds(parent ? parent.kind : null).includes(kind) && !(parent?.kind === "route" && kind === "ticket")) {
       throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${parent ? KIND_LABEL[parent.kind] : "根層"} 底下`);
     }
@@ -248,7 +276,8 @@ export class MemoryNodeRepository implements NodeRepository {
     if ("why" in plan) throw new Error(plan.why);
     const now = this.now();
     const cleared = kind === "branch" ? { scheduled_on: null, due_on: null, scheduled_time: null, repeat_rule: null } : {};
-    this.nodes.set(id, { ...node, kind, ...cleared, updated_at: now });
+    const attached = attachRouteId ? { parent_id: attachRouteId, line_id: attachLineId ?? null } : {};
+    this.nodes.set(id, { ...node, kind, ...attached, ...cleared, updated_at: now });
     for (const k of kids) {
       const to = plan.swaps[k.kind];
       if (to) this.nodes.set(k.id, { ...k, kind: to, updated_at: now });
@@ -277,10 +306,19 @@ export class MemoryNodeRepository implements NodeRepository {
   async moveMany(items: readonly MoveManyItem[], anchor: SlotAnchor): Promise<void> {
     if (!items.length) return;
     this.backfillSortKeys();
-    const ids = items.map((x) => x.id);
-    if (new Set(ids).size !== ids.length) throw new Error("同一個項目選了兩次");
+    const rawIds = items.map((x) => x.id);
+    if (new Set(rawIds).size !== rawIds.length) throw new Error("同一個項目選了兩次");
+    // Bug 1 ＋ 操作 8：樹祖先去重，祖先與子孫同時傳入時剔除子孫，整棵子樹隨祖先原封不動搬遷
+    const rootIdSet = new Set(
+      dedupeSubtreeRoots(rawIds, (id) => {
+        const n = this.nodes.get(id);
+        return n && isAlive(n) ? n.parent_id : null;
+      }),
+    );
+    const rootItems = items.filter((it) => rootIdSet.has(it.id));
+    const ids = rootItems.map((x) => x.id);
     // 先全部驗完才動手（同 SQLite 版的一個批次：一張不行就整批不寫）
-    const plans = items.map((it) => this.planMove(it.id, it.parentId, it.kind, it.routeTag));
+    const plans = rootItems.map((it) => this.planMove(it.id, it.parentId, it.kind, it.routeTag));
     const group = plans[0].group;
     if (plans.some((p) => !sameGroup(p.group, group))) throw new Error("選到的項目放不進同一個地方");
     const now = this.now();
@@ -467,6 +505,7 @@ export class MemoryNodeRepository implements NodeRepository {
     const ids = this.subtreeIds(id);
     const now = this.now();
     for (const sid of ids) this.mutate(sid, (n) => ({ ...n, deleted_at: now, updated_at: now }));
+    this.releaseSeatedTickets(ids, undefined, now);
     if (oldParentId && !ids.includes(oldParentId)) {
       this.demoteIfChildless(oldParentId, now);
     }
@@ -526,8 +565,16 @@ export class MemoryNodeRepository implements NodeRepository {
     this.ensureLeafTicketBackfill();
     const { start, end } = dayWindow(dateKey, dayStartHour);
     // 車庫與回顧 D-主-206 #4：收進車庫的路線（與掛它標籤的臨時票）不進今日（同 SQLite 版的 inDepotSql）
+    const isActiveRange = (n: NodeRow): boolean =>
+      n.scheduled_on !== null &&
+      n.scheduled_end !== null &&
+      n.scheduled_end > n.scheduled_on &&
+      n.scheduled_on <= dateKey &&
+      n.scheduled_end >= dateKey;
+
     const hit = this.active().filter((n) => {
       if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") return false;
+      if (isActiveRange(n)) return false;
       // 磨光⑦ 沙盒 F1：退役的定期券不走第一條（scheduled_on 是各台推算、退役後凍住的值；與 SQLite 版同）
       if (n.scheduled_on === dateKey && n.status !== "paused" && !(n.repeat_rule !== null && n.status === "done")) return true;
       if (n.scheduled_on !== null && n.scheduled_on < dateKey && n.status !== "done" && n.status !== "paused") return true;
@@ -559,7 +606,7 @@ export class MemoryNodeRepository implements NodeRepository {
     });
 
     const serials = buildSerialMap(this.alive());
-    const rows: TodayRow[] = hit.map((n) => {
+    const baseRows: TodayRow[] = hit.map((n) => {
       const occ =
         parseRule(n.repeat_rule) // #102：退役的也配對
           ? pickTodayOccurrence(this.occurrencesOf(n.id), n.scheduled_on, dateKey, dayStartHour)
@@ -570,14 +617,45 @@ export class MemoryNodeRepository implements NodeRepository {
         child_done: this.childrenOf(n.id).filter((c) => c.status === "done").length,
         serial: serials[n.id] ?? "",
         // 分區用「班次日」：蓋済留原位（今天）／漏班進誤點帶原定 M/D（D-④-4）
-        bucket: todayBucketOf(n, dateKey, occ ? occ.due_on : n.scheduled_on),
+        bucket: todayBucketOf(n, dateKey, occ ? occ.due_on : undefined),
         occurrence: occ ? toCurrentOccurrence(occ) : null,
         run_ended: n.status === "done" && runEnded(parseRule(n.repeat_rule), this.occurrencesOf(n.id), dateKey, dayStartHour),
       };
     });
 
+    const overrides = await this.listRunOverrides();
+    const nodesById = new Map<string, NodeRow>();
+    for (const n of this.alive()) nodesById.set(n.id, clone(n));
+    const rows = applyTodaySeating(baseRows, nodesById, overrides);
     this.assignMissingTodayPositions(rows);
     return rows.sort(compareTodayRows);
+  }
+
+  async listRangeTickets(dateKey: string, dayStartHour = 3): Promise<TodayRow[]> {
+    this.ensureLeafTicketBackfill();
+    const { start, end } = dayWindow(dateKey, dayStartHour);
+    const serials = buildSerialMap(this.alive());
+    const rows: TodayRow[] = this.active()
+      .filter((n) => {
+        if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") return false;
+        if (!n.scheduled_on || !n.scheduled_end || n.scheduled_end <= n.scheduled_on) return false;
+        if (n.scheduled_on > dateKey || n.scheduled_end < dateKey) return false;
+        if (n.status === "paused") return false;
+        if (n.status === "done" && !(n.completed_at !== null && n.completed_at >= start && n.completed_at < end)) {
+          return false;
+        }
+        return true;
+      })
+      .map((n) => ({
+        ...clone(n),
+        child_total: this.childrenOf(n.id).length,
+        child_done: this.childrenOf(n.id).filter((c) => c.status === "done").length,
+        serial: serials[n.id] ?? "",
+        bucket: "today" as const,
+        occurrence: null,
+        run_ended: false,
+      }));
+    return rows.sort(compareRangeDrawerRows);
   }
 
   async assignTodayPositions(ids: string[]): Promise<void> {
@@ -603,18 +681,20 @@ export class MemoryNodeRepository implements NodeRepository {
     if (!node) throw new Error("節點不存在");
     // 定期券的班次由規則排定（M3-5e）——與 SQLite 版同一句話、同一道門
     if (parseRule(node.repeat_rule)) throw new Error(REPEAT_RESCHEDULE_MSG);
+    const { scheduledOn: normStart, scheduledEnd: normEnd } = normalizeDateRange(nextDate, opts?.scheduledEnd ?? null);
     const prev = node.scheduled_on;
-    const leavesToday = nextDate === null || nextDate > todayDateKey;
+    const leavesToday = normStart === null || normStart > todayDateKey;
     // 與 SQLite 版逐條對齊：從「今天或過去」挪到更晚的一天（含挪到今天）都算繰越
     const carried =
-      nextDate !== null && prev !== null && prev < nextDate && prev <= todayDateKey ? prev : node.carried_from;
+      normStart !== null && normEnd === null && prev !== null && prev < normStart && prev <= todayDateKey ? prev : node.carried_from;
     const now = this.now();
     // 磨光⑦（D-主-67）：與 SQLite 版同一條規則（日期欄親手選了今天以前 ⇒ 補記，直接済在那一天）
     const open = this.alive().filter((c) => c.parent_id === id && c.status !== "done").length;
-    const doneAt = opts?.backfill ? backfillAtOf(node, nextDate, todayDateKey, opts.dayStartHour ?? 3, open) : null;
+    const doneAt = opts?.backfill ? backfillAtOf(node, normStart, todayDateKey, opts.dayStartHour ?? 3, open) : null;
     this.mutate(id, (n) => ({
       ...n,
-      scheduled_on: nextDate,
+      scheduled_on: normStart,
+      scheduled_end: normEnd,
       carried_from: carried,
       today_position: leavesToday ? null : n.today_position,
       // 補記不算繰越（往過去挪；評審 #3）
@@ -626,6 +706,7 @@ export class MemoryNodeRepository implements NodeRepository {
       e.created_at = now; // 済的時刻＝那一天；列的寫入時刻照實是現在（同 SQLite 版）
       e.updated_at = now;
     }
+    this.releaseSeatedTickets([id], normEnd ? "__range__" : normStart, now);
     return { backfilled: doneAt !== null };
   }
 
@@ -694,12 +775,24 @@ export class MemoryNodeRepository implements NodeRepository {
     if (from === to) return;
     const now = this.now();
     this.mutate(id, (n) => ({ ...n, repeat_rule: serializeRule(withRunMoved(rule, from, to)), updated_at: now }));
-    // 這一班的時刻覆寫跟著走（與 SQLite 版同）
+    // 這一班的覆寫（時刻／本班填空／待辦入座）跟著走（與 SQLite 版同）
     this.backfillOverrides();
     const hit = this.ovr.get(`${id}|${from}`);
     if (hit && !hit.deleted_at) {
       this.ovr.set(`${id}|${from}`, { ...hit, deleted_at: now, updated_at: now });
-      this.ovr.set(`${id}|${to}`, { ...hit, due_on: to, deleted_at: null, updated_at: now });
+      this.ovr.set(`${id}|${to}`, {
+        ...hit,
+        id: `${id}|${to}`,
+        due_on: to,
+        deleted_at: null,
+        updated_at: now,
+      });
+      if (hit.seated_node_id) {
+        const seated = this.nodes.get(hit.seated_node_id);
+        if (seated && isAlive(seated) && seated.scheduled_on === from) {
+          this.mutate(seated.id, (n) => ({ ...n, scheduled_on: to, scheduled_end: null, updated_at: now }));
+        }
+      }
     }
     this.refreshOverrides(id);
     this.syncNode(id, dateKey, dayStartHour);
@@ -778,7 +871,8 @@ export class MemoryNodeRepository implements NodeRepository {
     for (const o of this.occ.values()) {
       if (isAlive(o)) (byNode[o.node_id] ??= []).push(o);
     }
-    return buildSchedule(this.active(), byNode, from, to, today, h, { projectAfter: opts?.projectAfter });
+    const overrides = await this.listRunOverrides();
+    return buildSchedule(this.active(), byNode, from, to, today, h, { projectAfter: opts?.projectAfter, overrides });
   }
 
   async listCalendar(
@@ -793,7 +887,8 @@ export class MemoryNodeRepository implements NodeRepository {
     for (const o of this.occ.values()) {
       if (isAlive(o)) (byNode[o.node_id] ??= []).push(o);
     }
-    return buildCalendar(this.active(), byNode, from, to, today, h);
+    const overrides = await this.listRunOverrides();
+    return buildCalendar(this.active(), byNode, from, to, today, h, overrides);
   }
 
   async scheduleBounds(): Promise<ScheduleBounds> {
@@ -884,12 +979,21 @@ export class MemoryNodeRepository implements NodeRepository {
     const now = this.now();
     if (set === null) {
       if (!hit || hit.deleted_at) return;
-      this.ovr.set(key, { ...hit, deleted_at: now, updated_at: now });
+      if (hit.custom_title || hit.seated_node_id) {
+        if (hit.hhmm === TIME_OVERRIDE_INHERIT_HHMM) return;
+        this.ovr.set(key, { ...hit, hhmm: TIME_OVERRIDE_INHERIT_HHMM, updated_at: now });
+      } else {
+        this.ovr.set(key, { ...hit, deleted_at: now, updated_at: now });
+      }
     } else {
+      const aliveHit = hit && !hit.deleted_at ? hit : null;
       this.ovr.set(key, {
+        id: key,
         node_id: id,
         due_on: dueOn,
         hhmm: set.time,
+        custom_title: aliveHit?.custom_title ?? null,
+        seated_node_id: aliveHit?.seated_node_id ?? null,
         deleted_at: null,
         created_at: hit?.created_at ?? now,
         updated_at: now,
@@ -940,7 +1044,17 @@ export class MemoryNodeRepository implements NodeRepository {
       for (const [dueOn, hhmm] of Object.entries(parseTimeOverrides(n.time_overrides))) {
         const key = `${n.id}|${dueOn}`;
         if (this.ovr.has(key)) continue;
-        this.ovr.set(key, { node_id: n.id, due_on: dueOn, hhmm, deleted_at: null, created_at: now, updated_at: now });
+        this.ovr.set(key, {
+          id: key,
+          node_id: n.id,
+          due_on: dueOn,
+          hhmm,
+          custom_title: null,
+          seated_node_id: null,
+          deleted_at: null,
+          created_at: now,
+          updated_at: now,
+        });
       }
     }
   }
@@ -971,6 +1085,7 @@ export class MemoryNodeRepository implements NodeRepository {
     this.mutate(id, (n) => ({
       ...n,
       repeat_rule: finalRule ? serializeRule(finalRule) : null,
+      ...(rule ? { scheduled_end: null } : {}),
       ...(revive ? { status: "todo" as const, completed_at: null } : {}),
       updated_at: now,
     }));
@@ -1225,6 +1340,9 @@ export class MemoryNodeRepository implements NodeRepository {
     // position 只在新建時給 MAX+1（舊的兄弟條件），往後不再改
     const position = this.siblings(parent, kind).reduce((m, s) => Math.max(m, s.position), -1) + 1;
 
+    const stationId = kind === "line" || kind === "route" || kind === "station" ? null : (input.stationId ?? null);
+    const { scheduledOn, scheduledEnd } = normalizeDateRange(input.scheduledOn ?? null, input.scheduledEnd ?? null);
+
     const row: NodeRow = {
       id,
       kind,
@@ -1235,11 +1353,12 @@ export class MemoryNodeRepository implements NodeRepository {
       description: input.description ?? null,
       position,
       sort_key: sortKey,
-      station_id: null,
+      station_id: stationId,
       color: input.color ?? null,
       code: input.code ?? null,
       status: "todo",
-      scheduled_on: input.scheduledOn ?? null,
+      scheduled_on: scheduledOn,
+      scheduled_end: scheduledEnd,
       due_on: input.dueOn ?? null,
       priority: input.priority ?? "mid",
       estimate_min: input.estimateMin == null ? null : Math.max(0, Math.round(input.estimateMin)),
@@ -1254,6 +1373,7 @@ export class MemoryNodeRepository implements NodeRepository {
       carried_from: null,
       scheduled_time: input.scheduledTime ?? null,
       time_overrides: null,
+      is_placeholder: input.isPlaceholder ? 1 : null,
       account_id: null,
       device_id: null,
       created_at: now,
@@ -1277,6 +1397,17 @@ export class MemoryNodeRepository implements NodeRepository {
     const picked: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(patch)) {
       if (PATCHABLE.has(k)) picked[k] = v === undefined ? null : v;
+    }
+    if ("is_placeholder" in picked) picked.is_placeholder = picked.is_placeholder ? 1 : null;
+    if ("scheduled_on" in picked || "scheduled_end" in picked) {
+      const cur = this.nodes.get(id);
+      if (cur) {
+        const rawStart = "scheduled_on" in picked ? (picked.scheduled_on as string | null) : cur.scheduled_on;
+        const rawEnd = "scheduled_end" in picked ? (picked.scheduled_end as string | null) : cur.scheduled_end;
+        const { scheduledOn: ns, scheduledEnd: ne } = normalizeDateRange(rawStart, rawEnd);
+        picked.scheduled_on = ns;
+        picked.scheduled_end = ne;
+      }
     }
     if (!Object.keys(picked).length) return;
 
@@ -1366,13 +1497,16 @@ export class MemoryNodeRepository implements NodeRepository {
 
     if (done) {
       const ids = cascade ? this.subtreeIds(id) : [id];
+      const stamped: string[] = [];
       for (const sid of ids) {
         const before = this.nodes.get(sid);
         if (!before || before.status === "done") continue;
         this.mutate(sid, (n) => ({ ...n, status: "done", completed_at: now, updated_at: now }));
         this.event(sid, "done", now); // 済
+        stamped.push(sid);
         if (parseRule(before.repeat_rule)) this.syncNode(sid, dateKey, dayStartHour); // 退役當場重算執行日
       }
+      this.syncSeatedComplete(stamped, true, now, dateKey, dayStartHour);
       return ids;
     }
     this.mutate(id, (n) => ({ ...n, status: "todo", completed_at: null, updated_at: now }));
@@ -1390,6 +1524,7 @@ export class MemoryNodeRepository implements NodeRepository {
     }
     // 退役的定期券取消完成＝退役解除，引擎重新排班
     if (rule) this.syncNode(id, dateKey, dayStartHour);
+    this.syncSeatedComplete([id], false, now, dateKey, dayStartHour);
     return [id];
   }
 
@@ -1454,6 +1589,178 @@ export class MemoryNodeRepository implements NodeRepository {
     if (!target) return;
     const now = this.now();
     this.logs.set(target.id, { ...target, deleted_at: now, updated_at: now });
+  }
+
+  // ───────────── 第四梯 4A/4C：逐班覆寫（本班填空／待辦入座）與 adhoc 遷移 ─────────────
+
+  async listRunOverrides(): Promise<RunOverrideRecord[]> {
+    this.backfillOverrides();
+    return [...this.ovr.values()]
+      .filter((r) => !r.deleted_at)
+      .map((r) => ({
+        id: r.id,
+        node_id: r.node_id,
+        due_on: r.due_on,
+        hhmm: r.hhmm,
+        custom_title: r.custom_title,
+        seated_node_id: r.seated_node_id,
+        deleted_at: r.deleted_at,
+      }));
+  }
+
+  async setRunCustomTitle(nodeId: string, dueOn: string, customTitle: string | null): Promise<void> {
+    const node = this.nodes.get(nodeId);
+    if (!node || !isAlive(node)) throw new Error("節點不存在");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn) && dueOn !== "unscheduled") throw new Error("班次日格式不正確");
+    if (!parseRule(node.repeat_rule) && !node.is_placeholder) {
+      throw new Error("只有定期券或預留席能設定本班內容");
+    }
+    this.backfillOverrides();
+    const key = `${nodeId}|${dueOn}`;
+    const hit = this.ovr.get(key);
+    const title = customTitle?.trim() ? customTitle.trim() : null;
+    const now = this.now();
+    if (title === null) {
+      if (!hit || hit.deleted_at || hit.custom_title === null) return;
+      if (hit.hhmm === TIME_OVERRIDE_INHERIT_HHMM && !hit.seated_node_id) {
+        this.ovr.set(key, { ...hit, custom_title: null, deleted_at: now, updated_at: now });
+      } else {
+        this.ovr.set(key, { ...hit, custom_title: null, updated_at: now });
+      }
+      return;
+    }
+    const aliveHit = hit && !hit.deleted_at ? hit : null;
+    this.ovr.set(key, {
+      id: key,
+      node_id: nodeId,
+      due_on: dueOn,
+      hhmm: aliveHit ? aliveHit.hhmm : TIME_OVERRIDE_INHERIT_HHMM,
+      custom_title: title,
+      seated_node_id: aliveHit ? aliveHit.seated_node_id : null,
+      deleted_at: null,
+      created_at: hit?.created_at ?? now,
+      updated_at: now,
+    });
+  }
+
+  async seatTicketIntoSlot(slotNodeId: string, dueOn: string, ticketId: string): Promise<void> {
+    if (slotNodeId === ticketId) throw new Error("不能將車票入座到自己");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn) && dueOn !== "unscheduled") throw new Error("班次日格式不正確");
+    const slot = this.nodes.get(slotNodeId);
+    const ticket = this.nodes.get(ticketId);
+    if (!slot || !isAlive(slot)) throw new Error("預留空位不存在");
+    if (!ticket || !isAlive(ticket)) throw new Error("要入座的車票不存在");
+    if (!parseRule(slot.repeat_rule) && !slot.is_placeholder) {
+      throw new Error("只有定期券或預留席能讓待辦車票入座");
+    }
+    if (parseRule(ticket.repeat_rule)) throw new Error("定期券不能入座到另一個預留席");
+
+    const now = this.now();
+    for (const r of this.ovr.values()) {
+      if (r.deleted_at || r.seated_node_id !== ticketId) continue;
+      if (r.node_id === slotNodeId && r.due_on === dueOn) continue;
+      this.releaseOneOverride(r.id, now);
+    }
+    if (dueOn !== "unscheduled" && (ticket.scheduled_on !== dueOn || ticket.scheduled_end !== null)) {
+      this.mutate(ticketId, (n) => ({ ...n, scheduled_on: dueOn, scheduled_end: null, updated_at: now }));
+    } else if (dueOn === "unscheduled" && (ticket.scheduled_on !== null || ticket.scheduled_end !== null)) {
+      this.mutate(ticketId, (n) => ({ ...n, scheduled_on: null, scheduled_end: null, updated_at: now }));
+    }
+    const key = `${slotNodeId}|${dueOn}`;
+    const hit = this.ovr.get(key);
+    const aliveHit = hit && !hit.deleted_at ? hit : null;
+    this.ovr.set(key, {
+      id: key,
+      node_id: slotNodeId,
+      due_on: dueOn,
+      hhmm: aliveHit ? aliveHit.hhmm : TIME_OVERRIDE_INHERIT_HHMM,
+      custom_title: aliveHit ? aliveHit.custom_title : null,
+      seated_node_id: ticketId,
+      deleted_at: null,
+      created_at: hit?.created_at ?? now,
+      updated_at: now,
+    });
+  }
+
+  async releaseSeatedSlot(slotNodeId: string, dueOn: string): Promise<void> {
+    const key = `${slotNodeId}|${dueOn}`;
+    const hit = this.ovr.get(key);
+    if (!hit || hit.deleted_at || !hit.seated_node_id) return;
+    this.releaseOneOverride(key, this.now());
+  }
+
+  private releaseOneOverride(key: string, now: string): void {
+    const hit = this.ovr.get(key);
+    if (!hit || hit.deleted_at) return;
+    if (hit.hhmm === TIME_OVERRIDE_INHERIT_HHMM && !hit.custom_title) {
+      this.ovr.set(key, { ...hit, seated_node_id: null, deleted_at: now, updated_at: now });
+    } else {
+      this.ovr.set(key, { ...hit, seated_node_id: null, updated_at: now });
+    }
+  }
+
+  private releaseSeatedTickets(ticketIds: readonly string[], keepDueOn: string | null | undefined, now: string): void {
+    if (!ticketIds.length) return;
+    const idSet = new Set(ticketIds);
+    for (const r of this.ovr.values()) {
+      if (r.deleted_at || !r.seated_node_id || !idSet.has(r.seated_node_id)) continue;
+      if (keepDueOn !== undefined) {
+        if (r.due_on === "unscheduled" && keepDueOn === null) continue;
+        if (r.due_on === keepDueOn) continue;
+      }
+      this.releaseOneOverride(r.id, now);
+    }
+  }
+
+  private syncSeatedComplete(
+    ticketIds: readonly string[],
+    done: boolean,
+    now: string,
+    dateKey: string,
+    dayStartHour: number,
+  ): void {
+    if (!ticketIds.length) return;
+    const idSet = new Set(ticketIds);
+    for (const ov of this.ovr.values()) {
+      if (ov.deleted_at || !ov.seated_node_id || !idSet.has(ov.seated_node_id)) continue;
+      const slot = this.nodes.get(ov.node_id);
+      const ticket = this.nodes.get(ov.seated_node_id);
+      if (!slot || !isAlive(slot) || !ticket || !isAlive(ticket)) continue;
+      const dateMatch =
+        ov.due_on === "unscheduled"
+          ? slot.scheduled_on === null && ticket.scheduled_on === null
+          : ticket.scheduled_on === ov.due_on;
+      if (!dateMatch) continue;
+      if (parseRule(slot.repeat_rule) && slot.status !== "done") {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(ov.due_on)) continue;
+        if (done) {
+          if (this.stampOccurrence(slot.id, ov.due_on, "done", now)) {
+            this.event(slot.id, "done", now);
+            this.syncNode(slot.id, dateKey, dayStartHour);
+          }
+        } else {
+          const target = this.occurrencesOf(slot.id).find((o) => o.due_on === ov.due_on && o.status === "done");
+          if (target) {
+            this.dropOccurrence(target.id);
+            this.revokeLatestEvent(slot.id, "done");
+            this.syncNode(slot.id, dateKey, dayStartHour);
+          }
+        }
+      } else if (slot.is_placeholder === 1) {
+        if (done && slot.status !== "done") {
+          this.mutate(slot.id, (n) => ({ ...n, status: "done", completed_at: now, updated_at: now }));
+          this.event(slot.id, "done", now);
+        } else if (!done && slot.status === "done") {
+          this.mutate(slot.id, (n) => ({ ...n, status: "todo", completed_at: null, updated_at: now }));
+          this.revokeLatestEvent(slot.id, "done");
+        }
+      }
+    }
+  }
+
+  async migrateAdhocPlans(): Promise<number> {
+    // 記憶體預覽模式無 time_plans 舊表（不寫假 adhoc）
+    return 0;
   }
 
   // ───────────── 種子資料（預覽用）─────────────

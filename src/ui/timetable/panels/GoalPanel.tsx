@@ -33,8 +33,10 @@ import { useUiStore } from "../../../store/uiStore";
 import { catColor, goalPeriodText, md, scopeText } from "../stats/format";
 import { Actions, Row, Sub, type PanelProps } from "./controls";
 import { Segmented } from "../../common/Segmented";
+import { Select } from "../../common/Select";
 import { DateChip } from "../../common/DateChip";
 import { DurationPicker } from "../../common/DurationPicker";
+import { groupRoutesByLine } from "../../notes/useAttachOptions";
 import { TT_TAG_GOAL } from "../../../domain/timetableTags";
 import { useTagStore } from "../../../store/tagStore";
 import { EntityTagField } from "../../common/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
@@ -100,10 +102,22 @@ export function GoalPanel({ onDone }: PanelProps) {
   const archived = useTimetableStatsStore((s) => s.archivedGoals);
   const statRouteNames = useTimetableStatsStore((s) => s.routeNames);
   const statNodeNames = useTimetableStatsStore((s) => s.goalNodeNames);
+  const liveLines = useNodeStore((s) => s.liveLines);
   const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const treeById = useNodeStore((s) => s.tree.byId);
   const routeById = useRouteById();
   const liveBranches = useLiveBranches(liveRoutes);
+  const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, liveLines), [liveRoutes, liveLines]);
+  const branchesByRoute = useMemo(() => {
+    const m = new Map<string, NodeRow[]>();
+    for (const b of liveBranches) {
+      if (!b.route_id) continue;
+      const list = m.get(b.route_id);
+      if (list) list.push(b);
+      else m.set(b.route_id, [b]);
+    }
+    return m;
+  }, [liveBranches]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const T = TT_TEXT.statsUi;
 
@@ -290,7 +304,6 @@ export function GoalPanel({ onDone }: PanelProps) {
     }));
   };
 
-  const branchIds = new Set(liveBranches.map((b) => b.id));
   const resolveNodeLabel = (nid: string): { name: string; kind: string; routeId: string | null } => {
     const b = liveBranches.find((x) => x.id === nid);
     if (b) return { name: b.name, kind: b.kind, routeId: b.route_id };
@@ -303,7 +316,6 @@ export function GoalPanel({ onDone }: PanelProps) {
     ...f.routes.map((rid) => routeById[rid]?.name ?? statRouteNames[rid]?.name ?? "路線"),
     ...f.nodes.map((nid) => resolveNodeLabel(nid).name),
   ];
-  const nonBranchNodes = f.nodes.filter((nid) => !branchIds.has(nid));
 
   const bad = problemOf(f, tagNames.length);
   const save = async (): Promise<void> => {
@@ -408,64 +420,84 @@ export function GoalPanel({ onDone }: PanelProps) {
       {(liveRoutes.length > 0 || f.routes.length > 0 || f.nodes.length > 0) && (
         <Row k="路線／任務" top>
           <div className="ns-tt-goal-links">
-            {liveRoutes.length > 0 && (
+            {(f.routes.length > 0 || f.nodes.length > 0) && (
               <div className="ns-tt-link-routes">
-                {liveRoutes.map((r) => {
-                  const on = f.routes.includes(r.id);
+                {f.routes.map((rid) => {
+                  const r = routeById[rid] ?? null;
+                  const label = r?.name ?? statRouteNames[rid]?.name ?? "路線";
                   return (
                     <button
                       type="button"
-                      key={r.id}
-                      className={"ns-tt-link-rk" + (on ? " is-on" : "")}
-                      aria-pressed={on}
-                      onClick={() => toggleRoute(r.id)}
+                      key={`r:${rid}`}
+                      className="ns-tt-link-rk is-on"
+                      aria-pressed={true}
+                      onClick={() => toggleRoute(rid)}
+                      title="點擊移除"
                     >
                       <RouteRoundel route={r} />
-                      <span>{r.name}</span>
+                      <span>{label}</span>
+                      <small className="ns-tt-goal-rm" aria-hidden="true">×</small>
                     </button>
                   );
                 })}
-                {liveBranches.map((b) => {
-                  const on = f.nodes.includes(b.id);
-                  const r = b.route_id ? (routeById[b.route_id] ?? null) : null;
-                  return (
-                    <button
-                      type="button"
-                      key={b.id}
-                      className={"ns-tt-link-rk" + (on ? " is-on" : "")}
-                      aria-pressed={on}
-                      onClick={() => toggleNode(b)}
-                    >
-                      <RouteRoundel route={r} />
-                      <span>{r ? `${r.name} › ${b.name}` : b.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {nonBranchNodes.length > 0 && (
-              <div className="ns-tt-link-routes" style={{ marginTop: 6 }}>
-                {nonBranchNodes.map((nid) => {
+                {f.nodes.map((nid) => {
                   const info = resolveNodeLabel(nid);
                   const r = info.routeId ? (routeById[info.routeId] ?? null) : null;
+                  const display = info.kind === "branch" && r ? `${r.name} › ${info.name}` : info.name;
                   return (
                     <button
                       type="button"
-                      key={nid}
+                      key={`n:${nid}`}
                       className="ns-tt-link-rk is-on"
                       aria-pressed={true}
                       onClick={() => toggleNode({ id: nid })}
                       title="點擊移除"
                     >
                       <RouteRoundel route={r} />
-                      <span>{info.name}</span>
-                      <small style={{ opacity: 0.7, marginLeft: 4 }}>×</small>
+                      <span>{display}</span>
+                      <small className="ns-tt-goal-rm" aria-hidden="true">×</small>
                     </button>
                   );
                 })}
               </div>
             )}
-            <div style={{ marginTop: 6 }}>
+            {liveRoutes.length > 0 && (
+              <span className="ns-select-wrap ns-tt-goal-select">
+                <Select
+                  className="techo-input"
+                  aria-label="選擇路線或支線加入目標"
+                  value=""
+                  onChange={(val) => {
+                    if (!val) return;
+                    if (val.startsWith("r:")) {
+                      toggleRoute(val.slice(2));
+                    } else if (val.startsWith("b:")) {
+                      const bid = val.slice(2);
+                      const b = liveBranches.find((x) => x.id === bid);
+                      if (b) toggleNode(b);
+                      else toggleNode({ id: bid, kind: "branch" });
+                    }
+                  }}
+                >
+                  <option value="">＋ 選擇路線或支線加入目標…</option>
+                  {routeGroups.map((g) => (
+                    <optgroup key={g.lineId ?? "other"} label={g.header}>
+                      {g.routes.flatMap((r) => [
+                        <option key={`r:${r.id}`} value={`r:${r.id}`}>
+                          {`${f.routes.includes(r.id) ? "✓ " : ""}${r.code ? `${r.code} ` : ""}${r.name}`}
+                        </option>,
+                        ...(branchesByRoute.get(r.id) ?? []).map((b) => (
+                          <option key={`b:${b.id}`} value={`b:${b.id}`}>
+                            {`${f.nodes.includes(b.id) ? "✓ " : ""}　› ${b.name}（支線）`}
+                          </option>
+                        )),
+                      ])}
+                    </optgroup>
+                  ))}
+                </Select>
+              </span>
+            )}
+            <div className="ns-tt-goal-search-wrap">
               <input
                 type="search"
                 className="ns-tt-input"
