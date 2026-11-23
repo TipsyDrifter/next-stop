@@ -159,8 +159,8 @@ describe("D 區・載入", () => {
     assert.equal(typeof sortPending, "function");
     assert.equal(typeof reminderOf, "function");
     assert.equal(PENDING_DEPART_UNTIL_NEXT, true); // 0-5：主對話裁乙
-    assert.equal(CAT_PALETTE.light.length, 8);
-    assert.equal(CAT_PALETTE.dark.length, 8);
+    assert.equal(CAT_PALETTE.light.length, 16);
+    assert.equal(CAT_PALETTE.dark.length, 16);
     assert.equal(TT_NOTICE_TEXT.startedSuffix, " 発");
   });
 });
@@ -426,8 +426,8 @@ describe("D 區（①b①c 契約 §4.8）", () => {
     }
   });
 
-  test("D8 CAT_PALETTE 與 theme.css 語意層 --cat-1..8（兩主題）逐值相同；timetable.css §A 只把 --ns-tt-cat-N 指回 var(--cat-N)", () => {
-    // UI 丙-1：八色實值搬進 theme.css（:root, [data-theme]／[data-theme="dark"]），timetable.css §A 只留 var(--cat-N) 別名
+  test("D8 CAT_PALETTE 與 theme.css 語意層 --cat-1..16（兩主題）逐值相同；timetable.css §A 只把 --ns-tt-cat-N 指回 var(--cat-N)", () => {
+    // UI 丙-1 ＋ G7-1：十六色實值搬進 theme.css（:root, [data-theme]／[data-theme="dark"]），timetable.css §A 只留 var(--cat-N) 別名
     const theme = readFileSync(path.join(ROOT, "src/styles/theme.css"), "utf8");
     // 取該選擇器「第一個含 --cat-1: 的」區塊（theme.css 的 :root／[data-theme="dark"] 各有好幾塊）
     const grab = (selectorRe: RegExp): string[] => {
@@ -437,7 +437,7 @@ describe("D 區（①b①c 契約 §4.8）", () => {
         const body = theme.slice(m.index + m[0].length, theme.indexOf("}", m.index));
         if (!/--cat-1:/.test(body)) continue;
         const out: string[] = [];
-        const r = /--cat-(\d):\s*(#[0-9a-fA-F]{6})/g;
+        const r = /--cat-(\d+):\s*(#[0-9a-fA-F]{6})/g;
         let x: RegExpExecArray | null;
         while ((x = r.exec(body))) out[Number(x[1]) - 1] = x[2].toLowerCase();
         return out;
@@ -446,16 +446,16 @@ describe("D 區（①b①c 契約 §4.8）", () => {
     };
     const light = grab(/^:root,\s*\[data-theme\]\s*\{/m);
     const dark = grab(/^\[data-theme="dark"\]\s*\{/m);
-    assert.equal(light.length, 8);
-    assert.equal(dark.length, 8);
+    assert.equal(light.length, 16);
+    assert.equal(dark.length, 16);
     assert.deepEqual(light, CAT_PALETTE.light.map((c) => c.toLowerCase()));
     assert.deepEqual(dark, CAT_PALETTE.dark.map((c) => c.toLowerCase()));
     // timetable.css §A：每個 --ns-tt-cat-N 都指回 var(--cat-N)，不再自己寫色碼
     const tt = readFileSync(path.join(ROOT, "src/ui/timetable/timetable.css"), "utf8");
-    for (let n = 1; n <= 8; n++) {
+    for (let n = 1; n <= 16; n++) {
       assert.match(tt, new RegExp(`--ns-tt-cat-${n}:\\s*var\\(--cat-${n}\\)`), `timetable.css 的 --ns-tt-cat-${n} 要指回 var(--cat-${n})`);
     }
-    assert.doesNotMatch(tt, /--ns-tt-cat-\d:\s*#/, "timetable.css 不再自己寫分類色色碼");
+    assert.doesNotMatch(tt, /--ns-tt-cat-\d+:\s*#/, "timetable.css 不再自己寫分類色色碼");
   });
 
   test("D9 TtNoticeStore.kt 含 §5.10.4 的五把 SharedPreferences 鍵字面值", () => {

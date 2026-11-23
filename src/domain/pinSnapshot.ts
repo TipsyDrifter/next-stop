@@ -4,7 +4,15 @@
  * 小窗沒有 DB 權限、沒有 store：畫面要的東西全在這一包裡（顏色兩組都給，小窗自己照主題挑；到着発車只回傳動作）。
  * 鐵則：只 import 同目錄帶 `.ts` 的純函式檔、只用可剝除語法——`scripts/tests/external-link.test.ts` 以 node 直接載入。
  */
-import { colorSlot, fmtClock, msOf, type TimeBlockRow, type TimeCategoryRow } from "./timetable.ts";
+import {
+  adaptCustomCategoryHex,
+  colorSlot,
+  decodeCategoryCustomHex,
+  fmtClock,
+  msOf,
+  type TimeBlockRow,
+  type TimeCategoryRow,
+} from "./timetable.ts";
 import { CAT_PALETTE, TT_NOTICE_TEXT, noticeTiles, tileOf, type NoticeTile } from "./timetableNotice.ts";
 
 export const PIN_TILES_MAX = 4;
@@ -36,12 +44,13 @@ export interface PinSnapshot {
 
 /** 圓牌：字＝glyph ?? 名稱第一字 ?? "・"（＝CategoryBadge）；顏色＝CAT_PALETTE；分類已不在（同步途中）＝「？」、第 1 色（＝通知） */
 function faceOf(cat: TimeCategoryRow | null): { name: string; glyph: string; colorLight: string; colorDark: string } {
+  const custom = cat ? decodeCategoryCustomHex(cat.color_idx) : null;
   const i = colorSlot(cat ? cat.color_idx : 1) - 1;
   return {
     name: cat ? cat.name : "？",
     glyph: cat ? (cat.glyph ?? Array.from(cat.name)[0] ?? "・") : "？",
-    colorLight: CAT_PALETTE.light[i],
-    colorDark: CAT_PALETTE.dark[i],
+    colorLight: custom ? adaptCustomCategoryHex(custom, "light") : CAT_PALETTE.light[i],
+    colorDark: custom ? adaptCustomCategoryHex(custom, "dark") : CAT_PALETTE.dark[i],
   };
 }
 

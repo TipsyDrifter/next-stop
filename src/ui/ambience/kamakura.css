@@ -1,0 +1,156 @@
+/* ─────────────────────────────────────────────────────
+ * kamakura.css — 第四梯 4B 旗艦時光動態主題「水鏡鎌倉・湖上列車」2.5D 手繪實景舞台與設定樣式
+ *
+ * 設計紀律：
+ *   1. 全站紙卡與語意色皆由 kamakuraPalette.ts 注入之 `--km-*` 與 `--color-*` 變數驅動，24h 平滑過渡。
+ *   2. 桌機僅於白晝亮底啟用霧面玻璃，夜間月光票紙（0.92+）與手機殼一律停用多卡 backdrop-filter 避免每幀 GPU readback。
+ *   3. 嚴守 `motionSleep` 與 `prefers-reduced-motion` 低功耗鐵則：休眠或減少動態時 Canvas 自動降為 0fps 靜態手繪畫卷。
+ * ───────────────────────────────────────────────────── */
+
+:root[data-skin="kamakura"] .sky-layer.sky--kamakura {
+  background: none;
+}
+:root[data-skin="kamakura"] .sky-layer.sky--kamakura > * {
+  display: block;
+}
+:root[data-skin="kamakura"][data-theme="light"]:not([data-shell="mobile"]) .ticket::before,
+:root[data-skin="kamakura"][data-theme="light"]:not([data-shell="mobile"]) .panel-sheet {
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+}
+:root[data-skin="kamakura"][data-theme="dark"] .ticket::before,
+:root[data-skin="kamakura"][data-theme="dark"] .panel-sheet,
+:root[data-skin="kamakura"][data-shell="mobile"] .ticket::before,
+:root[data-skin="kamakura"][data-shell="mobile"] .panel-sheet,
+:root[data-skin="kamakura"][data-shell="mobile"] .techo-card,
+:root[data-skin="kamakura"][data-shell="mobile"] .ns-tabs {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 今日頁底部預留湖岸石板步道與木欄杆呼吸帶，捲到底時最後一張車票不遮住前景木欄杆 */
+:root[data-skin="kamakura"] .mood-ground.is-kamakura {
+  height: 92px;
+}
+:root[data-skin="kamakura"][data-shell="mobile"] .mood-ground.is-kamakura {
+  height: 52px;
+}
+
+/* ═══ 〇、水鏡鎌倉主舞台根容器 ═══ */
+.km-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+  --km-waterline: 44%;
+}
+
+/* 全幅 24h 天色與水底基礎漸層（在 WebP 載入瞬間與左側書封收合過渡期間提供零閃白無縫襯底） */
+.km-sky-backdrop {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    var(--km-sky-1) 0%,
+    var(--km-sky-2) 26%,
+    var(--km-sky-3) 44%,
+    var(--km-sky-4) 56%,
+    var(--km-water-1) 57%,
+    var(--km-water-2) 78%,
+    var(--km-water-3) 100%
+  );
+}
+
+/* 主欄 2.5D 手繪合成取景框（自動對齊桌機書封右緣，收合書封即無縫展開為 1920×1080 原生 16:9 滿版） */
+.km-scenic {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--cover-w, 236px);
+  overflow: hidden;
+  transition: left var(--dur) var(--ease-soft);
+}
+
+[data-sidebar-collapsed="1"] .km-scenic {
+  left: 0;
+}
+
+[data-shell="mobile"] .km-scenic {
+  left: 0;
+  top: calc(var(--m-band-h) + var(--m-safe-top));
+  bottom: calc(var(--m-tabbar-h, 60px) + var(--m-safe-bottom, 0px));
+}
+
+.km-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 頂欄輕柔空氣光暈襯底（不漂白手繪天色，僅柔和托起透明頁首文字） */
+.km-head-veil {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 136px;
+  background: linear-gradient(180deg, var(--km-head-veil) 0%, transparent 100%);
+  opacity: 0.28;
+}
+
+/* ═══ 一、壓在手繪天空與水鏡上的裸排印清晰度強化 ═══ */
+
+/* 朝霧與晴空亮底：為透明頁首與區段標題加上細膩雲光柔暈，橫跨藍天與白雲皆銳利清晰 */
+:root[data-skin="kamakura"][data-theme="light"]:not([data-km-phase="dusk"]) .ns-pagehead-title,
+:root[data-skin="kamakura"][data-theme="light"]:not([data-km-phase="dusk"]) .ns-pagehead-aside,
+:root[data-skin="kamakura"][data-theme="light"]:not([data-km-phase="dusk"]) .ns-pagehead-stats,
+:root[data-skin="kamakura"][data-theme="light"]:not([data-km-phase="dusk"]) .ns-pagehead-overline,
+:root[data-skin="kamakura"][data-theme="light"] .sec h3,
+:root[data-skin="kamakura"][data-theme="light"] .sec .note {
+  text-shadow: 0 1px 10px rgba(252, 253, 255, 0.82), 0 0 3px rgba(252, 253, 255, 0.65); /* 字面值：水鏡鎌倉場景裸字空氣襯暈（陰影色） */
+}
+
+/* 玫瑰暮色（16:00–18:45）：手繪天頂為深邃鈷藍群青，透明頁首改採月白象牙字配暮靛柔影，不需白霧遮蓋畫作即極致清晰！ */
+:root[data-skin="kamakura"][data-km-phase="dusk"] .km-head-veil {
+  opacity: 0;
+}
+:root[data-skin="kamakura"][data-km-phase="dusk"][data-theme="light"] .ns-pagehead {
+  --color-ink: #f7f4fc;       /* 字面值：水鏡鎌倉暮色鈷藍天頂專用頁首象牙白字 */
+  --color-ink-soft: #e2dcf4;  /* 字面值：水鏡鎌倉暮色鈷藍天頂專用頁首次階字 */
+  --color-ink-faint: #cfc7ea; /* 字面值：水鏡鎌倉暮色鈷藍天頂專用頁首淡階字 */
+  --accent-sky: #ffe2ea;      /* 字面值：水鏡鎌倉暮色眉標淡櫻金字 */
+  --stamp-ink: #ece6fa;       /* 字面值：水鏡鎌倉暮色日付印與紀念章淺墨色 */
+  --color-line: rgba(247, 244, 252, 0.28); /* 字面值：水鏡鎌倉暮色頁首雙細線 */
+  text-shadow: 0 1px 10px rgba(16, 22, 66, 0.56); /* 字面值：暮靛柔影 */
+}
+
+/* 星夜暗底：透明頁首與區段標題輕襯夜海深影 */
+:root[data-skin="kamakura"][data-theme="dark"] .ns-pagehead-title,
+:root[data-skin="kamakura"][data-theme="dark"] .sec h3 {
+  text-shadow: 0 1px 10px rgba(6, 12, 28, 0.68); /* 字面值：星夜深海字影 */
+}
+
+/* ═══ 二、設定頁「水鏡鎌倉 · 時光與晴雨」專屬控制列 ═══ */
+.ns-sky-kamakura {
+  border-top: 1px dashed var(--color-dash);
+  padding-top: var(--sp-1);
+}
+
+.ns-sky-km-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-badge);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  background: var(--sel-bg);
+}

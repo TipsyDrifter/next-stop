@@ -1,0 +1,13 @@
+{
+  "w": 1920,
+  "h": 1080,
+  "horizonY": 617,
+  "horizonRatio": 0.5713,
+  "fgHeight": 499,
+  "fgRatioH": 0.46204,
+  "walkwayRatioH": 0.09766,
+  "trainW": 600,
+  "trainH": 181,
+  "skyGenerator": "gemini-3-pro-image (Nano Banana Pro 5504x3072 4K 16:9, pure human reference anchors, zero AI feedback)",
+  "fgGenerator": "gemini-3-pro-image (Nano Banana Pro 5504x3072 4K 16:9, pure human reference anchors)"
+}

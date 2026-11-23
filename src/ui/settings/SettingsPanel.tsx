@@ -19,11 +19,10 @@
  * v1.31 畫面 1：〈一般〉分三組（外觀／日子怎麼算／開機與其他）；氛圍收成「今日天象與動態氛圍」一張區塊（ambience/MoodSettings，兩殼共用）。
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { useUiStore, type SettingsTab, type ThemePref } from "../../store/uiStore";
+import { useUiStore, type SettingsTab } from "../../store/uiStore";
 import { useLostFoundStore } from "../../store/lostFoundStore";
 import { DialogShell } from "../common/DialogShell";
-import { ThemeShop } from "./ThemeShop";
-import { skinById } from "../../lib/themeShop";
+import { ThemeSettingsControl, ThemeShop } from "./ThemeShop";
 import { SnapshotRescue } from "../common/SnapshotRescue";
 import { Tabs, type TabItem } from "../common/Tabs";
 import { Segmented, type SegmentedOption } from "../common/Segmented";
@@ -39,13 +38,6 @@ import { MoodSettings } from "../ambience";
 import { lineSettingsLinks } from "../../lines/runtime";
 import "../common/overlay.css";
 import "./settings.css";
-
-/** 主題三選（商店主題不在這三個裡：Segmented 收 null＝都不亮）（文案與順序 MobileMore.tsx 逐字沿用；改這裡要跟著改那邊）；副註放 title */
-const THEMES: SegmentedOption<ThemePref>[] = [
-  { value: "pastel", label: "粉彩星空", title: "朧月的月台・日間" },
-  { value: "galaxy", label: "銀河鐵道", title: "深夜月台・夜間" },
-  { value: "system", label: "跟隨系統", title: "依手機設定" },
-];
 
 const DAY_START_OPTS = [0, 1, 2, 3, 4, 5, 6].map((h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` }));
 
@@ -147,35 +139,24 @@ function SettingsForm() {
 
 /** 4.0a 一般——⑥ 之前的設定頁內容原封搬入 */
 function GeneralTab() {
-  const theme = useUiStore((s) => s.theme);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
-  const setTheme = useUiStore((s) => s.setTheme);
   const setDayStartHour = useUiStore((s) => s.setDayStartHour);
   const weekStart = useUiStore((s) => s.weekStart);
   const setWeekStart = useUiStore((s) => s.setWeekStart);
   const [shop, setShop] = useState(false);
-  const skin = skinById(theme);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const links = lineSettingsLinks("desktop");
 
   if (shop) return <ThemeShop backLabel="一般" backClassName="ns-shop-back" onBack={() => setShop(false)} />;
 
-  // v1.31 畫面 1：〈一般〉從一長串平鋪的欄位，收成三組（同類放一起、每組一條組名細線，同手機「更多」的 .m2-sec-title 讀法）：
-  //   外觀＝主題＋「今日天象與動態氛圍」（天空長什麼樣、會不會動，都是「看起來」的事）；
-  //   日子怎麼算＝一天的開始時間＋週首（兩個都在改日界與月曆怎麼排）；
-  //   開機與其他＝開機自動啟動＋各線設定的指路（兩者都可能不畫；整組沒內容時 CSS 自己收掉，不留孤零零的組名）。
+  // v1.31 畫面 1 ＋ v1.34 4A：〈一般〉收成三組（外觀／日子怎麼算／開機與其他），主題升級為四模式＋亮暗代表自由配對
   return (
     <div className="ns-set-general">
       <section className="ns-set-grp" aria-label="外觀">
         <h3 className="ns-set-grp-h">外觀</h3>
         <div>
-          <span className="techo-label block mb-2.5">主題</span>
-          <div className="flex items-center gap-2">
-            <Segmented options={THEMES} value={skin ? null : theme} onChange={(v) => void setTheme(v)} aria-label="主題" />
-            <button type="button" className={"btn-ghost ns-btn ns-shop-open" + (skin ? " is-on" : "")} onClick={() => setShop(true)}>
-              {skin ? `商店・${skin.name}` : "商店"}
-            </button>
-          </div>
+          <span className="techo-label block mb-2.5">主題與日夜配對</span>
+          <ThemeSettingsControl shell="desktop" onOpenShop={() => setShop(true)} />
         </div>
 
         <MoodSettings shell="desktop" />

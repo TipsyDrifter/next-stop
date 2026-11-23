@@ -15,7 +15,7 @@
  * 統計頁本身掛著時不放（它自己管）。資料變了（`rev`）而目標區開著就再算一次。
  */
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { colorSlot, fmtClock, fmtDur, fmtHMS, groupedCategories, msOf, toSpan, totalsByCategory, totalsByGroup, MIN } from "../../domain/timetable";
+import { categoryColorCss, fmtClock, fmtDur, fmtHMS, groupedCategories, msOf, toSpan, totalsByCategory, totalsByGroup, MIN } from "../../domain/timetable";
 import { useTimetableStore } from "../../store/timetableStore";
 import { useTimetableStatsStore } from "../../store/timetableStatsStore";
 import { useUiStore } from "../../store/uiStore";
@@ -97,7 +97,8 @@ export function TimetableCoverAux() {
 
   const activeGoals = goals.filter((g) => g.state === "active");
   /** 組的顏色＝它第一個分類的色（組本身多半沒設色，三段條才分得出來） */
-  const groupColor = (g: { group: { color_idx: number }; children: { color_idx: number }[] }) => colorSlot(g.children[0]?.color_idx ?? g.group.color_idx);
+  const groupColor = (g: { group: { color_idx: number }; children: { color_idx: number }[] }) =>
+    categoryColorCss(g.children[0] ?? g.group, 8);
   const toggleGoals = () => {
     setGoalsOpen((on) => {
       writeGoalsOpen(!on);
@@ -134,7 +135,7 @@ export function TimetableCoverAux() {
               {groups.map((g) => {
                 const ms = byGroup[g.group.id] ?? 0;
                 if (ms <= 0) return null;
-                const style = { flex: ms, "--c": `var(--ns-tt-cat-${groupColor(g)})` } as CSSProperties;
+                const style = { flex: ms, "--c": groupColor(g) } as CSSProperties;
                 return <i key={g.group.id} style={style} />;
               })}
             </div>
@@ -143,7 +144,7 @@ export function TimetableCoverAux() {
             {groups.map((g) => (
               <div key={g.group.id}>
                 <dt>
-                  <i style={{ "--c": `var(--ns-tt-cat-${groupColor(g)})` } as CSSProperties} aria-hidden="true" />
+                  <i style={{ "--c": groupColor(g) } as CSSProperties} aria-hidden="true" />
                   {g.group.name}
                 </dt>
                 <dd>{fmtDur(byGroup[g.group.id] ?? 0)}</dd>

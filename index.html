@@ -7,14 +7,69 @@
          刻意不加 maximum-scale／user-scalable=no——無障礙縮放要留著。 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>私鐵手帳 · Next Stop</title>
-    <!-- 磨光⑤ S10：開頁前先套上次算好的主題（uiStore.applyTheme 寫的 ns-theme-resolved），
-         銀河主題不再先閃一下粉彩。讀不到或例外就什麼都不做，照舊等 loadSettings。 -->
+    <!-- 磨光⑤ S10 ＋ v1.34 4A：開頁前同步求值本機主題規則（支援手動、跟隨系統、依時間自動切換與水鏡鎌倉全天候），
+         即使昨晚深色關閉、隔天早晨開啟也直接依當下時刻套上正確亮暗與商店主題，達成開機零閃白／零閃黑。 -->
     <script>
       try {
-        var t = localStorage.getItem("ns-theme-resolved");
-        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-        var s = localStorage.getItem("ns-skin-resolved");
-        if (s) document.documentElement.setAttribute("data-skin", s);
+        var raw = localStorage.getItem("ns-theme-config");
+        var kt = localStorage.getItem("ns-kamakura-time");
+        var dt = null;
+        var ds = null;
+        var kr = null;
+        if (raw) {
+          var c = JSON.parse(raw);
+          if (c && typeof c === "object") {
+            var parseHm = function (s, fb) {
+              var m = typeof s === "string" && /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+              if (!m) return fb;
+              var hh = +m[1], mm = +m[2];
+              return hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 ? hh * 60 + mm : fb;
+            };
+            var dNow = new Date();
+            var now = dNow.getHours() * 60 + dNow.getMinutes();
+            var isDay = function () {
+              var dayM = parseHm(c.dayStartHm, 390);
+              var nightM = parseHm(c.nightStartHm, 1110);
+              if (dayM === nightM) return true;
+              return dayM < nightM ? now >= dayM && now < nightM : now >= dayM || now < nightM;
+            };
+            var dark = false;
+            var id = "pastel";
+            if (c.mode === "kamakura") {
+              dark = kt === "night" ? true : kt === "dawn" || kt === "day" || kt === "dusk" ? false : !(now >= 310 && now < 1110);
+              id = "kamakura";
+              kr = "full";
+            } else if (c.mode === "schedule") {
+              dark = !isDay();
+              id = dark ? (c.darkPref || "galaxy") : (c.lightPref || "pastel");
+            } else if (c.mode === "system") {
+              dark = !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+              id = dark ? (c.darkPref || "galaxy") : (c.lightPref || "pastel");
+            } else {
+              if (c.manualOverride) {
+                id = c.manualOverride;
+                dark = id === "galaxy" || id === "sleeper" || id === "moonlight";
+              } else {
+                dark = c.manualPolarity === "dark";
+                id = dark ? (c.darkPref || "galaxy") : (c.lightPref || "pastel");
+              }
+            }
+            dt = dark ? "dark" : "light";
+            ds = id && id !== "pastel" && id !== "galaxy" ? id : null;
+            if (ds === "kamakura" && !kr) kr = dt;
+          }
+        }
+        if (!dt) {
+          var t = localStorage.getItem("ns-theme-resolved");
+          if (t === "light" || t === "dark") dt = t;
+          ds = localStorage.getItem("ns-skin-resolved");
+          if (ds === "kamakura") kr = "full";
+        }
+        if (kr) document.documentElement.setAttribute("data-kamakura-role", kr);
+        else document.documentElement.removeAttribute("data-kamakura-role");
+        if (dt) document.documentElement.setAttribute("data-theme", dt);
+        if (ds) document.documentElement.setAttribute("data-skin", ds);
+        else document.documentElement.removeAttribute("data-skin");
       } catch (e) {}
     </script>
     <!-- 字型自帶在 src/assets/fonts（D-筆-34：不連 Google Fonts，離線也是同一套字）；@font-face 在 src/styles/theme.css。

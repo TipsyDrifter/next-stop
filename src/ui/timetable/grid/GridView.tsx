@@ -22,7 +22,7 @@
  */
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
-import { MIN, colorSlot, fmtDur, gapTotal, recordedTotal, toSpan, totalsByCategory } from "../../../domain/timetable";
+import { MIN, categoryColorCss, fmtDur, gapTotal, recordedTotal, toSpan, totalsByCategory } from "../../../domain/timetable";
 import { CELL_OPTIONS, cellIndexAt, pickCellBlock, rowHoursFor, type RowHours } from "../../../domain/timetableGrid";
 import { TT_TEXT, blockMarker, useTimetableStore, type TimetableShell } from "../../../store/timetableStore";
 import { useTimetableGridStore, type GridSel } from "../../../store/timetableGridStore";
@@ -197,7 +197,7 @@ function MobileLegend({ day, hidden }: { day: GridDay; hidden: boolean }) {
           <span
             key={r.id}
             className="ns-tt-grid-lg"
-            style={{ "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})` } as CSSProperties}
+            style={{ "--c": categoryColorCss(cat, 8) } as CSSProperties}
           >
             <i />
             {cat?.name ?? "？"}

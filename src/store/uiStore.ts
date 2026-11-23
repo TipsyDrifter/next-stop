@@ -10,6 +10,31 @@ import { create } from "zustand";
 import type { ReactNode } from "react";
 import { settingsRepo, DEV_FLAGS, MOCK_MODE } from "../data";
 import { isSkinId, skinById, type SkinId } from "../lib/themeShop";
+import {
+  DEFAULT_THEME_SYSTEM_CONFIG,
+  KAMAKURA_TIME_CACHE_KEY,
+  THEME_CONFIG_CACHE_KEY,
+  isKamakuraDarkAt,
+  isKamakuraTimePref,
+  legacyThemeValueOf,
+  localNowMinutes,
+  nextConfigOnPickTheme,
+  nextConfigOnSetDarkPref,
+  nextConfigOnSetLightPref,
+  nextConfigOnSetMode,
+  nextConfigOnTogglePair,
+  normalizeThemeHm,
+  parseThemeSystemSettings,
+  resolveThemeSystem,
+  serializeThemeCache,
+  type ConcreteThemeId,
+  type DarkThemeId,
+  type KamakuraTimePref,
+  type LightThemeId,
+  type ResolvedThemeState,
+  type ThemeMode,
+  type ThemeSystemConfig,
+} from "../lib/themeSystem";
 import { syncWindowTheme } from "../lib/windowTheme";
 import { isCaptureWindow } from "../ui/notes/capture-window/shell";
 import { useHandFontStore } from "./handFontStore";
@@ -78,6 +103,13 @@ export interface RouteDialogState {
 }
 
 const KEY_THEME = "theme";
+const KEY_THEME_MODE = "theme_mode";
+const KEY_THEME_LIGHT_PREF = "theme_light_pref";
+const KEY_THEME_DARK_PREF = "theme_dark_pref";
+const KEY_THEME_MANUAL_POLARITY = "theme_manual_polarity";
+const KEY_THEME_MANUAL_OVERRIDE = "theme_manual_override";
+const KEY_THEME_DAY_HM = "theme_day_start_hm";
+const KEY_THEME_NIGHT_HM = "theme_night_start_hm";
 const KEY_DAY_START = "day_start_hour";
 /**
  * 日界線預設 06:00（主人 2026-10-06 拍板 D-時-21；由時刻表線①a 順帶改，契約 §6.2-3）。
@@ -100,55 +132,12 @@ function normalizeWeekStart(raw: string | null): 0 | 1 {
   return raw === "0" ? 0 : 1;
 }
 
-function applyTheme(pref: ThemePref) {
-  const root = document.documentElement;
-  // ⑩ 商店主題（D-主-431）：data-theme 仍是亮暗底，data-skin 再蓋 token（styles/theme-library.css）
-  const skin = skinById(pref);
-  const dark = skin
-    ? skin.base === "dark"
-    : pref === "galaxy" || (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  root.setAttribute("data-theme", dark ? "dark" : "light");
-  if (skin) root.setAttribute("data-skin", skin.id);
-  else root.removeAttribute("data-skin");
-  syncWindowTheme(pref === "system" ? null : dark ? "dark" : "light");
-  // 磨光⑤ S10：算好的結果留一份，index.html 開頁前同步 script 先套上，銀河主題使用者不再先看到粉彩。
-  // ?theme= 覆寫不留（不蓋掉主人自己的偏好）；讀寫失敗（私密視窗、被擋）就算了，下次照舊慢一拍。
-  // 快取只由主視窗寫：標題列的 setTheme 是整個 WebView profile 共用，主視窗一換亮暗，捕捉小窗的「跟隨系統」監聽也會觸發，
-  // 它手上是叫出時讀的舊設定，寫進來會把商店主題洗掉（沙盒抓到的）
-  if (!THEME_OVERRIDE && !isCaptureWindow()) {
-    try {
-      localStorage.setItem("ns-theme-resolved", dark ? "dark" : "light");
-      if (skin) localStorage.setItem("ns-skin-resolved", skin.id);
-      else localStorage.removeItem("ns-skin-resolved");
-    } catch {
-      /* 沒有快取只是開頁慢一拍套主題 */
-    }
-  }
-}
-
-/** settings 表的字串 → ThemePref；含 M2 舊值遷移（light＝旅の手帖→粉彩星空、dark＝月白→銀河鐵道） */
-function normalizeTheme(raw: string | null): ThemePref {
-  if (isSkinId(raw)) return raw;
-  switch (raw) {
-    case "pastel":
-    case "galaxy":
-    case "system":
-      return raw;
-    case "light":
-      return "pastel";
-    case "dark":
-      return "galaxy";
-    default:
-      return "system";
-  }
-}
-
 /**
- * dev／mock 專用的主題覆寫：`?theme=pastel|galaxy|techo|sleeper|moonlight|yumemi`。
+ * dev／mock 專用的主題覆寫：`?theme=pastel|galaxy|techo|sleeper|moonlight|yumemi|kamakura`。
  * 給 headless 截圖與比稿對照用——蓋過 settings 讀到的值，但**不寫回** settings，
  * 關掉參數就回到主人自己的設定。正式打包（非 DEV 且非 mock）不生效。
  */
-function detectThemeOverride(): ThemePref | null {
+function detectThemeOverride(): ConcreteThemeId | null {
   if (!import.meta.env.DEV && !MOCK_MODE) return null;
   if (typeof window === "undefined") return null;
   try {
@@ -159,7 +148,124 @@ function detectThemeOverride(): ThemePref | null {
   }
 }
 
-const THEME_OVERRIDE: ThemePref | null = detectThemeOverride();
+const THEME_OVERRIDE: ConcreteThemeId | null = detectThemeOverride();
+
+function readSystemDark(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  try {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function readKamakuraTime(): KamakuraTimePref | null {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(KAMAKURA_TIME_CACHE_KEY);
+    return isKamakuraTimePref(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveForCurrentEnv(config: ThemeSystemConfig): ResolvedThemeState {
+  const nowMinutes = localNowMinutes(new Date());
+  const kamakuraTime = readKamakuraTime();
+  if (THEME_OVERRIDE) {
+    if (THEME_OVERRIDE === "kamakura") {
+      const dark = isKamakuraDarkAt(nowMinutes, kamakuraTime);
+      const pol = dark ? "dark" : "light";
+      return {
+        dataTheme: pol,
+        dataSkin: "kamakura",
+        kamakuraRole: "full",
+        activeThemeId: "kamakura",
+        windowTheme: pol,
+      };
+    }
+    const skin = skinById(THEME_OVERRIDE);
+    const dark = skin ? skin.base === "dark" : THEME_OVERRIDE === "galaxy";
+    const pol = dark ? "dark" : "light";
+    return {
+      dataTheme: pol,
+      dataSkin: skin ? skin.id : null,
+      kamakuraRole: null,
+      activeThemeId: THEME_OVERRIDE,
+      windowTheme: pol,
+    };
+  }
+  return resolveThemeSystem(config, {
+    systemDark: readSystemDark(),
+    nowMinutes,
+    kamakuraTime,
+  });
+}
+
+let transitionClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+function applyResolvedToDom(config: ThemeSystemConfig, animate: boolean): ResolvedThemeState {
+  const resolved = resolveForCurrentEnv(config);
+  if (typeof document === "undefined") return resolved;
+
+  const root = document.documentElement;
+  const prevTheme = root.getAttribute("data-theme");
+  const prevSkin = root.getAttribute("data-skin");
+  const prevRole = root.getAttribute("data-kamakura-role");
+  const changed = prevTheme !== resolved.dataTheme || prevSkin !== resolved.dataSkin;
+
+  if (animate && changed) {
+    root.setAttribute("data-theme-transition", "1");
+    if (transitionClearTimer) clearTimeout(transitionClearTimer);
+    transitionClearTimer = setTimeout(() => {
+      root.removeAttribute("data-theme-transition");
+      transitionClearTimer = null;
+    }, 320);
+  }
+
+  if (resolved.kamakuraRole) {
+    if (prevRole !== resolved.kamakuraRole) root.setAttribute("data-kamakura-role", resolved.kamakuraRole);
+  } else if (prevRole !== null) {
+    root.removeAttribute("data-kamakura-role");
+  }
+  if (prevTheme !== resolved.dataTheme) {
+    root.setAttribute("data-theme", resolved.dataTheme);
+  }
+  if (resolved.dataSkin) {
+    if (prevSkin !== resolved.dataSkin) root.setAttribute("data-skin", resolved.dataSkin);
+  } else if (prevSkin !== null) {
+    root.removeAttribute("data-skin");
+  }
+
+  syncWindowTheme(resolved.windowTheme);
+
+  // 快取只由主視窗寫，且 ?theme= 覆寫不蓋掉主人自己的偏好
+  if (!THEME_OVERRIDE && !isCaptureWindow()) {
+    try {
+      localStorage.setItem(THEME_CONFIG_CACHE_KEY, serializeThemeCache(config));
+      localStorage.setItem("ns-theme-resolved", resolved.dataTheme);
+      if (resolved.dataSkin) localStorage.setItem("ns-skin-resolved", resolved.dataSkin);
+      else localStorage.removeItem("ns-skin-resolved");
+    } catch {
+      /* 沒有快取只是開頁慢一拍套主題 */
+    }
+  }
+  return resolved;
+}
+
+async function persistThemeConfig(config: ThemeSystemConfig, resolved: ResolvedThemeState): Promise<void> {
+  const legacy = legacyThemeValueOf(config, resolved);
+  await Promise.all([
+    settingsRepo.set(KEY_THEME, legacy),
+    settingsRepo.set(KEY_THEME_MODE, config.mode),
+    settingsRepo.set(KEY_THEME_LIGHT_PREF, config.lightPref),
+    settingsRepo.set(KEY_THEME_DARK_PREF, config.darkPref),
+    settingsRepo.set(KEY_THEME_MANUAL_POLARITY, config.manualPolarity),
+    settingsRepo.set(KEY_THEME_MANUAL_OVERRIDE, config.manualOverride ?? ""),
+    settingsRepo.set(KEY_THEME_DAY_HM, config.dayStartHm),
+    settingsRepo.set(KEY_THEME_NIGHT_HM, config.nightStartHm),
+  ]);
+}
 
 const LAST_NAV_KEY = "ns.lastNav.v1";
 
@@ -201,10 +307,32 @@ export function writeLastNav(patch: Partial<LastNavState>): void {
 }
 
 // 覆寫存在就搶在第一次繪製前套上，避免 loadSettings 回來之前閃一下預設主題
-if (THEME_OVERRIDE && typeof document !== "undefined") applyTheme(THEME_OVERRIDE);
+if (THEME_OVERRIDE && typeof document !== "undefined") {
+  applyResolvedToDom(DEFAULT_THEME_SYSTEM_CONFIG, false);
+}
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let systemThemeWatched = false;
+let scheduleMinuteTimer: ReturnType<typeof setTimeout> | null = null;
+
+function stopThemeClockTimer(): void {
+  if (scheduleMinuteTimer) {
+    clearTimeout(scheduleMinuteTimer);
+    scheduleMinuteTimer = null;
+  }
+}
+
+function syncThemeClockTimer(mode: ThemeMode, tick: () => void): void {
+  stopThemeClockTimer();
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  if (mode !== "schedule" && mode !== "kamakura" && THEME_OVERRIDE !== "kamakura") return;
+  if (document.hidden) return;
+  const msToNextMinute = 60_000 - (Date.now() % 60_000) + 60;
+  scheduleMinuteTimer = setTimeout(() => {
+    scheduleMinuteTimer = null;
+    tick();
+  }, msToNextMinute);
+}
 
 interface UiStore {
   page: PageId;
@@ -250,7 +378,12 @@ interface UiStore {
   hotkeyGuideOpen: boolean;
   completeCardFor: string | null;
   routeDialog: RouteDialogState | null;
+  /** 當前實際生效的主題 ID（粉彩／銀河／5 套商店主題），供書封腳與氛圍層直接訂閱 */
   theme: ThemePref;
+  /** v1.34 4A：時光主題配對與四模式設定完整狀態 */
+  themeConfig: ThemeSystemConfig;
+  /** 當前 `<html data-theme>` 是否為 `"dark"` */
+  resolvedDark: boolean;
   dayStartHour: number;
   /** 今日視圖：誤點區是否收起（持久化 settings key today_late_collapsed；M3 ③ r1） */
   lateCollapsed: boolean;
@@ -313,6 +446,12 @@ interface UiStore {
   openRouteDialog: (state: RouteDialogState) => void;
   closeRouteDialog: () => void;
   setTheme: (pref: ThemePref) => Promise<void>;
+  setThemeMode: (mode: ThemeMode) => Promise<void>;
+  setLightThemePref: (id: LightThemeId) => Promise<void>;
+  setDarkThemePref: (id: DarkThemeId) => Promise<void>;
+  setThemeSchedule: (patch: { dayStartHm?: string; nightStartHm?: string }) => Promise<void>;
+  toggleThemePair: () => Promise<void>;
+  refreshThemeByClock: () => void;
   setDayStartHour: (hour: number) => Promise<void>;
   setLateCollapsed: (collapsed: boolean) => Promise<void>;
   setCalendarView: (view: CalendarView) => Promise<void>;
@@ -365,7 +504,10 @@ export const useUiStore = create<UiStore>((set, get) => ({
   hotkeyGuideOpen: false,
   completeCardFor: null,
   routeDialog: null,
-  theme: THEME_OVERRIDE ?? "system",
+  theme: THEME_OVERRIDE ?? "pastel",
+  themeConfig: DEFAULT_THEME_SYSTEM_CONFIG,
+  resolvedDark:
+    typeof document !== "undefined" ? document.documentElement.getAttribute("data-theme") === "dark" : false,
   dayStartHour: DEFAULT_DAY_START_HOUR,
   lateCollapsed: false,
   calendarView: DEV_FLAGS.view ?? "month",
@@ -510,9 +652,102 @@ export const useUiStore = create<UiStore>((set, get) => ({
   writeLastNav,
 
   async setTheme(pref) {
-    applyTheme(pref);
-    set({ theme: pref });
-    await settingsRepo.set(KEY_THEME, pref);
+    const cur = get().themeConfig;
+    const next = nextConfigOnPickTheme(cur, pref, get().resolvedDark);
+    const resolved = applyResolvedToDom(next, true);
+    set({
+      themeConfig: next,
+      theme: resolved.activeThemeId,
+      resolvedDark: resolved.dataTheme === "dark",
+    });
+    syncThemeClockTimer(next.mode, () => get().refreshThemeByClock());
+    await persistThemeConfig(next, resolved);
+  },
+
+  async setThemeMode(mode) {
+    const cur = get().themeConfig;
+    const next = nextConfigOnSetMode(cur, mode, get().resolvedDark);
+    const resolved = applyResolvedToDom(next, true);
+    set({
+      themeConfig: next,
+      theme: resolved.activeThemeId,
+      resolvedDark: resolved.dataTheme === "dark",
+    });
+    syncThemeClockTimer(next.mode, () => get().refreshThemeByClock());
+    await persistThemeConfig(next, resolved);
+  },
+
+  async setLightThemePref(id) {
+    const cur = get().themeConfig;
+    const next = nextConfigOnSetLightPref(cur, id);
+    const resolved = applyResolvedToDom(next, true);
+    set({
+      themeConfig: next,
+      theme: resolved.activeThemeId,
+      resolvedDark: resolved.dataTheme === "dark",
+    });
+    syncThemeClockTimer(next.mode, () => get().refreshThemeByClock());
+    await persistThemeConfig(next, resolved);
+  },
+
+  async setDarkThemePref(id) {
+    const cur = get().themeConfig;
+    const next = nextConfigOnSetDarkPref(cur, id);
+    const resolved = applyResolvedToDom(next, true);
+    set({
+      themeConfig: next,
+      theme: resolved.activeThemeId,
+      resolvedDark: resolved.dataTheme === "dark",
+    });
+    syncThemeClockTimer(next.mode, () => get().refreshThemeByClock());
+    await persistThemeConfig(next, resolved);
+  },
+
+  async setThemeSchedule(patch) {
+    const cur = get().themeConfig;
+    const next: ThemeSystemConfig = {
+      ...cur,
+      dayStartHm: patch.dayStartHm !== undefined ? normalizeThemeHm(patch.dayStartHm, cur.dayStartHm) : cur.dayStartHm,
+      nightStartHm:
+        patch.nightStartHm !== undefined ? normalizeThemeHm(patch.nightStartHm, cur.nightStartHm) : cur.nightStartHm,
+    };
+    const resolved = applyResolvedToDom(next, true);
+    set({
+      themeConfig: next,
+      theme: resolved.activeThemeId,
+      resolvedDark: resolved.dataTheme === "dark",
+    });
+    syncThemeClockTimer(next.mode, () => get().refreshThemeByClock());
+    await persistThemeConfig(next, resolved);
+  },
+
+  async toggleThemePair() {
+    const cur = get().themeConfig;
+    const next = nextConfigOnTogglePair(cur, get().resolvedDark);
+    const resolved = applyResolvedToDom(next, true);
+    set({
+      themeConfig: next,
+      theme: resolved.activeThemeId,
+      resolvedDark: resolved.dataTheme === "dark",
+    });
+    syncThemeClockTimer(next.mode, () => get().refreshThemeByClock());
+    await persistThemeConfig(next, resolved);
+  },
+
+  refreshThemeByClock() {
+    const cur = get().themeConfig;
+    const prevTheme = get().theme;
+    const prevDark = get().resolvedDark;
+    const nextDarkFromPreview = resolveForCurrentEnv(cur).dataTheme === "dark";
+    const resolved = applyResolvedToDom(cur, nextDarkFromPreview !== prevDark);
+    const isDark = resolved.dataTheme === "dark";
+    if (resolved.activeThemeId !== prevTheme || isDark !== prevDark) {
+      set({
+        theme: resolved.activeThemeId,
+        resolvedDark: isDark,
+      });
+    }
+    syncThemeClockTimer(cur.mode, () => get().refreshThemeByClock());
   },
 
   async setDayStartHour(hour) {
@@ -537,21 +772,64 @@ export const useUiStore = create<UiStore>((set, get) => ({
   },
 
   async loadSettings() {
-    // 先套預設主題，再讀設定（讀不到——例如非 Tauri 環境預覽——也不讓畫面裸奔）。
-    // 磨光⑤ 真機 D1：index.html 已用快取（或 ?theme= 覆寫）套好主題時不再先套預設——預設是「跟隨系統」，
-    // 粉彩主題＋系統深色會先閃銀河 1.5 秒，反過來會先閃粉彩與英文「Today」；讀設定失敗就留著快取那一個。
-    if (!document.documentElement.hasAttribute("data-theme")) applyTheme(get().theme);
-    // ⑩：捕捉小窗每次叫出都會重跑 loadSettings，監聽只掛一次（以前每次多一顆）
-    if (!systemThemeWatched) {
+    if (typeof document !== "undefined" && !document.documentElement.hasAttribute("data-theme")) {
+      applyResolvedToDom(get().themeConfig, false);
+    }
+    // ⑩ ＋ v1.34 4A：捕捉小窗每次叫出都會重跑 loadSettings，系統深淺與喚醒監聽只掛一次
+    if (!systemThemeWatched && typeof window !== "undefined") {
       systemThemeWatched = true;
-      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-        if (get().theme === "system") applyTheme("system");
+      try {
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+          if (get().themeConfig.mode === "system") get().refreshThemeByClock();
+        });
+      } catch {
+        /* matchMedia 不支援時略過 */
+      }
+      const onWake = () => {
+        const m = get().themeConfig.mode;
+        if (typeof document !== "undefined" && document.hidden) {
+          stopThemeClockTimer();
+          return;
+        }
+        if (m === "schedule" || m === "kamakura" || m === "system" || THEME_OVERRIDE === "kamakura") {
+          get().refreshThemeByClock();
+        }
+      };
+      if (typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", onWake);
+      }
+      window.addEventListener("focus", onWake);
+      window.addEventListener("pageshow", onWake);
+      window.addEventListener("ns-kamakura-time-change", () => {
+        get().refreshThemeByClock();
       });
     }
     void useHandFontStore.getState().init();
     try {
-      const [theme, dayStart, lateCollapsed, calendarView, weekStart, todayHideDone, outlineHideDone] = await Promise.all([
+      const [
+        theme,
+        themeMode,
+        lightPref,
+        darkPref,
+        manualPolarity,
+        manualOverride,
+        dayStartHm,
+        nightStartHm,
+        dayStart,
+        lateCollapsed,
+        calendarView,
+        weekStart,
+        todayHideDone,
+        outlineHideDone,
+      ] = await Promise.all([
         settingsRepo.get(KEY_THEME),
+        settingsRepo.get(KEY_THEME_MODE),
+        settingsRepo.get(KEY_THEME_LIGHT_PREF),
+        settingsRepo.get(KEY_THEME_DARK_PREF),
+        settingsRepo.get(KEY_THEME_MANUAL_POLARITY),
+        settingsRepo.get(KEY_THEME_MANUAL_OVERRIDE),
+        settingsRepo.get(KEY_THEME_DAY_HM),
+        settingsRepo.get(KEY_THEME_NIGHT_HM),
         settingsRepo.get(KEY_DAY_START),
         settingsRepo.get(KEY_LATE_COLLAPSED),
         settingsRepo.get(KEY_CALENDAR_VIEW),
@@ -559,21 +837,35 @@ export const useUiStore = create<UiStore>((set, get) => ({
         settingsRepo.get(KEY_TODAY_HIDE_DONE),
         settingsRepo.get(KEY_OUTLINE_HIDE_DONE),
       ]);
-      const pref: ThemePref = THEME_OVERRIDE ?? normalizeTheme(theme);
-      applyTheme(pref);
+      const parsedConfig = parseThemeSystemSettings({
+        theme,
+        mode: themeMode,
+        lightPref,
+        darkPref,
+        manualPolarity,
+        manualOverride,
+        dayStartHm,
+        nightStartHm,
+      });
+      const resolved = applyResolvedToDom(parsedConfig, false);
       set({
-        theme: pref,
-        // 設定值 "0"（午夜）也是合法值：以前的 `Number(x) || 3` 會把它吃成預設（既有 bug，契約 §6.2-3 順帶修）；
-        // 解析搬到 lib/date（SQLite 讀取面的守門日讀同一個設定、同一套解析，收官磨光 A4）
+        themeConfig: parsedConfig,
+        theme: resolved.activeThemeId,
+        resolvedDark: resolved.dataTheme === "dark",
         dayStartHour: parseDayStartHour(dayStart),
         lateCollapsed: lateCollapsed === "1",
-        // `?view=` 蓋過設定但不寫回（與 THEME_OVERRIDE 同款，關掉參數就回主人自己的偏好）；舊「時段」已搬至時刻表›日程，啟動時自動歸回週視圖
-        calendarView: DEV_FLAGS.view ?? (calendarView === "week" || calendarView === "stream" ? calendarView : calendarView === "time" ? "week" : "month"),
+        calendarView:
+          DEV_FLAGS.view ??
+          (calendarView === "week" || calendarView === "stream"
+            ? calendarView
+            : calendarView === "time"
+              ? "week"
+              : "month"),
         weekStart: normalizeWeekStart(weekStart),
-        // 已完成開關（D-主-131）：沒寫過＝各頁預設（今日顯示、路線圖收起）
         todayHideDone: todayHideDone === "1",
         hideDone: outlineHideDone !== "0",
       });
+      syncThemeClockTimer(parsedConfig.mode, () => get().refreshThemeByClock());
     } catch {
       // 設定讀取失敗不致命：維持預設（跟隨系統、06:00）
     }

@@ -163,6 +163,19 @@
   margin-left: 2px; font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .05em;
   white-space: nowrap; font-variant-numeric: tabular-nums;
 }
+.ns-colorpick-hexwrap {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+}
+.techo-input.ns-colorpick-hex {
+  width: 78px; min-height: var(--ctl-h-sm); padding: 0 var(--sp-1);
+  font-family: var(--font-latin); font-size: var(--fs-sm); letter-spacing: .04em; font-variant-numeric: tabular-nums;
+}
+.techo-input.ns-colorpick-hex.is-invalid {
+  color: var(--late); border-bottom-color: var(--late);
+}
+.ns-colorpick-hexerr {
+  font-size: var(--fs-xs); color: var(--late); white-space: nowrap;
+}
 
 /* ═══ DayCell：今天＝赭字＋赭菱形、有事＝墨點、選中＝--sel-bg、「＋」常駐淡態 ═══ */
 /* 格寬由容器決定：撐滿父層、7 欄平分（minmax(0, 1fr)：格內 children 再長也不把某一欄撐寬） */

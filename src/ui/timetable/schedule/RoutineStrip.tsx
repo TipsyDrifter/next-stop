@@ -12,7 +12,7 @@
  * 那天沒有作息 ⇒ 呼叫端不畫這一條（ScheduleGrid 的 hasRoutine）。
  */
 import type { CSSProperties } from "react";
-import { colorSlot } from "../../../domain/timetable";
+import { categoryColorCss } from "../../../domain/timetable";
 import { fmtRoutineDelta, segName } from "../../../domain/timetableRoutine";
 import { clockMinutes } from "../../../lib/date";
 import { useTimetableStore } from "../../../store/timetableStore";
@@ -44,7 +44,7 @@ export function RoutineStrip({ page, hourPx, swallowClick }: { page: SchedulePag
         const full = c ? fmtRoutineDelta(c) : null;
         const title = `${name}　${g.s}–${g.e}${full ? "・" + full : ""}`;
         const style = {
-          "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`,
+          "--c": categoryColorCss(cat, 8),
           top: `calc(${pct(minFrac(s, dayStartHour))} + 1px)`,
           height: `calc(${pct((e - s) / 1440)} - 2px)`,
         } as CSSProperties;

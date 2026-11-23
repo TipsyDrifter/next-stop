@@ -22,7 +22,7 @@
  * 量到軌道寬（第一次掛上）或 now 每分鐘一跳時，只有長相真的變了的色帶重畫。
  */
 import { memo, useMemo, type CSSProperties, type RefObject } from "react";
-import { colorSlot, fmtClock, fmtDur, MIN, msOf, noteOf, type TimeBlockRow } from "../../../domain/timetable";
+import { categoryColorCss, fmtClock, fmtDur, MIN, msOf, noteOf, type TimeBlockRow } from "../../../domain/timetable";
 import type { RowRun } from "../../../domain/timetableGrid";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { HOUR, pad2, pct, rowSelKey, useSelOverlayStore, type GridDay } from "./gridModel";
@@ -57,8 +57,8 @@ function colHeadMarks(rowMs: number, cellMin: number): { left: string; label: st
 interface BandProps {
   x0: number;
   x1: number;
-  /** 分類色槽（colorSlot 的結果） */
-  slot: number;
+  /** 分類 CSS 色值（var(--cat-N) 或 #rrggbb） */
+  color: string;
   glyph: string | null;
   name: string | null;
   start: string | null;
@@ -72,8 +72,8 @@ interface BandProps {
 }
 
 /** 一段色帶；props 全是原始值（字放不放、起點時刻由 GridSheet 依實寬算好），memo 才擋得住 */
-const Band = memo(function Band({ x0, x1, slot, glyph, name, start, pend, running, tiny, cp, cn, tip }: BandProps) {
-  const style = { left: pct(x0), width: pct(x1 - x0), "--c": `var(--ns-tt-cat-${slot})` } as CSSProperties;
+const Band = memo(function Band({ x0, x1, color, glyph, name, start, pend, running, tiny, cp, cn, tip }: BandProps) {
+  const style = { left: pct(x0), width: pct(x1 - x0), "--c": color } as CSSProperties;
   const cls =
     "ns-tt-grid-band" +
     (pend ? " is-pend" : "") +
@@ -114,7 +114,7 @@ function bandProps(run: RowRun, day: GridDay, trackPx: number, rowById: Readonly
   return {
     x0: run.x0,
     x1: run.x1,
-    slot: colorSlot(cat?.color_idx ?? 8),
+    color: categoryColorCss(cat, 8),
     glyph: wp >= 13 ? (cat ? (cat.glyph ?? Array.from(cat.name)[0] ?? "・") : "？") : null,
     name: showName ? (cat?.name ?? "？") : null,
     start: showName && run.head && wp >= 104 && start !== undefined ? fmtClock(start) : null,

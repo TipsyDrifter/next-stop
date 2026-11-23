@@ -3,7 +3,7 @@
  * 只做「資料 → 字／顏色」；字一律從 `TT_TEXT` 取（顯示端不手抄），日期換算用日界線日 key（YYYY-MM-DD）。
  */
 import { useMemo } from "react";
-import { colorSlot, fmtClock, fmtDur, type TimeCategoryRow } from "../../../domain/timetable";
+import { categoryColorCss, fmtClock, fmtDur, type TimeCategoryRow } from "../../../domain/timetable";
 import { periodWindow, type Goal, type StatsPeriod } from "../../../domain/timetableStats";
 import { addDays, todayKey } from "../../../lib/date";
 import { TT_TEXT } from "../../../store/timetableStore";
@@ -38,7 +38,7 @@ export function mdwOfMs(ms: number): string {
 
 /** 分類色（D-時-63：一律用子分類自己的 color_idx；找不到＝第 8 色） */
 export function catColor(c: TimeCategoryRow | null | undefined): string {
-  return `var(--ns-tt-cat-${c ? colorSlot(c.color_idx) : 8})`;
+  return categoryColorCss(c, 8);
 }
 
 /** 期名與小標（§5.2-1）：日「10/19（日）今天」、週「10/13–10/19 本週」、月「2026 年 10 月 本月」 */

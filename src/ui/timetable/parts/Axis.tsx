@@ -27,7 +27,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import {
   axisRowHeight,
-  colorSlot,
+  categoryColorCss,
   fmtClock,
   fmtDur,
   msOf,
@@ -242,7 +242,7 @@ export function Axis({ scroller }: AxisProps) {
                 const lkInfo = linkInfo[lk.nodeId ?? lk.routeId ?? ""];
                 const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
                 const note = noteOf(row);
-                const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})` } as CSSProperties;
+                const style = { "--c": categoryColorCss(cat, 8) } as CSSProperties;
                 const cls =
                   "ns-tt-blk ns-tt-ledger-row" +
                   (it.running ? " is-live" : "") +
@@ -347,7 +347,7 @@ export function Axis({ scroller }: AxisProps) {
             // 名稱下那一行有沒有小牌（運行中、續、時刻待確認、誤點、長時間運行、預估）——沒有就不畫空的那行，備註直接頂上
             const hasChip =
               it.running || it.contFromPrev || it.contToNext || it.zero || m.kind === "late" || m.kind === "long" || est !== null;
-            const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`, minHeight: axisRowHeight(dur) } as CSSProperties;
+            const style = { "--c": categoryColorCss(cat, 8), minHeight: axisRowHeight(dur) } as CSSProperties;
             const cls =
               "ns-tt-blk" +
               (it.running ? " is-live" : "") +

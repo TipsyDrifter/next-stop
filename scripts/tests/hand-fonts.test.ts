@@ -89,6 +89,7 @@ describe("清單", () => {
     }
   });
   test("設定值：不認得的一律退回芫荽", () => {
+    assert.equal(normalizeHandFont("lxgw"), "lxgw");
     assert.equal(normalizeHandFont("chenyu"), "chenyu");
     assert.equal(normalizeHandFont("iansui"), "iansui");
     assert.equal(normalizeHandFont(null), "iansui");

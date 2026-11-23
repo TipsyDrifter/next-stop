@@ -10,7 +10,7 @@
  */
 import type { CSSProperties } from "react";
 import { blockCatTotals, blocksTotalMs, footprintAxisRange, nodeMsOf, type FootprintBlock, type FootprintDay } from "../../domain/notes";
-import { colorSlot, fmtDur, type TimeCategoryRow } from "../../domain/timetable";
+import { categoryColorCss, fmtDur, type TimeCategoryRow } from "../../domain/timetable";
 import { dayWindow } from "../../lib/date";
 import { CategoryBadge } from "../timetable/CategoryBadge";
 
@@ -70,7 +70,7 @@ export function FootprintAxis({ f, dayStartHour }: { f: FootprintDay; dayStartHo
         {blocks.map((b) => {
           const a = Date.parse(b.from);
           const z = Date.parse(b.to);
-          const style = { "--c": `var(--ns-tt-cat-${colorSlot(b.colorIdx)})`, left: pct(a) + "%", width: pct(z) - pct(a) + "%" } as CSSProperties;
+          const style = { "--c": categoryColorCss(b.colorIdx, 1), left: pct(a) + "%", width: pct(z) - pct(a) + "%" } as CSSProperties;
           // 跨日界線的塊只帶切過的時間（時刻表的唯讀查詢就是這樣給的）⇒ 照實寫「接前一天／延到隔天」，不假裝是實際起訖
           const from = clock(a) + (b.contFromPrev ? "（接前一天）" : "");
           const to = b.running ? "正在跑" : clock(z) + (b.contToNext ? "（延到隔天）" : "");

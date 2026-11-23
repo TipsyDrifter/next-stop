@@ -399,10 +399,192 @@ export function currentRunning(spans: readonly Span[]): Span | null {
   return best;
 }
 
-/** 越界夾回 1–8（契約 0-9：DDL 不加 CHECK，顯示端夾） */
+/** G7-1：分類預設色盤格數（1–8 原盤＋9–16 溫潤文具鋼筆墨水色票） */
+export const CATEGORY_COLOR_COUNT = 16;
+
+/**
+ * G7-1：自訂 #RRGGBB 色碼編碼進 `time_categories.color_idx`（整數欄，零 DB 遷移且相容 Rust E2EE 整數同步）：
+ * `0x100_0000 + 0xRRGGBB`（落在 `[16_777_216, 33_554_431]`，與預設槽 1–16 完全不重疊）。
+ */
+export const CUSTOM_CAT_COLOR_BASE = 0x100_0000;
+export const CUSTOM_CAT_COLOR_MAX = 0x1ff_ffff;
+
+/** 正規化 #RGB 或 #RRGGBB 為小寫 6 碼 `#rrggbb`；格式不合法回 null */
+export function normalizeCategoryHex(raw: string): string | null {
+  const s = raw.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(s)) return s;
+  const m3 = s.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/);
+  if (m3) return `#${m3[1]}${m3[1]}${m3[2]}${m3[2]}${m3[3]}${m3[3]}`;
+  return null;
+}
+
+/** 若 `color_idx` 為自訂色碼整數，解碼回 `#rrggbb`；否則回 null */
+export function decodeCategoryCustomHex(idx: number): string | null {
+  if (!Number.isFinite(idx)) return null;
+  const n = Math.trunc(idx);
+  if (n >= CUSTOM_CAT_COLOR_BASE && n <= CUSTOM_CAT_COLOR_MAX) {
+    return "#" + (n - CUSTOM_CAT_COLOR_BASE).toString(16).padStart(6, "0");
+  }
+  return null;
+}
+
+/** 將預設索引（1–16）或自訂色碼（`#RRGGBB` / `#RGB`）編碼為 `time_categories.color_idx` 整數 */
+export function encodeCategoryColor(input: number | string): number {
+  if (typeof input === "string") {
+    const hex = normalizeCategoryHex(input);
+    if (!hex) throw new RangeError("色碼格式不正確（請輸入 #RRGGBB）");
+    return CUSTOM_CAT_COLOR_BASE + parseInt(hex.slice(1), 16);
+  }
+  const custom = decodeCategoryCustomHex(input);
+  if (custom !== null) return Math.trunc(input);
+  return colorSlot(input);
+}
+
+/** 越界夾回 1–16（契約 0-9：DDL 不加 CHECK，顯示端夾） */
 export function colorSlot(idx: number): number {
+  const custom = decodeCategoryCustomHex(idx);
+  if (custom !== null) {
+    return (parseInt(custom.slice(1), 16) % CATEGORY_COLOR_COUNT) + 1;
+  }
   const n = Math.round(Number.isFinite(idx) ? idx : 1);
-  return ((((n - 1) % 8) + 8) % 8) + 1;
+  return ((((n - 1) % CATEGORY_COLOR_COUNT) + CATEGORY_COLOR_COUNT) % CATEGORY_COLOR_COUNT) + 1;
+}
+
+function srgbChannelToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+function linearChannelToSrgb(c: number): number {
+  const v = Math.min(1, Math.max(0, c));
+  return v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+}
+
+function linearRgbToOklab(r: number, g: number, b: number): [number, number, number] {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+function oklabToLinearRgb(L: number, a: number, b: number): [number, number, number] {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ];
+}
+
+function isLinearRgbInGamut(rgb: [number, number, number]): boolean {
+  return (
+    rgb[0] >= -1e-6 &&
+    rgb[0] <= 1 + 1e-6 &&
+    rgb[1] >= -1e-6 &&
+    rgb[1] <= 1 + 1e-6 &&
+    rgb[2] >= -1e-6 &&
+    rgb[2] <= 1 + 1e-6
+  );
+}
+
+function oklchToGamutLinearRgb(L: number, C: number, cosH: number, sinH: number): [number, number, number] {
+  if (C <= 1e-6) {
+    const g = oklabToLinearRgb(L, 0, 0);
+    return [Math.min(1, Math.max(0, g[0])), Math.min(1, Math.max(0, g[1])), Math.min(1, Math.max(0, g[2]))];
+  }
+  const full = oklabToLinearRgb(L, C * cosH, C * sinH);
+  if (isLinearRgbInGamut(full)) {
+    return [Math.min(1, Math.max(0, full[0])), Math.min(1, Math.max(0, full[1])), Math.min(1, Math.max(0, full[2]))];
+  }
+  let lo = 0;
+  let hi = C;
+  for (let i = 0; i < 18; i++) {
+    const mid = (lo + hi) * 0.5;
+    if (isLinearRgbInGamut(oklabToLinearRgb(L, mid * cosH, mid * sinH))) lo = mid;
+    else hi = mid;
+  }
+  const clamped = oklabToLinearRgb(L, lo * cosH, lo * sinH);
+  return [
+    Math.min(1, Math.max(0, clamped[0])),
+    Math.min(1, Math.max(0, clamped[1])),
+    Math.min(1, Math.max(0, clamped[2])),
+  ];
+}
+
+/**
+ * G7-1：自訂 `#RRGGBB` 分類色在亮／暗雙底的可讀性守門純函式。
+ * 在 OKLab 色彩空間保留原色相與適度彩度，將 WCAG 相對明度夾入與預設 16 色一致的可讀區間：
+ * - `light`：`lum ∈ [0.075, 0.160]`（壓淺色票紙與白字 `--ns-tt-on-cat` 對比度皆 ≥ 4.5:1 AA）
+ * - `dark` ：`lum ∈ [0.400, 0.600]`（壓深色票紙與深字 `--ns-tt-on-cat` 對比度皆 ≥ 5.5:1 AA）
+ * 注意：`decodeCategoryCustomHex`／`categoryPickerValue`／CSV 匯出仍保留使用者輸入的無損原色碼。
+ */
+export function adaptCustomCategoryHex(rawHex: string, polarity: "light" | "dark"): string {
+  const hex = normalizeCategoryHex(rawHex);
+  if (!hex) return polarity === "dark" ? "#a3a9b8" : "#5c5b7d";
+  const n = parseInt(hex.slice(1), 16);
+  const rLin = srgbChannelToLinear(((n >> 16) & 255) / 255);
+  const gLin = srgbChannelToLinear(((n >> 8) & 255) / 255);
+  const bLin = srgbChannelToLinear((n & 255) / 255);
+  const curY = 0.2126 * rLin + 0.7152 * gLin + 0.0722 * bLin;
+
+  const passLo = polarity === "light" ? 0.077 : 0.405;
+  const passHi = polarity === "light" ? 0.142 : 0.590;
+  if (curY >= passLo && curY <= passHi) return hex;
+
+  const targetY = polarity === "light" ? (curY < passLo ? 0.080 : 0.140) : curY < passLo ? 0.410 : 0.585;
+  const capC = polarity === "light" ? 0.15 : 0.11;
+  const lab = linearRgbToOklab(rLin, gLin, bLin);
+  const c0 = Math.hypot(lab[1], lab[2]);
+  const c = Math.min(c0, capC);
+  const cosH = c0 > 1e-6 ? lab[1] / c0 : 1;
+  const sinH = c0 > 1e-6 ? lab[2] / c0 : 0;
+
+  let loL = 0;
+  let hiL = 1;
+  for (let i = 0; i < 24; i++) {
+    const midL = (loL + hiL) * 0.5;
+    const rgb = oklchToGamutLinearRgb(midL, c, cosH, sinH);
+    const y = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+    if (y < targetY) loL = midL;
+    else hiL = midL;
+  }
+  const outRgb = oklchToGamutLinearRgb((loL + hiL) * 0.5, c, cosH, sinH);
+  const toHex2 = (v: number): string => Math.round(linearChannelToSrgb(v) * 255).toString(16).padStart(2, "0");
+  return "#" + toHex2(outRgb[0]) + toHex2(outRgb[1]) + toHex2(outRgb[2]);
+}
+
+/**
+ * 分類的 CSS 顏色表示式（圓牌／時間軸／方眼／統計／週視圖／日誌足跡／頂欄計時器一體共用）：
+ * - 自訂色碼 ⇒ 回 `light-dark(<亮底調適色>, <暗底調適色>)`（隨 `:root`／`[data-theme]` 的 `color-scheme` 自動切換）
+ * - 預設色盤 ⇒ 回 `var(--cat-N)`（1–16，隨亮暗主題切換）
+ * - 空值 ⇒ 退回 `var(--cat-<fallbackSlot>)`
+ */
+export function categoryColorCss(
+  catOrIdx: { color_idx: number } | number | null | undefined,
+  fallbackSlot: number = 8,
+): string {
+  if (catOrIdx === null || catOrIdx === undefined) {
+    return `var(--cat-${colorSlot(fallbackSlot)})`;
+  }
+  const idx = typeof catOrIdx === "number" ? catOrIdx : catOrIdx.color_idx;
+  const hex = decodeCategoryCustomHex(idx);
+  if (hex !== null) {
+    return `light-dark(${adaptCustomCategoryHex(hex, "light")}, ${adaptCustomCategoryHex(hex, "dark")})`;
+  }
+  return `var(--cat-${colorSlot(idx)})`;
+}
+
+/** ColorPicker 綁定值轉換：自訂色回 `#rrggbb` 字串，預設色回 `1..16` 整數 */
+export function categoryPickerValue(idx: number): number | string {
+  return decodeCategoryCustomHex(idx) ?? colorSlot(idx);
 }
 
 function byPositionThenCreated(a: TimeCategoryRow, b: TimeCategoryRow): number {
@@ -1570,7 +1752,7 @@ export function toDayBlockSegments(
       categoryId: i.span.categoryId,
       categoryName: cat?.name ?? "？",
       glyph: cat?.glyph ?? null,
-      colorIdx: cat ? colorSlot(cat.color_idx) : 1,
+      colorIdx: cat ? (decodeCategoryCustomHex(cat.color_idx) !== null ? Math.trunc(cat.color_idx) : colorSlot(cat.color_idx)) : 1,
       nodeId: row?.node_id ?? null,
       routeId: row?.route_id ?? null,
       from: isoOf(i.from),

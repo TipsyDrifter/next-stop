@@ -600,9 +600,11 @@ describe("B. 缺口補測", () => {
     for (const c of STARTER_CATEGORIES) assert.ok(m[0].includes(`'${c.id}'`), `alive_filter 缺 ${c.key}`);
   });
 
-  test("22. colorSlot 與 weekStartKey", () => {
-    assert.equal(colorSlot(0), 8);
-    assert.equal(colorSlot(9), 1);
+  test("22. colorSlot（16 色盤）與 weekStartKey", () => {
+    assert.equal(colorSlot(0), 16);
+    assert.equal(colorSlot(17), 1);
+    assert.equal(colorSlot(16), 16);
+    assert.equal(colorSlot(9), 9);
     assert.equal(colorSlot(8), 8);
     assert.equal(colorSlot(1), 1);
     assert.equal(weekStartKey("2026-10-11"), "2026-10-05"); // 週日 → 前一個週一

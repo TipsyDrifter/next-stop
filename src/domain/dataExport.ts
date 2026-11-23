@@ -20,6 +20,7 @@ import type { WishAction } from "./ticket.ts";
 import { describeRule, parseRule } from "./repeat.ts";
 import { periodLabel, periodOfKey, stationIdOfKey } from "./weekAims.ts";
 import { IDEAL_THEME_LABEL, WINDOW_CATEGORY_LABEL, isIdealTheme, isWindowCategory } from "./idealTecho.ts";
+import { decodeCategoryCustomHex } from "./timetable.ts";
 import { dayKeyOf } from "../lib/date.ts";
 
 /* ═══════════════════════ 範圍與表 ═══════════════════════ */
@@ -591,7 +592,9 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
             ...twoLevelOrder(tb("time_categories")).map((c): CsvCell[] => {
                 const parent = parentOf(c.id);
                 // 頂層是「組」：組欄放自己、分類欄空；子分類：組欄放上層、分類欄放自己
-                return [parent ? str(parent.name) : str(c.name), parent ? str(c.name) : "", num(c.color_idx), num(c.default_min), yesNo(c.archived_at)];
+                const rawIdx = num(c.color_idx);
+                const colorCell = rawIdx === null ? null : (decodeCategoryCustomHex(rawIdx) ?? rawIdx);
+                return [parent ? str(parent.name) : str(c.name), parent ? str(c.name) : "", colorCell, num(c.default_min), yesNo(c.archived_at)];
             }),
           ],
         },

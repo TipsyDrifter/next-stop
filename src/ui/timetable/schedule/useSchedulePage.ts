@@ -11,7 +11,7 @@ import { ADHOC_TEXT, addSegNode, isAddAdhoc, scheduleSpansOf, useTimetableSchedu
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore";
 import { useUiStore } from "../../../store/uiStore";
-import { msOf } from "../../../domain/timetable";
+import { categoryColorCss, msOf } from "../../../domain/timetable";
 import { compareRoutineItem, routineSummaryText, type RoutineCompare } from "../../../domain/timetableRoutine";
 import { addDays, clockText, dayWindow, type ClockText } from "../../../lib/date";
 import { useNow } from "../useNow";
@@ -242,6 +242,6 @@ export function adhocDisplayOf(
   const fallback = linkLabel ?? cat?.name ?? ADHOC_TEXT.fallbackName;
   const name = ad.label?.trim() || fallback;
   const sub = ad.label?.trim() ? (linkLabel ?? cat?.name ?? null) : (linkLabel && cat ? cat.name : null);
-  const color = rt?.color ?? (cat ? `var(--ns-tt-cat-${cat.color_idx})` : "var(--ns-tt-cat-8)");
+  const color = rt?.color ?? categoryColorCss(cat, 8);
   return { name, color, sub };
 }

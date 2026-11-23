@@ -20,7 +20,8 @@ import { useUiStore } from "../../store/uiStore";
 import { useNavHistoryStore } from "../../store/navHistoryStore";
 import { useTimetableStore } from "../../store/timetableStore";
 import { useNotesStore } from "../../store/notesStore";
-import { colorSlot, durOf, fmtHMS, leafCategories, toSpan } from "../../domain/timetable";
+import { categoryColorCss, durOf, fmtHMS, leafCategories, toSpan } from "../../domain/timetable";
+import { darkThemeName, lightThemeName } from "../../lib/themeSystem";
 import { linkLabelOf } from "../../domain/timetableLink";
 import { noticeTiles } from "../../domain/timetableNotice";
 import { useNow } from "../timetable/useNow";
@@ -204,7 +205,7 @@ function TitleBarDestSign() {
     const taskName = linkLabelOf(running, linkInfo);
     const label = taskName ? `${catName} · ${taskName}` : catName;
     const elapsed = fmtHMS(durOf(toSpan(running), now));
-    const slot = colorSlot(cat ? cat.color_idx : 1);
+    const dotColor = categoryColorCss(cat, 1);
 
     const onJumpToRunning = () => {
       useUiStore.getState().setPage("timetable");
@@ -226,7 +227,7 @@ function TitleBarDestSign() {
         >
           <span
             className="ns-tb-timer-dot"
-            style={{ backgroundColor: `var(--cat-${slot})` }}
+            style={{ backgroundColor: dotColor }}
             aria-hidden="true"
           />
           <span className="ns-tb-timer-clock">{elapsed}</span>
@@ -307,7 +308,8 @@ export function TitleBar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebarCollapsed);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
   const themePref = useUiStore((s) => s.theme);
-  const setTheme = useUiStore((s) => s.setTheme);
+  const themeConfig = useUiStore((s) => s.themeConfig);
+  const toggleThemePair = useUiStore((s) => s.toggleThemePair);
 
   const canBack = useNavHistoryStore((s) => s.index > 0);
   const canForward = useNavHistoryStore((s) => s.index < s.entries.length - 1);
@@ -388,8 +390,11 @@ export function TitleBar() {
       .catch(() => setPinVisible(!next));
   };
 
+  const nextLightLabel = lightThemeName(themeConfig.lightPref);
+  const nextDarkLabel = darkThemeName(themeConfig.darkPref);
+
   const onToggleTheme = () => {
-    void setTheme(isDark ? "pastel" : "galaxy");
+    void toggleThemePair();
   };
 
   const onMinimize = () => {
@@ -499,8 +504,8 @@ export function TitleBar() {
           type="button"
           className="ns-tb-btn"
           onClick={onToggleTheme}
-          aria-label={isDark ? "切換為粉彩星空（淺色主題）" : "切換為銀河鐵道（深色主題）"}
-          title={isDark ? "切換主題：粉彩星空（淺色）" : "切換主題：銀河鐵道（深色）"}
+          aria-label={isDark ? `切換為亮色代表：${nextLightLabel}` : `切換為暗色代表：${nextDarkLabel}`}
+          title={isDark ? `切換至亮色代表：${nextLightLabel}` : `切換至暗色代表：${nextDarkLabel}`}
         >
           {isDark ? <IconThemeSun /> : <IconThemeMoon />}
         </button>

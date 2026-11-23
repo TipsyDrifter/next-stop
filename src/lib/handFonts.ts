@@ -6,7 +6,7 @@
  * 兩個來源都釘在同一個 commit、都回 ACAO:*，jsDelivr 是 GitHub 連不上或作者刪庫時的備援。
  * 下載完比對長度與 SHA-256，對不上不存。字型檔是可重新下載的快取，不進同步、不進備份（選擇存 settings，本機鍵）。
  */
-export type HandFontId = "iansui" | "chenyu";
+export type HandFontId = "iansui" | "chenyu" | "lxgw";
 
 export interface DownloadableFont {
   id: Exclude<HandFontId, "iansui">;
@@ -19,11 +19,31 @@ export interface DownloadableFont {
   /** 授權行（SIL OFL 1.1 要求隨附版權聲明與授權連結） */
   credit: string;
   licenseUrl: string;
+  /** 字型特色短註（可選） */
+  note?: string;
+  /** 專屬展示句（可選；未填時用預設展示句） */
+  sample?: string;
 }
 
 const CHENYU_COMMIT = "06207b4d03c53d37fe28e38fb4ae15d9f63621af";
+const LXGW_COMMIT = "dd9464779864a7d3efa7626498b9a39fa880097a";
 
 export const DOWNLOADABLE_FONTS: readonly DownloadableFont[] = [
+  {
+    id: "lxgw",
+    name: "霞鶩文楷 TC",
+    family: "LXGW WenKai TC",
+    bytes: 15341148,
+    sha256: "6662480a3f95b4a90c80b189c679617a48adce3a505118a6af63ce5a482b83fa",
+    urls: [
+      `https://raw.githubusercontent.com/lxgw/LxgwWenKaiTC/${LXGW_COMMIT}/fonts/TTF/LXGWWenKaiTC-Regular.ttf`,
+      `https://cdn.jsdelivr.net/gh/lxgw/LxgwWenKaiTC@${LXGW_COMMIT}/fonts/TTF/LXGWWenKaiTC-Regular.ttf`,
+    ],
+    credit: "© 2022–2026 The LXGW WenKai Project Authors・SIL OFL 1.1",
+    licenseUrl: `https://github.com/lxgw/LxgwWenKaiTC/blob/${LXGW_COMMIT}/OFL.txt`,
+    note: "完整涵蓋繁中、日文假名與「〆・」手帳符號",
+    sample: "今天也搭上下一班車・旅の〆",
+  },
   {
     id: "chenyu",
     name: "辰宇落雁體",

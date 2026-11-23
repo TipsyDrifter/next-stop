@@ -14,7 +14,7 @@
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useUiStore } from "../../../store/uiStore";
-import { colorSlot, leafCategories } from "../../../domain/timetable";
+import { categoryColorCss, leafCategories } from "../../../domain/timetable";
 import { NOTICE_TILES_MAX, noticeTiles } from "../../../domain/timetableNotice";
 import { askNotificationPermissionOnce } from "../../../lib/notify";
 import { NOTICE_PINS_MAX, useTimetableStore } from "../../../store/timetableStore";
@@ -198,7 +198,7 @@ export function NoticeSettings() {
                 <span
                   key={c.id}
                   className={c.id === runningCatId ? "is-on" : ""}
-                  style={{ "--c": `var(--ns-tt-cat-${colorSlot(c.color_idx)})` } as CSSProperties}
+                  style={{ "--c": categoryColorCss(c, 8) } as CSSProperties}
                 >
                   <CategoryBadge cat={c} size="sm" />
                   <em>{c.name}</em>

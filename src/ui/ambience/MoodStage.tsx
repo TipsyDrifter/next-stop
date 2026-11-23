@@ -26,12 +26,13 @@ interface SkyThing {
   birds?: { key: number; style: CssVars; width: number }[];
 }
 
-/** 主題決定場景：粉彩的天空有星，候鳥與流星輪流；商店的亮色主題是白晝紙頁，只有候鳥；夜色只有流星（原型的月白也是） */
-function readScene(): { dark: boolean; skyKinds: readonly SkyKind[] } {
+/** 主題決定場景：粉彩的天空有星，候鳥與流星輪流；商店的亮色主題是白晝紙頁，只有候鳥；夜色只有流星；水鏡鎌倉由 KamakuraStage 專職展演 */
+function readScene(): { dark: boolean; kamakura: boolean; skyKinds: readonly SkyKind[] } {
   const el = document.documentElement;
   const dark = el.getAttribute("data-theme") === "dark";
-  if (dark) return { dark, skyKinds: METEOR_ONLY };
-  return { dark, skyKinds: el.hasAttribute("data-skin") ? BIRDS_ONLY : BOTH };
+  const kamakura = el.getAttribute("data-skin") === "kamakura";
+  if (dark) return { dark, kamakura, skyKinds: METEOR_ONLY };
+  return { dark, kamakura, skyKinds: el.hasAttribute("data-skin") ? BIRDS_ONLY : BOTH };
 }
 const METEOR_ONLY: readonly SkyKind[] = ["meteor"];
 const BIRDS_ONLY: readonly SkyKind[] = ["birds"];
@@ -192,22 +193,22 @@ export function MoodStage({ done, allDone, dateKey, loaded, background = false }
   }
   const director = directorRef.current;
 
-  // StrictMode 會空跑一輪掛載與卸載：destroy 之後要能重新 configure，schedKey 也歸零了
+  // StrictMode 會空跑一輪掛載與卸載：destroy 之後要能重新 configure，schedKey 也歸零了；水鏡鎌倉啟用時停掉本層計時器
   useEffect(() => {
-    director.configure({ mode, parts, skyKinds: scene.skyKinds, reduced });
-  }, [director, mode, parts, scene.skyKinds, reduced]);
+    director.configure({ mode, parts, skyKinds: scene.skyKinds, reduced: reduced || scene.kamakura });
+  }, [director, mode, parts, scene.skyKinds, reduced, scene.kamakura]);
   useEffect(() => () => director.destroy(), [director]);
   useEffect(() => {
     director.setAwake(!asleep);
   }, [director, asleep]);
 
-  // 模式關掉或元件關掉：天上的收走，不留看不見的殘骸
+  // 模式關掉、元件關掉或切至水鏡鎌倉：天上的收走，不留看不見的殘骸
   useEffect(() => {
-    if (!on || !parts.train) setTrain(null);
-  }, [on, parts.train]);
+    if (!on || !parts.train || scene.kamakura) setTrain(null);
+  }, [on, parts.train, scene.kamakura]);
   useEffect(() => {
-    if (!on) setSky([]);
-  }, [on]);
+    if (!on || scene.kamakura) setSky([]);
+  }, [on, scene.kamakura]);
 
   // 儀式：今日済數變多（或跨分頁蓋下任一張済章）時觸發慶祝（第一次載入、換日、復原都不算）
   const lastDone = useRef<{ day: string; done: number; seq: number } | null>(null);
@@ -218,8 +219,10 @@ export function MoodStage({ done, allDone, dateKey, loaded, background = false }
     if (!prev) return;
     if (prev.day === computedDateKey && computedDone > prev.done) {
       director.stamped(computedAllDone);
+      useMoodStore.getState().emitRitual(computedAllDone);
     } else if (stampSeq > prev.seq) {
       director.stamped(false);
+      useMoodStore.getState().emitRitual(false);
     }
   }, [director, computedLoaded, computedDateKey, computedDone, computedAllDone, stampSeq]);
 
@@ -234,6 +237,10 @@ export function MoodStage({ done, allDone, dateKey, loaded, background = false }
     setTrain(null);
     director.trainEnded();
   };
+
+  if (scene.kamakura) {
+    return !background ? <div className="mood-ground is-kamakura" aria-hidden="true" /> : null;
+  }
 
   if (!on) return null;
 

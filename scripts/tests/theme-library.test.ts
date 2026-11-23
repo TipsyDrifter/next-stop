@@ -24,8 +24,8 @@ function tokensIn(css: string, selector: string): Map<string, string> {
   return out;
 }
 
-/** 分類盤與荷札牌是資料色、由亮暗底推導，四套直接繼承底的值（D-主-432） */
-const INHERITED = /^--(cat-\d|tag-)/;
+/** 分類盤與荷札牌是資料色、由亮暗底推導，商店主題直接繼承底的值（D-主-432；G7-1 擴充為 --cat-1..16） */
+const INHERITED = /^--(cat-\d+|tag-)/;
 
 type Rgba = [number, number, number, number];
 
@@ -84,15 +84,25 @@ const PAIRS: readonly [string, string, number][] = [
 
 const galaxy = tokensIn(themeCss, '[data-theme="dark"]');
 
-describe("theme.css 暗色區的每個值，四套都要寫", () => {
+/** 取得每套主題需受檢的選擇器變體：靜態主題單一組，dynamic 時光主題同時檢驗 light 與 dark 兩組基準 Token */
+const VARIANTS = SKINS.flatMap((skin) =>
+  skin.dynamic
+    ? [
+        { label: `${skin.name}·晝`, id: skin.id, selector: `:root[data-skin="${skin.id}"][data-theme="light"]`, expectedBase: "light" as const },
+        { label: `${skin.name}·夜`, id: skin.id, selector: `:root[data-skin="${skin.id}"][data-theme="dark"]`, expectedBase: "dark" as const },
+      ]
+    : [{ label: skin.name, id: skin.id, selector: `:root[data-skin="${skin.id}"]`, expectedBase: skin.base }],
+);
+
+describe("theme.css 暗色區的每個值，商店主題各象限都要寫齊", () => {
   test("抓得到清單（防 parser 壞掉變成全過）", () => {
     assert.ok(galaxy.has("--color-on-ink"));
     assert.ok(galaxy.has("--stamp-ink"));
     assert.ok(galaxy.size > 40, `只抓到 ${galaxy.size} 條`);
   });
-  for (const skin of SKINS) {
-    test(skin.name, () => {
-      const own = tokensIn(libraryCss, `:root[data-skin="${skin.id}"]`);
+  for (const v of VARIANTS) {
+    test(v.label, () => {
+      const own = tokensIn(libraryCss, v.selector);
       const missing = [...galaxy.keys()].filter((k) => !INHERITED.test(k) && !own.has(k));
       assert.deepEqual(missing, []);
     });
@@ -100,9 +110,9 @@ describe("theme.css 暗色區的每個值，四套都要寫", () => {
 });
 
 describe("文字對比", () => {
-  for (const skin of SKINS) {
-    const own = tokensIn(libraryCss, `:root[data-skin="${skin.id}"]`);
-    test(skin.name, () => {
+  for (const v of VARIANTS) {
+    const own = tokensIn(libraryCss, v.selector);
+    test(v.label, () => {
       const low: string[] = [];
       for (const [fg, bg, min] of PAIRS) {
         const ratio = contrast(parseColor(own.get(fg)!), parseColor(own.get(bg)!));
@@ -114,14 +124,15 @@ describe("文字對比", () => {
 });
 
 describe("亮暗底與貨架一致", () => {
-  for (const skin of SKINS) {
-    test(skin.name, () => {
-      const own = tokensIn(libraryCss, `:root[data-skin="${skin.id}"]`);
+  for (const v of VARIANTS) {
+    test(v.label, () => {
+      const own = tokensIn(libraryCss, v.selector);
       const lum = luminance(parseColor(own.get("--color-paper")!));
-      assert.equal(lum < 0.2 ? "dark" : "light", skin.base);
+      assert.equal(lum < 0.2 ? "dark" : "light", v.expectedBase);
     });
   }
-  test("每套都有商店縮圖的選擇器", () => {
+  test("每套都有商店縮圖的選擇器與霞鶩文楷映射", () => {
     for (const skin of SKINS) assert.ok(libraryCss.includes(`.ns-shop-mini[data-skin="${skin.id}"]`), skin.id);
+    assert.ok(libraryCss.includes(`:root[data-hand="lxgw"]`), "缺 lxgw 手寫字型映射");
   });
 });

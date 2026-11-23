@@ -25,11 +25,33 @@
  * - 自訂圓「＋」是另一個 Tab 停點（原生 color input，`aria-label`「自訂顏色」）；Enter／Space 開原生色盤。
  */
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { adaptCustomCategoryHex } from "../../domain/timetable";
 
 /** 路線盤色名（§1.1；格子的 aria-label／title 與 showName 的字都用這張表） */
 export const ROUTE_COLOR_NAMES: readonly string[] = ["藍鼠", "梅紫", "松葉", "利休鼠"];
-/** 分類盤格數（`--cat-1..8`） */
-export const CATEGORY_COLOR_COUNT = 8;
+
+/** G7-1：16 色溫潤文具鋼筆墨水色票名稱（1–8 原盤＋9–16 擴充） */
+export const CATEGORY_COLOR_NAMES: readonly string[] = [
+  "藍鼠",
+  "梅紫",
+  "松葉",
+  "琥珀茶",
+  "孔雀青",
+  "藤紫",
+  "赤茶",
+  "利休鼠",
+  "山吹金",
+  "珊瑚茜",
+  "若竹青",
+  "群青藍",
+  "栗皮茶",
+  "苔草綠",
+  "紫苑墨",
+  "青鈍藍",
+];
+
+/** 分類盤格數（`--cat-1..16`） */
+export const CATEGORY_COLOR_COUNT = 16;
 
 /** 路線預設色存進 DB 的字串（跟著主題換夜間色） */
 export function routePresetColor(n: number): string {
@@ -39,11 +61,22 @@ export function routePresetColor(n: number): string {
 /** 自訂色：六位或三位十六進位色碼 */
 const HEX_RE = /^#(?:[0-9a-f]{6}|[0-9a-f]{3})$/i;
 
+function normalizeHex(raw: string): string | null {
+  const s = raw.trim().toLowerCase();
+  const withHash = s.startsWith("#") ? s : `#${s}`;
+  if (/^#[0-9a-f]{6}$/.test(withHash)) return withHash;
+  const m3 = withHash.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/);
+  if (m3) return `#${m3[1]}${m3[1]}${m3[2]}${m3[2]}${m3[3]}${m3[3]}`;
+  return null;
+}
+
 interface CommonProps {
   /** 顯示自訂入口（虛線圓「＋」；預設 false） */
   custom?: boolean;
   /** 色列右邊寫色名（預設色＝色名、自訂色＝色碼；預設 false） */
   showName?: boolean;
+  /** 額外提供 #RRGGBB 色碼文字框與即時預覽（分類自訂色用；路線側板維持預設 false 不動 DOM） */
+  allowHexInput?: boolean;
   /** radiogroup 的 aria-label（預設 路線色／分類色） */
   label?: string;
   disabled?: boolean;
@@ -51,14 +84,16 @@ interface CommonProps {
 }
 export type ColorPickerProps =
   | (CommonProps & {
-      palette: "route";
+      palette?: "route";
+      variant?: "route";
       /** `var(--route-preset-N)`，或自訂的十六進位色碼；null＝沒選 */
       value: string | null;
       onChange(next: string): void;
     })
   | (CommonProps & {
-      palette: "category";
-      /** `color_idx` 1–8（數字或數字字串），或自訂的十六進位色碼；null＝沒選 */
+      palette?: "category";
+      variant?: "category";
+      /** `color_idx` 1–16（數字或數字字串），或自訂的十六進位色碼；null＝沒選 */
       value: number | string | null;
       /** 預設格回 `color_idx`（數字）；自訂回十六進位色碼字串 */
       onChange(next: number | string): void;
@@ -74,7 +109,11 @@ function swatchesOf(palette: "route" | "category"): Swatch[] {
   if (palette === "route") {
     return ROUTE_COLOR_NAMES.map((name, i) => ({ css: routePresetColor(i + 1), name, out: routePresetColor(i + 1) }));
   }
-  return Array.from({ length: CATEGORY_COLOR_COUNT }, (_, i) => ({ css: `var(--cat-${i + 1})`, name: `第 ${i + 1} 色`, out: i + 1 }));
+  return Array.from({ length: CATEGORY_COLOR_COUNT }, (_, i) => ({
+    css: `var(--cat-${i + 1})`,
+    name: `第 ${i + 1} 色・${CATEGORY_COLOR_NAMES[i] ?? ""}`,
+    out: i + 1,
+  }));
 }
 
 /** 這一格是不是目前的值（路線比字串；分類比 color_idx，數字字串也算） */
@@ -100,28 +139,40 @@ function resolveHex(host: HTMLElement | null, css: string): string | null {
 }
 
 export function ColorPicker(props: ColorPickerProps) {
-  const { palette, value, custom = false, showName = false, disabled = false, className } = props;
+  const palette: "route" | "category" = (props.palette ?? props.variant ?? "route") as "route" | "category";
+  const { value, custom = false, showName = false, allowHexInput = false, disabled = false, className } = props;
   const label = props.label ?? (palette === "route" ? "路線色" : "分類色");
   const swatches = swatchesOf(palette);
   const rootRef = useRef<HTMLDivElement>(null);
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const colorRef = useRef<HTMLInputElement>(null);
 
-  const customOn = typeof value === "string" && HEX_RE.test(value);
+  const normalizedCustomVal = typeof value === "string" && HEX_RE.test(value) ? normalizeHex(value) : null;
+  const customOn = normalizedCustomVal !== null;
   /** 拖動原生色盤時的預覽色（只在色盤開著時有；值換掉就清掉） */
   const [draft, setDraft] = useState<string | null>(null);
+  /** 手打 #RRGGBB 輸入框草稿 */
+  const [hexText, setHexText] = useState<string>(() => normalizedCustomVal ?? "");
+  const [hexInvalid, setHexInvalid] = useState(false);
   /** 打開色盤時的起始色——預覽跟它一樣＝沒拖或已取消，不算預覽 */
   const primed = useRef<string | null>(null);
   useEffect(() => {
     setDraft(null);
-  }, [value]);
-  const preview = draft !== null && draft !== primed.current ? draft : null;
-  /** 自訂圓實際顯示的顏色：拖動中的預覽，否則是目前的自訂值（沒有就空、顯示「＋」） */
-  const shown = preview ?? (customOn ? (value as string) : null);
+    setHexText(normalizedCustomVal ?? "");
+    setHexInvalid(false);
+  }, [value, normalizedCustomVal]);
+  const typedPreview = allowHexInput && hexText.trim() !== "" ? normalizeHex(hexText) : null;
+  const preview = (draft !== null && draft !== primed.current ? draft : null) ?? typedPreview;
+  /** 自訂圓實際顯示的顏色：拖動或打字中的合法預覽，否則是目前的自訂值（沒有就空、顯示「＋」） */
+  const shown = preview ?? normalizedCustomVal;
+  const shownCss =
+    shown && palette === "category"
+      ? `light-dark(${adaptCustomCategoryHex(shown, "light")}, ${adaptCustomCategoryHex(shown, "dark")})`
+      : shown;
 
   const emit = (out: string | number): void => {
-    if (props.palette === "route") props.onChange(String(out));
-    else props.onChange(out);
+    if (palette === "route") (props.onChange as (next: string) => void)(String(out));
+    else (props.onChange as (next: number | string) => void)(out);
   };
 
   // 原生 color input：input 事件只換預覽，change（關掉色盤）才寫回——拖動時不要每一格都存一次
@@ -131,8 +182,8 @@ export function ColorPicker(props: ColorPickerProps) {
     const el = colorRef.current;
     if (!el) return;
     const onCommit = (): void => {
-      const hex = el.value.toLowerCase();
-      if (HEX_RE.test(hex) && hex !== live.current.value) live.current.emit(hex);
+      const hex = normalizeHex(el.value);
+      if (hex && hex !== live.current.value) live.current.emit(hex);
     };
     el.addEventListener("change", onCommit);
     return () => el.removeEventListener("change", onCommit);
@@ -143,16 +194,34 @@ export function ColorPicker(props: ColorPickerProps) {
     const el = colorRef.current;
     if (!el) return;
     const sel = swatches.find((s) => isChecked(palette, value, s));
-    const start = (customOn ? (value as string).toLowerCase() : null) ?? (sel ? resolveHex(rootRef.current, sel.css) : null) ?? resolveHex(rootRef.current, swatches[0].css);
+    const start =
+      normalizedCustomVal ?? (sel ? resolveHex(rootRef.current, sel.css) : null) ?? resolveHex(rootRef.current, swatches[0].css);
     if (start && el.value !== start) el.value = start;
     primed.current = start ?? el.value.toLowerCase();
     setDraft(null);
   };
 
+  const commitHexInput = (): void => {
+    const raw = hexText.trim();
+    if (!raw) {
+      setHexText(normalizedCustomVal ?? "");
+      setHexInvalid(false);
+      return;
+    }
+    const norm = normalizeHex(raw);
+    if (!norm) {
+      setHexInvalid(true);
+      return;
+    }
+    setHexInvalid(false);
+    setHexText(norm);
+    if (norm !== normalizedCustomVal) emit(norm);
+  };
+
   const checkedIdx = swatches.findIndex((s) => isChecked(palette, value, s));
   const tabIdx = checkedIdx >= 0 ? checkedIdx : 0;
   /** 色列右邊的字：預設色＝色名；自訂色＝色碼（拖動原生色盤時跟著預覽走，關掉色盤回到看值） */
-  const name = preview ?? (customOn ? (value as string) : checkedIdx >= 0 ? swatches[checkedIdx].name : "");
+  const name = preview ?? (customOn ? normalizedCustomVal! : checkedIdx >= 0 ? swatches[checkedIdx].name : "");
 
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number): void => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
@@ -204,7 +273,7 @@ export function ColorPicker(props: ColorPickerProps) {
       {custom && (
         <label
           className={"ns-sw-custom" + (customOn ? " is-on" : "") + (shown ? " is-filled" : "")}
-          style={shown ? ({ "--pv": shown } as CSSProperties) : undefined}
+          style={shownCss ? ({ "--pv": shownCss } as CSSProperties) : undefined}
           title={customOn ? `自訂顏色 ${shown}` : "自訂顏色"}
         >
           {!shown && <span className="plus" aria-hidden>＋</span>}
@@ -223,6 +292,43 @@ export function ColorPicker(props: ColorPickerProps) {
       {showName && name && (
         <span className="ns-colorpick-name" aria-hidden>
           {name}
+        </span>
+      )}
+      {custom && allowHexInput && (
+        <span className="ns-colorpick-hexwrap">
+          <input
+            type="text"
+            className={"techo-input ns-colorpick-hex" + (hexInvalid ? " is-invalid" : "")}
+            value={hexText}
+            placeholder="#RRGGBB"
+            aria-label={`${label}自訂色碼`}
+            aria-invalid={hexInvalid || undefined}
+            disabled={disabled}
+            spellCheck={false}
+            autoComplete="off"
+            maxLength={7}
+            onChange={(e) => {
+              setHexText(e.target.value);
+              if (hexInvalid && (e.target.value.trim() === "" || normalizeHex(e.target.value) !== null)) {
+                setHexInvalid(false);
+              }
+            }}
+            onBlur={commitHexInput}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitHexInput();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                setHexText(normalizedCustomVal ?? "");
+                setHexInvalid(false);
+                e.currentTarget.blur();
+              }
+            }}
+          />
+          {hexInvalid && <span className="ns-colorpick-hexerr">請輸入 #RRGGBB</span>}
         </span>
       )}
     </div>

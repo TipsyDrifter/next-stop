@@ -9,3 +9,22 @@ export type { SkyDensity, SkyVariant, SkyDot, Starfield, CssVars } from "./starf
 export { usePrefersReducedMotion, useSkyVariant } from "./useAmbience";
 export { MoodStage } from "./MoodStage";
 export { MoodSettings } from "./MoodSettings";
+export { KAMAKURA_TIME_EVENT, KAMAKURA_TIME_STORAGE_KEY } from "./moodStore";
+export { KamakuraStage, useIsKamakuraSkin, useKamakuraDomState } from "./KamakuraStage";
+export {
+  kamakuraPaletteAt,
+  kamakuraPhaseAt,
+  kamakuraPhaseWeightsAt,
+  parseKamakuraRole,
+  parseKamakuraTime,
+  parseKamakuraWeather,
+  resolveKamakuraMinute,
+  resolveKamakuraRain,
+  naturalRainAt,
+  type KamakuraPalette,
+  type KamakuraPaletteOptions,
+  type KamakuraPhase,
+  type KamakuraRole,
+  type KamakuraTimeMode,
+  type KamakuraWeatherMode,
+} from "./kamakuraPalette";

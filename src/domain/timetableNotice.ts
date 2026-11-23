@@ -15,7 +15,9 @@
  */
 import {
   MIN,
+  adaptCustomCategoryHex,
   colorSlot,
+  decodeCategoryCustomHex,
   fmtClock,
   fmtDur,
   leafCategories,
@@ -36,8 +38,14 @@ export const PENDING_DEPART_UNTIL_NEXT = true;
  * getComputedStyle 只讀得到當下主題那一組，本檔又是 node 測試直接載入的純函式檔。改色時兩邊一起改。
  */
 export const CAT_PALETTE: { light: readonly string[]; dark: readonly string[] } = {
-  light: ["#4757a6", "#964468", "#326b4b", "#8a5a2b", "#2f6f86", "#6b4aa0", "#a0503f", "#5c5b7d"],
-  dark: ["#a9c0ea", "#e6a8c0", "#a6c9ad", "#d9b98a", "#95c6d6", "#c2aee6", "#e6a88a", "#a3a9b8"],
+  light: [
+    "#4757a6", "#964468", "#326b4b", "#8a5a2b", "#2f6f86", "#6b4aa0", "#a0503f", "#5c5b7d",
+    "#8c6820", "#a63d52", "#3b7868", "#2d589e", "#6e473b", "#596e2a", "#7d487e", "#3d5c6c",
+  ],
+  dark: [
+    "#a9c0ea", "#e6a8c0", "#a6c9ad", "#d9b98a", "#95c6d6", "#c2aee6", "#e6a88a", "#a3a9b8",
+    "#dfc47e", "#eb9aa8", "#94d1bf", "#94b8f0", "#cca699", "#bdd18c", "#d6a6d8", "#9abbc9",
+  ],
 };
 
 export const TT_NOTICE_TEXT = {
@@ -174,6 +182,13 @@ export function noticeTiles(
 }
 
 function paletteOf(colorIdx: number): { colorLight: string; colorDark: string } {
+  const custom = decodeCategoryCustomHex(colorIdx);
+  if (custom !== null) {
+    return {
+      colorLight: adaptCustomCategoryHex(custom, "light"),
+      colorDark: adaptCustomCategoryHex(custom, "dark"),
+    };
+  }
   const i = colorSlot(colorIdx) - 1;
   return { colorLight: CAT_PALETTE.light[i], colorDark: CAT_PALETTE.dark[i] };
 }

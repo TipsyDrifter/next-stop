@@ -8,7 +8,7 @@
  *   長時間運行待確認 ⇒ longRun 面板、運行中 ⇒ toast「運行中的這一班…」、其餘 ⇒ 改一塊（edit）。
  */
 import { useMemo, type CSSProperties } from "react";
-import { colorSlot, fmtClock, fmtDur, noteOf, segmentsOfDay, toSpan, type AxisItem, type TimeBlockRow } from "../../../domain/timetable";
+import { categoryColorCss, fmtClock, fmtDur, noteOf, segmentsOfDay, toSpan, type AxisItem, type TimeBlockRow } from "../../../domain/timetable";
 import { linkLabelOf } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
@@ -65,7 +65,7 @@ export function ActualColumn({ page, hourPx }: { page: SchedulePage; hourPx: num
         const tip = `${catName}${linked ? "・" + label : ""}　${fmtClock(it.span.start)}–${it.span.end === null ? TT_TEXT.weekUi.running : fmtClock(it.span.end)}（${fmtDur(whole)}）`;
         const note = noteOf(row); // ⑦：備註進 tooltip（塊太矮放不下字，只進這裡）
         const style = {
-          "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`,
+          "--c": categoryColorCss(cat, 8),
           top: pct((it.from - win.start) / D),
           height: pct((to - it.from) / D),
         } as CSSProperties;

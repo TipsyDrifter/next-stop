@@ -17,7 +17,7 @@
  * 「現在」用 useNowOnce（面板生命週期內固定；運行中那一班的最後一段上限＝它，送出後最後一段仍運行中）。
  */
 import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { MIN, addCut, colorSlot, defaultCuts, fmtClock, fmtDur, msOf } from "../../../domain/timetable";
+import { MIN, addCut, categoryColorCss, defaultCuts, fmtClock, fmtDur, msOf } from "../../../domain/timetable";
 import { clockRangeLabel } from "../../../domain/timetableClockInput";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryBadge } from "../CategoryBadge";
@@ -188,7 +188,7 @@ export function SplitPanel({ onDone }: PanelProps) {
             {pts.slice(0, -1).map((p, i) => {
               const c = catById[cats[i]] ?? null;
               const w = pct(pts[i + 1]) - pct(p);
-              const style = { left: pct(p) + "%", width: w + "%", "--c": `var(--ns-tt-cat-${colorSlot(c?.color_idx ?? 8)})` } as CSSProperties;
+              const style = { left: pct(p) + "%", width: w + "%", "--c": categoryColorCss(c, 8) } as CSSProperties;
               return (
                 <span key={"s" + i} className={"ns-tt-cutseg" + (open === i ? " is-open" : "")} style={style} aria-hidden="true">
                   {w > 9 ? (c?.glyph ?? Array.from(c?.name ?? "・")[0]) : ""}

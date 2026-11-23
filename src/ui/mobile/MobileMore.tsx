@@ -49,7 +49,7 @@ import { Segmented } from "../common/Segmented";
 import { MoodSettings } from "../ambience";
 import { useEffect, useState } from "react";
 import { MobileGestures } from "./MobileGestures";
-import { useUiStore, readLastNav, writeLastNav, type MobileMoreView, type ThemePref } from "../../store/uiStore";
+import { useUiStore, readLastNav, writeLastNav, type MobileMoreView } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useTicketStore } from "../../store/ticketStore";
 import { useIdealStore } from "../../store/idealStore";
@@ -62,8 +62,7 @@ import MobileLostFound from "./MobileLostFound";
 import { SnapshotRescue } from "../common/SnapshotRescue";
 import { useBackupStore } from "../../store/backupStore";
 import { useBackLayer } from "./backStack";
-import { ThemeShop } from "../settings/ThemeShop";
-import { skinById } from "../../lib/themeShop";
+import { ThemeSettingsControl, ThemeShop } from "../settings/ThemeShop";
 import { lineSettingsLinks } from "../../lines/runtime";
 import { GNAV_ICONS } from "../sidebar/gnavIcons";
 // 〈外部助理〉那一段的兩條排版規則跟桌機籤放在同一支 css（MCP 接口班的新檔，不動共用的 mobile.css）
@@ -71,13 +70,6 @@ import "../settings/externalAssistant.css";
 // 版本號取 package.json 的 version（tsconfig resolveJsonModule 已開）——發版只改一處，這頁自動跟。
 // ⚠ 發版時 package.json 的 version 要與 tauri.conf.json 一起改成 1.1.0（WP3／整合席）。
 import { version as APP_VERSION } from "../../../package.json";
-
-/** 主題三選——逐字沿 SettingsPanel.tsx 的 THEMES（同一份文案，桌機改了這裡也要跟） */
-const THEMES: { value: ThemePref; label: string; note: string }[] = [
-  { value: "pastel", label: "粉彩星空", note: "朧月的月台・日間" },
-  { value: "galaxy", label: "銀河鐵道", note: "深夜月台・夜間" },
-  { value: "system", label: "跟隨系統", note: "依手機設定" },
-];
 
 /** 週首（uiStore.weekStart＝JS getDay() 的值；settings 鍵 week_start）——字同 SettingsPanel.tsx 的 WEEK_STARTS */
 const WEEK_STARTS: { value: 0 | 1; label: string; note: string }[] = [
@@ -98,9 +90,6 @@ function fmtBackupStamp(iso: string): string {
 }
 
 export default function MobileMore() {
-  const theme = useUiStore((s) => s.theme);
-  const setTheme = useUiStore((s) => s.setTheme);
-  const skin = skinById(theme);
   const setMobileTab = useUiStore((s) => s.setMobileTab);
   const weekStart = useUiStore((s) => s.weekStart);
   const setWeekStart = useUiStore((s) => s.setWeekStart);
@@ -239,34 +228,8 @@ export default function MobileMore() {
         </h2>
 
         <div className="m2-block">
-          <span className="m2-block-label">主題</span>
-          <div role="radiogroup" aria-label="主題" className="m2-choices">
-            {THEMES.map((t) => {
-              const checked = theme === t.value;
-              return (
-                <button
-                  key={t.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={checked}
-                  onClick={() => void setTheme(t.value)}
-                  className={"m2-choice" + (checked ? " is-on" : "")}
-                >
-                  <span className="m2-choice-label">{t.label}</span>
-                  <span className="m2-choice-note">{t.note}</span>
-                </button>
-              );
-            })}
-          </div>
-          {/* ⑩：商店不是第四個選項（radiogroup 外），是進子頁的鈕；穿著商店主題時它亮 */}
-          <button
-            type="button"
-            className={"m2-choice ns-shop-entry" + (skin ? " is-on" : "")}
-            onClick={() => setView("shop")}
-          >
-            <span className="m2-choice-label">商店</span>
-            <span className="m2-choice-note">{skin ? `使用中・${skin.name}` : "更多主題・手寫字型"}</span>
-          </button>
+          <span className="m2-block-label">主題與日夜配對</span>
+          <ThemeSettingsControl shell="mobile" onOpenShop={() => setView("shop")} />
         </div>
 
         {/* v1.31 畫面 1：氛圍收成「今日天象與動態氛圍」一張區塊（同桌機〈一般〉同一支 MoodSettings） */}

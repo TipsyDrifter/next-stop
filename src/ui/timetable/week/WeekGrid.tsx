@@ -16,7 +16,7 @@
  * 時刻表⑦（A 席）：桌機 tooltip 第二行＝備註（WeekResult 是瘦身列沒有備註，另讀這一週的塊；週結果重算就重讀）。
  */
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { MIN, colorSlot, fmtClock, fmtDur, isoOf, type AxisItem } from "../../../domain/timetable";
+import { MIN, categoryColorCss, fmtClock, fmtDur, isoOf, type AxisItem } from "../../../domain/timetable";
 import { timetableRepo } from "../../../data/timetableRepository";
 import type { WeekResult } from "../../../store/timetableStatsStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
@@ -168,7 +168,7 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
                 const style = {
                   top: pct(at(it.from)),
                   height: pct((to - it.from) / D),
-                  "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`,
+                  "--c": categoryColorCss(cat, 8),
                 } as CSSProperties;
                 return (
                   <button

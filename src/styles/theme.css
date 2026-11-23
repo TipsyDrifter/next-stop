@@ -276,7 +276,12 @@
  * 掛在 <html data-theme="dark"> 生效（＝原型的 .theme-galaxy）
  * 文字對比逐色驗過 WCAG AA
  * ═══════════════════════════════════════════════════ */
+[data-theme="light"] {
+  color-scheme: light;
+}
+
 [data-theme="dark"] {
+  color-scheme: dark;
   /* ─── 既有 --color-* 覆寫（名稱不動、只換值）─── */
   --color-paper: #111a30;              /* 夜空中段＝天沒鋪上去時的保險底 */
   --color-paper-high: #212a40;         /* 月光下的票紙 */
@@ -383,10 +388,12 @@
   --dim: .42;                           /* 常駐淡態（⋯、＋ 路線、›）：會 hover 轉實；現值 sidebar.css:113 */
   --disabled: .3;                       /* 禁用：另加 cursor: not-allowed、不響應 hover、title 寫原因 */
 
-  /* 分類盤（時刻表存 color_idx 1–8；值逐字搬自 timetable.css:14-15 的 --ns-tt-cat-*，＝prototypes/時刻表-src/shared.css）。
+  /* 分類盤（時刻表存 color_idx 1–16 或編碼後 #RRGGBB；1–8 維持原值，9–16 擴充溫潤文具鋼筆墨水色票）。
    * 與路線盤 --route-preset-* 共存、不併（§1.1 反駁 ③）；實心分類色上的字仍是 timetable.css 的 --ns-tt-on-cat。 */
   --cat-1: #4757a6; --cat-2: #964468; --cat-3: #326b4b; --cat-4: #8a5a2b;
   --cat-5: #2f6f86; --cat-6: #6b4aa0; --cat-7: #a0503f; --cat-8: #5c5b7d;
+  --cat-9: #8c6820; --cat-10: #a63d52; --cat-11: #3b7868; --cat-12: #2d589e;
+  --cat-13: #6e473b; --cat-14: #596e2a; --cat-15: #7d487e; --cat-16: #3d5c6c;
 
   /* 荷札牌（沒有顏色，只用墨與紙推導）：值逐字搬自 notes-tags.css:17-24 的 --ns-tag-*；
    * --ns-tt-tag-*（timetable.css）、--ns-mtag-*（notes-mobile.css）同值，三份都改指這裡。 */
@@ -412,9 +419,11 @@
   --glass-hi: inset 0 1px 0 rgba(230, 236, 255, .09);   /* 月光上緣高光；現值 techo.css:548 */
   --on-roundel: #0f1218;                                /* 夜間燈箱亮盤深字；現值 techo.css／overlay.css:118 */
 
-  /* 分類盤・銀河（逐字搬自 timetable.css:25-26） */
+  /* 分類盤・銀河（1–8 逐字搬自 timetable.css:25-26；9–16 對應夜間微光鋼筆墨水色票） */
   --cat-1: #a9c0ea; --cat-2: #e6a8c0; --cat-3: #a6c9ad; --cat-4: #d9b98a;
   --cat-5: #95c6d6; --cat-6: #c2aee6; --cat-7: #e6a88a; --cat-8: #a3a9b8;
+  --cat-9: #dfc47e; --cat-10: #eb9aa8; --cat-11: #94d1bf; --cat-12: #94b8f0;
+  --cat-13: #cca699; --cat-14: #bdd18c; --cat-15: #d6a6d8; --cat-16: #9abbc9;
 
   /* 荷札牌・銀河（逐字搬自 notes-tags.css:26-32） */
   --tag-line: color-mix(in srgb, var(--color-ink) 34%, transparent);
@@ -535,4 +544,28 @@ body:has(.panel) {
   --ctl-input: 44px;
   --row-menu: 52px;
   --row-list: 44px;
+}
+
+/* v1.34 4A：主題自動或手動切換瞬間（僅掛載 320ms 即移除，平時零常駐開銷）平滑過渡背景與紙墨層 */
+:root[data-theme-transition] body,
+:root[data-theme-transition] .cover,
+:root[data-theme-transition] .techo-card,
+:root[data-theme-transition] .ticket,
+:root[data-theme-transition] .m-band,
+:root[data-theme-transition] .m-tabbar {
+  transition:
+    background-color var(--dur-slow) var(--ease-soft),
+    color var(--dur-slow) var(--ease-soft),
+    border-color var(--dur-slow) var(--ease-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme-transition] body,
+  :root[data-theme-transition] .cover,
+  :root[data-theme-transition] .techo-card,
+  :root[data-theme-transition] .ticket,
+  :root[data-theme-transition] .m-band,
+  :root[data-theme-transition] .m-tabbar {
+    transition: none !important;
+  }
 }

@@ -245,25 +245,151 @@
 }
 
 /* ═══════════════════════════════════════════════════
- * 天空層：商店主題是紙，不是天
- * 星點、光斑、月亮藏起來（列車、候鳥、流星在 ⑪ 的 .mood-layer，不在這裡）；
- * 底換成原型 .page 的點格紙。只動 .sky-layer，不碰 SkyLayer.tsx。
+ * 5. 水鏡鎌倉 · Kamakura（24h 時光流轉動態主題：晝＝水鏡藍青 ／ 夜＝星月群青）
+ * 基準 Token 通過 WCAG AA/AAA 對比守門；4B 動態場景層可於執行期平滑插值覆寫 --sky-* 等天象色。
  * ═══════════════════════════════════════════════════ */
-:root[data-skin] .sky-layer {
+:root[data-skin="kamakura"],
+:root[data-skin="kamakura"][data-theme="light"],
+.ns-shop-mini[data-skin="kamakura"] {
+  /* 紙：海風晴空底＋通透水鏡霧面票紙 */
+  --color-paper: #d7e9f5;
+  --color-paper-high: rgba(250, 253, 255, .82);
+  --color-paper-used: rgba(236, 245, 251, .68);
+  /* 墨：深海松藍墨 */
+  --color-ink: #1a2b3b;
+  --color-ink-soft: #3a5064;
+  --color-ink-faint: #4c647a;
+  --ink-mid: #435a70;
+  /* 書封：復古私鐵深海青松（唯一深面） */
+  --color-book: #193442;
+  --color-book-ink: #e7f1f6;
+  --cover-muted: rgba(231, 241, 246, .66);
+  --cover-hover: rgba(231, 241, 246, .07);
+  /* 金與朱 */
+  --color-gold: #caa86a;
+  --color-gold-soft: #dfc48f;
+  --color-gold-ink: #6a4f1b;
+  --color-seal: #b24333;
+  --color-late: #94502b;
+  --color-on-seal: #f8fcfe;
+  --color-on-ink: #f8fcfe;
+  /* 四色墨與水鏡青藍強調 */
+  --stamp-ink: #2c465a;
+  --arc: #9b783c;
+  --accent: #1f5f7e;
+  --accent-sky: #285c77;
+  /* 線 */
+  --color-line: rgba(26, 43, 59, .16);
+  --color-dash: rgba(26, 43, 59, .27);
+  --grid-dot: rgba(26, 43, 59, .06);
+  /* 形與霧面玻璃 */
+  --radius-card: 4px;
+  --shadow-card: 0 1px 2px rgba(22, 52, 76, .08), 0 8px 22px rgba(22, 52, 76, .11);
+  --shadow-card-hover: 0 2px 4px rgba(22, 52, 76, .11), 0 12px 28px rgba(22, 52, 76, .15);
+  --float-blur: blur(14px) saturate(1.15);
+  --glass-edge: rgba(255, 255, 255, .78);
+  --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .55);
+  --on-roundel: #162635;
+  /* 天：白晝鎌倉晴空與水鏡漸層基準 */
+  --sky-top: #86b8de;
+  --sky-mid: #b5d7ef;
+  --sky-low: #d3eaf6;
+  --sky-horizon: #e8f4f3;
+  --sky-bot: #d7ecf5;
+  --starlight: 255, 255, 255;
+  /* 路線色（海岸私鐵色調） */
+  --route-preset-1: #2b648a;
+  --route-preset-2: #a44a5e;
+  --route-preset-3: #2e7055;
+  --route-preset-4: #526778;
+  --route-e1-l: #b3d4ea;
+  --route-j-l: #f1bcc8;
+  --route-l2-l: #b1dbc8;
+  --route-none-l: #c8d5df;
+}
+
+:root[data-skin="kamakura"][data-theme="dark"],
+.ns-shop-mini[data-skin="kamakura"][data-theme="dark"] {
+  /* 紙：深夜群青湖面與月光票紙 */
+  --color-paper: #0e182b;
+  --color-paper-high: #18263f;
+  --color-paper-used: #131f35;
+  /* 墨：月白水光字 */
+  --color-ink: #e5eff8;
+  --color-ink-soft: #aac0d6;
+  --color-ink-faint: #8ba3bd;
+  --ink-mid: #98b0c9;
+  /* 書封：夜色湖岸棧橋 */
+  --color-book: #0a111f;
+  --color-book-ink: #dce7f2;
+  --cover-muted: rgba(220, 231, 242, .58);
+  --cover-hover: rgba(220, 238, 255, .05);
+  /* 金與朱：車廂暖燈琥珀金 */
+  --color-gold: #d4b678;
+  --color-gold-soft: #e3ca97;
+  --color-gold-ink: #d4b678;
+  --color-seal: #dc6b52;
+  --color-late: #d49a6a;
+  --color-on-seal: #0c1423;
+  --color-on-ink: #0c1423;
+  /* 四色墨與水鏡月光青強調 */
+  --stamp-ink: #9db6ce;
+  --arc: #d4b678;
+  --accent: #7ec4e6;
+  --accent-sky: #a5c4de;
+  /* 線 */
+  --color-line: rgba(214, 232, 250, .14);
+  --color-dash: rgba(214, 232, 250, .24);
+  --grid-dot: rgba(214, 232, 250, .05);
+  /* 形與月光邊緣 */
+  --radius-card: 3px;
+  --shadow-card: 0 1px 2px rgba(3, 8, 18, .42), 0 8px 22px rgba(3, 8, 18, .38);
+  --shadow-card-hover: 0 2px 4px rgba(3, 8, 18, .48), 0 12px 28px rgba(3, 8, 18, .44);
+  --float-blur: none;
+  --glass-edge: var(--color-line);
+  --glass-hi: inset 0 1px 0 rgba(214, 234, 255, .09);
+  --on-roundel: #0c1320;
+  /* 天：星夜群青基準 */
+  --sky-top: #081020;
+  --sky-mid: #0f1b34;
+  --sky-low: #162848;
+  --sky-horizon: #1f375c;
+  --sky-bot: #172b4b;
+  --starlight: 224, 240, 255;
+  /* 路線色（夜行水光版） */
+  --route-preset-1: #94c4eb;
+  --route-preset-2: #e8a4b2;
+  --route-preset-3: #96cfb6;
+  --route-preset-4: #9cb2c7;
+  --route-e1-l: var(--route-preset-1);
+  --route-j-l: var(--route-preset-2);
+  --route-l2-l: var(--route-preset-3);
+  --route-none-l: var(--route-preset-4);
+}
+
+/* ═══════════════════════════════════════════════════
+ * 天空層：靜態紙張系商店主題（techo/sleeper/moonlight/yumemi）是平面點格紙；
+ * 水鏡鎌倉（kamakura）為天空與湖面動態世界，保留 .sky-layer 天色漸層與霧面票紙。
+ * ═══════════════════════════════════════════════════ */
+:root[data-skin]:not([data-skin="kamakura"]) .sky-layer {
   background-color: var(--color-paper);
   background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.3px);
   background-size: 24px 24px;
 }
-:root[data-skin] .sky-layer::before,
-:root[data-skin] .sky-layer::after,
-:root[data-skin] .sky-layer > * {
+:root[data-skin]:not([data-skin="kamakura"]) .sky-layer::before,
+:root[data-skin]:not([data-skin="kamakura"]) .sky-layer::after,
+:root[data-skin]:not([data-skin="kamakura"]) .sky-layer > * {
   display: none;
 }
 
 /* ═══════════════════════════════════════════════════
  * 手寫字型（data-hand：字型下載完才寫，見 store/handFontStore.ts）
- * 辰宇落雁體沒有假名與〆・，缺的字逐字落回芫荽。
+ * - 霞鶩文楷 TC Regular（© 2022–2026 The LXGW WenKai Project Authors，SIL OFL 1.1）：完整支援繁中、日文假名與「〆・」標點。
+ * - 辰宇落雁體 Thin（© 2022 王立宇、劉韋辰，SIL OFL 1.1）：沒有假名與〆・，缺的字逐字落回芫荽。
  * ═══════════════════════════════════════════════════ */
+:root[data-hand="lxgw"] {
+  --font-hand: "LXGW WenKai TC", "Iansui", "Noto Sans TC", sans-serif;
+}
 :root[data-hand="chenyu"] {
   --font-hand: "Chenyuluoyan", "Iansui", "LXGW WenKai TC", "Noto Sans TC", sans-serif;
 }
@@ -304,11 +430,24 @@
   --skin-late-glow: color-mix(in srgb, var(--color-late) 15%, transparent);
 }
 
-/* 紙是不透明的，毛玻璃看不出差、又佔 GPU（粉彩一頁幾十張票）：商店主題一律關 */
-:root[data-skin] .ticket::before,
-:root[data-skin] .panel-sheet {
+/* 靜態紙張主題是不透明的，毛玻璃看不出差、又佔 GPU：除水鏡鎌倉白晝霧面玻璃外一律關 */
+:root[data-skin]:not([data-skin="kamakura"]) .ticket::before,
+:root[data-skin]:not([data-skin="kamakura"]) .panel-sheet,
+:root[data-skin="kamakura"][data-theme="dark"] .ticket::before,
+:root[data-skin="kamakura"][data-theme="dark"] .panel-sheet {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* 局部預覽縮圖的 color-scheme：確保 light-dark() 在任意父層主題下都解到縮圖自身的亮暗象限 */
+.ns-shop-mini,
+.ns-shop-mini[data-theme="light"] {
+  color-scheme: light;
+}
+.ns-shop-mini[data-theme="dark"],
+.ns-shop-mini[data-skin="sleeper"],
+.ns-shop-mini[data-skin="moonlight"] {
+  color-scheme: dark;
 }
 
 /* ⑪ 動態氛圍層的剪影（mood.css）：亮底的車體與地平線是粉彩墨、暗底的軌道線是銀河月光，換成該套的墨與燈 */

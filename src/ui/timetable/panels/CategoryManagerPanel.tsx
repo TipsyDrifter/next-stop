@@ -36,7 +36,7 @@
  *   寫入＝store `placeCategory`（一次 write）。↑↓ 與 ⋯「搬到」照留（鍵盤與讀屏的入口）。
  */
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { MIN, colorSlot, fmtDur, groupedCategories, type TimeCategoryRow } from "../../../domain/timetable";
+import { MIN, categoryPickerValue, encodeCategoryColor, fmtDur, groupedCategories, type TimeCategoryRow } from "../../../domain/timetable";
 import { LONG_RUN_MAX_DEFAULT, TT_TEXT, useTimetableStore, type TimetableSheet } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { CategoryBadge } from "../CategoryBadge";
@@ -294,17 +294,25 @@ function CategoryDetail({
   const moveCategoryToGroup = useTimetableStore((s) => s.moveCategoryToGroup);
   const cur = cat.default_min ?? null;
   const opts = DEFAULT_MIN_OPTIONS.some((o) => o.v === cur) ? DEFAULT_MIN_OPTIONS : [...DEFAULT_MIN_OPTIONS, { v: cur, label: fmtDur((cur ?? 0) * MIN) }];
-  const slot = colorSlot(cat.color_idx);
+  const pickerVal = categoryPickerValue(cat.color_idx);
   const group = categories.find((c) => c.id === cat.parent_id);
   return (
     <>
-      <Field k="顏色">
+      <Field k="顏色" top>
         <ColorPicker
           palette="category"
-          value={slot}
+          custom
+          showName
+          allowHexInput
+          value={pickerVal}
           label={`${cat.name} 的顏色`}
-          onChange={(n) => {
-            if (typeof n === "number" && n !== slot) void updateCategory(cat.id, { colorIdx: n });
+          onChange={(next) => {
+            try {
+              const encoded = encodeCategoryColor(next);
+              if (encoded !== cat.color_idx) void updateCategory(cat.id, { colorIdx: encoded });
+            } catch (e) {
+              if (e instanceof Error) useUiStore.getState().showToast({ message: e.message });
+            }
           }}
         />
       </Field>

@@ -17,6 +17,8 @@
 [data-theme] {
   --ns-tt-cat-1: var(--cat-1); --ns-tt-cat-2: var(--cat-2); --ns-tt-cat-3: var(--cat-3); --ns-tt-cat-4: var(--cat-4);
   --ns-tt-cat-5: var(--cat-5); --ns-tt-cat-6: var(--cat-6); --ns-tt-cat-7: var(--cat-7); --ns-tt-cat-8: var(--cat-8);
+  --ns-tt-cat-9: var(--cat-9); --ns-tt-cat-10: var(--cat-10); --ns-tt-cat-11: var(--cat-11); --ns-tt-cat-12: var(--cat-12);
+  --ns-tt-cat-13: var(--cat-13); --ns-tt-cat-14: var(--cat-14); --ns-tt-cat-15: var(--cat-15); --ns-tt-cat-16: var(--cat-16);
 }
 /* UI 丙-4 G1：色碼只剩下面幾條白名單（理由逐條寫在行尾）；刻度欄底 --ns-tt-sched-gut 改指 --color-ink 的淡色（兩主題原本就是各自的墨色 3～3.5%），
  * 所以寫在 :root, [data-theme]——局部掛主題的框要拿到自己那一組墨色。 */

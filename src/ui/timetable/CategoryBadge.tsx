@@ -7,7 +7,7 @@
  * 正在跑的那一班在所有視圖都同一種畫法：赭實線框（各卡自己的 .is-live）＋這顆點。
  */
 import type { CSSProperties, ReactNode } from "react";
-import { colorSlot, type TimeCategoryRow } from "../../domain/timetable";
+import { categoryColorCss, type TimeCategoryRow } from "../../domain/timetable";
 
 export interface CategoryBadgeProps {
   cat: TimeCategoryRow | null;
@@ -41,7 +41,7 @@ export function CategoryBadge({ cat, size = "md", onPress, live }: CategoryBadge
       </span>
     );
   } else {
-    const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat.color_idx)})` } as CSSProperties;
+    const style = { "--c": categoryColorCss(cat, 8) } as CSSProperties;
     const text = cat.glyph ?? Array.from(cat.name)[0] ?? "・";
     badge = (
       <span className={"ns-tt-badge" + sizeClass} style={style} aria-hidden="true" onClick={onPress}>

@@ -11,7 +11,7 @@
 import { useMemo, type CSSProperties } from "react";
 import {
   MIN,
-  colorSlot,
+  categoryColorCss,
   fmtDur,
   gapTotal,
   groupedCategories,
@@ -113,7 +113,7 @@ export function DaySummary({ dayKey }: DaySummaryProps) {
           if (it.kind === "gap") return <i key={"g" + i} className="is-gap" style={{ flex: d }} />;
           if (it.zero) return null;
           const cat = catById[it.span.categoryId];
-          const style = { flex: d, "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})` } as CSSProperties;
+          const style = { flex: d, "--c": categoryColorCss(cat, 8) } as CSSProperties;
           return <i key={it.span.id + ":" + it.from} style={style} />;
         })}
       </div>
