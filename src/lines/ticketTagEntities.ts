@@ -88,7 +88,10 @@ async function describeRepeats(ids: readonly string[]): Promise<Record<string, T
     }
     const fixed = parseFixedRule(r.rule);
     const cat = r.category_id ? catById[r.category_id] : undefined;
-    const what = r.note || (cat ? bareName(cat.name) || cat.name : r.kind === "transfer" ? "轉帳" : "未分類");
+    const what =
+      (r.item ?? "").trim() ||
+      r.note.trim() ||
+      (cat ? bareName(cat.name) || cat.name : r.kind === "transfer" ? "轉帳" : "未分類");
     out[id] = {
       label: `定期帳「${fixed ? describeRule(fixed) : "規則看不懂"} · ${what}」`,
       sub: r.paused_at ? "暫停中" : undefined,

@@ -1,7 +1,8 @@
 /**
  * 售票口線的捕捉目的地（車次①契約 §3.10、§5.4、0-7、0-29；甲席）。
- * 解析在 domain 的 `parseQuickEntry`、存檔在 store 的 `addQuickEntry`；本檔只是登記那一枚票根。
- * 售票口④（D-票-74；雜項席）：一行裡的 `#名稱` 由 store 抽成荷札（`splitQuickTags`，不進備註）；本檔在 toast 尾巴補
+ * 解析在 domain 的 `parseQuickEntry`（v1.38：描述文字寫入 `item` 品項／來源欄位，`note` 留空）、
+ * 存檔在 store 的 `addQuickEntry`；本檔只是登記那一枚票根。
+ * 售票口④（D-票-74；雜項席）：一行裡的 `#名稱` 由 store 抽成荷札（`splitQuickTags`，不進品項／備註）；本檔在 toast 尾巴補
  * 「 · #京都 #大阪」，讓人看得到掛了哪些荷札。
  */
 import type { CaptureTargetSpec } from "../../lines/types";

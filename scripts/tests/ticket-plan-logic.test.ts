@@ -126,7 +126,13 @@ function ent(p: Partial<EntryRow> & { occurred_on: string; amount_minor: number 
     main_minor: p.amount_minor,
     account_minor: p.amount_minor,
     to_amount_minor: null,
+    item: "",
     note: "",
+    fee_minor: null,
+    fee_main_minor: null,
+    installment_group_id: null,
+    installment_index: null,
+    installment_total: null,
     route_id: null,
     repeat_id: null,
     import_id: null,
@@ -327,7 +333,9 @@ function draft(p: Partial<any> = {}): any {
     accountId: "a-cash",
     toAccountId: null,
     categoryId: "c-lunch",
+    item: "",
     note: "",
+    feeText: "",
     routeId: null,
     freq: "monthly",
     byweekday: [],
@@ -591,6 +599,7 @@ function makeSqliteDb(): TestDb {
   // 壬 0019：ensureStarterRows 會種 wr_kinds，schema 要跟上（0016 是它的前置）
   for (const mf of ["0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8"));
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0010_ticket_plan.sql"), "utf8"));
+  raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0027_ticket_v138.sql"), "utf8"));
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   const db: TestDb = {
     ops: [],
@@ -1237,4 +1246,29 @@ describe("I. 定期帳補完：每 N 期、記滿 N 筆、提前跳過下一班�
       assert.equal((await repo.materializeRepeats(TODAY, 6)).inserted, 0);
     });
   }
+
+  test("v1.38：budgetUsed 納入 fee_main_minor、repeatLabel 優先顯示 item", () => {
+    const e1 = ent({ occurred_on: "2026-10-05", amount_minor: 1000, fee_main_minor: 150, category_id: "c-lunch" });
+    const e2 = ent({ occurred_on: "2026-10-06", kind: "transfer", amount_minor: 5000, fee_main_minor: 150, category_id: null });
+    assert.equal(P.budgetUsed([e1, e2], { kind: "total" }, "2026-10", CATS), 1300);
+    assert.equal(P.budgetUsed([e1, e2], { kind: "category", categoryId: "c-lunch" }, "2026-10", CATS), 1150);
+
+    const r = P.buildRepeatRow({
+      kind: "expense",
+      amountMinor: 5000,
+      currency: "TWD",
+      accountId: "a-cash",
+      toAccountId: null,
+      categoryId: "c-lunch",
+      item: "網路費",
+      note: "每月帳單",
+      feeMinor: 150,
+      routeId: null,
+      rule: monthly("2026-11-01", [1]),
+      hhmm: "09:00",
+    }, CTX, "rep-v138");
+    assert.equal(r.item, "網路費");
+    assert.equal(r.fee_minor, 150);
+    assert.equal(P.repeatLabel(r, CTX), "每月 1 號 · 網路費 · −50 · 現金");
+  });
 });

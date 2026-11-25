@@ -23,6 +23,7 @@ import { EmptyState } from "../../common/EmptyState";
 import {
   accountTotals,
   archivedAccounts,
+  currencySymbol,
   groupAccounts,
   mainCurrencyOf,
   maskedMoneyText,
@@ -30,6 +31,7 @@ import {
   type AccountRow,
 } from "../../../domain/ticket";
 import { accountFlowParts, type AccountCard, type AccountFlow } from "../../../domain/ticketView";
+import { shortDayKey } from "../../common/DatePicker";
 import { IconPlus, IconRight } from "./mobileBits";
 import { useViewSwipe } from "./MobileViewBar";
 
@@ -140,6 +142,8 @@ function GroupCards({ groupKey, list, cards }: { groupKey: string; list: Account
 
 function Card({ account: a, card, archived = false }: { account: AccountRow; card: AccountCard | null; archived?: boolean }) {
   const openAccount = useTicketStore((s) => s.openAccount);
+  const openPayCardBill = useTicketStore((s) => s.openPayCardBill);
+  const cardCycle = useTicketStore((s) => (a.group_key === "card" ? (s.cardCycles[a.id] ?? null) : null));
   const balances = useTicketStore((s) => s.balances);
   const currencies = useTicketStore((s) => s.currencies);
   const dec = useTicketStore((s) => s.curByCode[a.currency]?.decimals ?? 2);
@@ -147,10 +151,29 @@ function Card({ account: a, card, archived = false }: { account: AccountRow; car
   const mainCode = mainCurrencyOf(currencies);
   const bal = balances[a.id] ?? card?.balance ?? 0; // balances 每次 refresh 都是新的；card 是上次算卡時的快照
   const open = () => openAccount(a.id);
+  const isCard = a.group_key === "card" && !archived;
+  const dueText = cardCycle
+    ? masked
+      ? maskedMoneyText(a.currency)
+      : `${currencySymbol(a.currency)} ${moneyText(cardCycle.dueMinor, dec)}`
+    : null;
+  const dueStatusText =
+    cardCycle && cardCycle.dueMinor > 0
+      ? cardCycle.status === "overdue" && cardCycle.daysUntilDue !== null
+        ? `逾期 ${Math.abs(cardCycle.daysUntilDue)} 天`
+        : cardCycle.daysUntilDue === 0
+          ? "今天截止"
+          : cardCycle.daysUntilDue !== null && cardCycle.daysUntilDue <= 7
+            ? `${cardCycle.daysUntilDue} 天後截止`
+            : cardCycle.paymentDueOn
+              ? `${shortDayKey(cardCycle.paymentDueOn)} 截止`
+              : null
+      : null;
+
   return (
     // 不用 button：長按要能從卡上起拖（共用拖曳元件在按鈕上按下不起拖；同願望清單的列）
     <div
-      className={"ns-tk-mac-card" + (archived ? " is-arch" : "")}
+      className={"ns-tk-mac-card" + (archived ? " is-arch" : "") + (isCard ? " is-card" : "")}
       role="button"
       tabIndex={0}
       aria-label={
@@ -179,6 +202,42 @@ function Card({ account: a, card, archived = false }: { account: AccountRow; car
       </span>
       {card && <Spark trend={card.trend.map((t) => t.balance)} />}
       <span className="io">{card ? <FlowText flow={card.month.own} dec={dec} currency={a.currency} masked={masked} /> : null}</span>
+      {isCard && (
+        <div className="ns-tk-mac-cycle" onClick={(e) => e.stopPropagation()}>
+          <div className="info">
+            {cardCycle ? (
+              <>
+                <span className="days">
+                  每月 {cardCycle.statementDay} 日結帳
+                  {cardCycle.paymentDueDay !== null ? ` · ${cardCycle.paymentDueDay} 日繳款` : ""}
+                </span>
+                {cardCycle.dueMinor > 0 ? (
+                  <span className={"due" + (cardCycle.status === "overdue" || cardCycle.status === "due" ? " is-warn" : "")}>
+                    本期應繳 <b>{dueText}</b>
+                    {dueStatusText && <em className="st">{dueStatusText}</em>}
+                  </span>
+                ) : (
+                  <span className="due is-paid">本期已繳清</span>
+                )}
+              </>
+            ) : (
+              <span className="days">未設結帳日 · 點卡片設定帳單週期</span>
+            )}
+          </div>
+          {(cardCycle ? cardCycle.dueMinor > 0 || bal < 0 : bal < 0) && (
+            <button
+              type="button"
+              className="ns-btn btn-ghost ns-tk-mbtn ns-tk-mac-pay"
+              onClick={(e) => {
+                e.stopPropagation();
+                void openPayCardBill(a.id);
+              }}
+            >
+              繳卡費
+            </button>
+          )}
+        </div>
+      )}
       <span className="go" aria-hidden>
         <IconRight size={13} />
       </span>

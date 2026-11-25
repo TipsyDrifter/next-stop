@@ -38,6 +38,8 @@ export interface ReminderSettings {
   stationSoon: boolean;
   routine: boolean;
   repeat: boolean;
+  ticketCardDueOn: boolean;
+  ticketCardDueDays: number;
   sync: boolean;
   backup: boolean;
 }
@@ -62,12 +64,15 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   stationSoon: true,
   routine: false,
   repeat: false,
+  ticketCardDueOn: true,
+  ticketCardDueDays: 3,
   sync: true,
   backup: true,
 };
 
 export const LATE_DAYS_OPTIONS: readonly number[] = [1, 3, 7, 14];
 export const TIMED_BEFORE_OPTIONS: readonly number[] = [0, 5, 10, 15, 30];
+export const CARD_DUE_DAYS_OPTIONS: readonly number[] = [1, 3, 5, 7];
 
 /** 讀設定：壞值或缺鍵一律回預設（升版多一個開關時，舊資料照樣讀得懂） */
 export function parseReminderSettings(raw: string | null | undefined): ReminderSettings {
@@ -86,7 +91,7 @@ export function parseReminderSettings(raw: string | null | undefined): ReminderS
     const v = o[k];
     return typeof v === "string" && clockMinutes(v) !== null ? v : d[k];
   };
-  const int = (k: "lateDays" | "timedBefore", min: number, max: number): number => {
+  const int = (k: "lateDays" | "timedBefore" | "ticketCardDueDays", min: number, max: number): number => {
     const v = o[k];
     return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : d[k];
   };
@@ -105,6 +110,8 @@ export function parseReminderSettings(raw: string | null | undefined): ReminderS
     stationSoon: bool("stationSoon", d.stationSoon),
     routine: bool("routine", d.routine),
     repeat: bool("repeat", d.repeat),
+    ticketCardDueOn: bool("ticketCardDueOn", d.ticketCardDueOn),
+    ticketCardDueDays: int("ticketCardDueDays", 1, 14),
     sync: bool("sync", d.sync),
     backup: bool("backup", d.backup),
   };
@@ -175,6 +182,16 @@ export interface StationSoonFact {
   routeName: string | null;
 }
 
+export interface CardDueFact {
+  accountId: string;
+  accountName: string;
+  currency: string;
+  decimals: number;
+  dueMinor: number;
+  paymentDueOn: string;
+  daysUntilDue: number;
+}
+
 export interface ReminderFacts {
   today: string;
   dayStartHour: number;
@@ -186,6 +203,8 @@ export interface ReminderFacts {
   routines: readonly RoutineFact[];
   /** G6：未到站且設有預計日期之車站（省略＝[]） */
   stationSoon?: readonly StationSoonFact[];
+  /** 售票口：有剩餘應繳之信用卡帳單週期（省略＝[]） */
+  cardDues?: readonly CardDueFact[];
 }
 
 /* ───────── 通知 ───────── */
@@ -200,6 +219,7 @@ export type ReminderKind =
   | "review-year"
   | "station-soon"
   | "repeat"
+  | "ticketCardDue"
   | "routine";
 
 /** 點開去哪（兩端同一份；原生層只當字串帶著走） */
@@ -215,6 +235,8 @@ export type ReminderTarget =
   | { kind: "station"; stationId: string; routeId: string | null }
   /** 售票口那一天 */
   | { kind: "ticketDay"; day: string }
+  /** 售票口帳戶（信用卡繳款提醒） */
+  | { kind: "ticketAccount"; accountId: string }
   /** 時刻表日程那一天 */
   | { kind: "routine"; day: string };
 
@@ -242,6 +264,28 @@ const NAME_MAX = 24;
 const LATE_EXPIRE_MS = 365 * DAY_MS;
 /** 作息段開始後多久還值得響：鬧鐘可能晚幾分鐘（精準鬧鐘沒給時），再晚就沒意義 */
 const ROUTINE_EXPIRE_MS = 15 * 60_000;
+
+const CARD_CUR_SYMBOL: Readonly<Record<string, string>> = {
+  TWD: "NT$",
+  USD: "US$",
+  CNY: "CN¥",
+  JPY: "¥",
+  EUR: "€",
+  HKD: "HK$",
+  KRW: "₩",
+  GBP: "£",
+};
+
+function formatCardMoney(minor: number, currency: string, decimals: number): string {
+  const sym = CARD_CUR_SYMBOL[currency] ?? currency;
+  const d = Math.max(0, Math.min(8, Math.floor(decimals)));
+  const digits = String(Math.abs(minor)).padStart(d + 1, "0");
+  const intRaw = d > 0 ? digits.slice(0, digits.length - d) : digits;
+  const frac = d > 0 ? digits.slice(digits.length - d) : "";
+  const intFmt = intRaw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const body = /^0*$/.test(frac) ? intFmt : `${intFmt}.${frac}`;
+  return `${sym} ${body}`;
+}
 
 function clip(name: string): string {
   const s = name.trim() || "（無標題）";
@@ -530,6 +574,34 @@ export function buildReminderPlan(
     }
   }
 
+  if (settings.ticketCardDueOn && facts.cardDues) {
+    for (const c of facts.cardDues) {
+      if (c.dueMinor <= 0 || c.daysUntilDue > settings.ticketCardDueDays || c.daysUntilDue < -7) continue;
+      const key = `ticket-card-due:${c.accountId}:${c.paymentDueOn}`;
+      if (sent[key] !== undefined) continue;
+      const fireAt = at(today, morning);
+      if (fireAt === null) continue;
+      const [, m, d] = c.paymentDueOn.split("-").map(Number);
+      const dueAmt = formatCardMoney(c.dueMinor, c.currency, c.decimals);
+      const dueStatus =
+        c.daysUntilDue === 0
+          ? "今日繳款截止"
+          : c.daysUntilDue < 0
+            ? `已過繳款日 ${Math.abs(c.daysUntilDue)} 天`
+            : `${m}/${d} 截止`;
+      push({
+        key,
+        kind: "ticketCardDue",
+        memberKeys: [key],
+        fireAt,
+        expireAt: dayStartAt(addDays(c.paymentDueOn, 8), h),
+        title: `${clip(c.accountName)} 繳款提醒`,
+        body: `本期應繳 ${dueAmt} · ${dueStatus}`,
+        target: { kind: "ticketAccount", accountId: c.accountId },
+      });
+    }
+  }
+
   if (settings.routine) {
     for (const r of facts.routines) {
       const key = `routine:${r.segId}:${r.day}:${r.start}`;
@@ -640,6 +712,8 @@ export function parseTarget(raw: string | null | undefined): ReminderTarget | nu
         return typeof t.weekOn === "string" ? t : null;
       case "station":
         return typeof t.stationId === "string" && (t.routeId === null || typeof t.routeId === "string") ? t : null;
+      case "ticketAccount":
+        return typeof t.accountId === "string" ? t : null;
       case "today":
         return t;
       default:

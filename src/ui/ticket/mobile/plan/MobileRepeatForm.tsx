@@ -64,7 +64,7 @@ import {
   type FixedRepeatRule,
 } from "../../../../domain/repeat";
 import { IconCaret, IconRight, groupLabelOf, useImeGuard } from "../mobileBits";
-import { MobileNoteField, TagDraftRow, tagSummary } from "../MobileEntryParts";
+import { MobileFeeField, MobileMemoField, MobileNoteField, TagDraftRow, tagSummary } from "../MobileEntryParts";
 import { CatPathText, MobileCatDrill, levelFor } from "../MobileCatDrill";
 import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "../../ticketClock";
 import { RepeatNumField } from "../../plan/RepeatNumField";
@@ -134,7 +134,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   // 磨光①（主線手機殼契約 §1.5）：表單本身的返回層在宿主（ticket.dialog）；這裡的幣別／日期 sheet 疊在全螢幕表單上，
   // 要比 "full" 高才會先關它 ⇒ 登記成 "dialog"（同記帳表單）；三支 sheet 都給同一個 backId ⇒ 跟這一行合併成一層
   useBackLayer("ticket.repeat.pick", sheet !== null, () => setSheet(null), "dialog");
-  const [more, setMore] = useState(!isNew && (d.note !== "" || d.routeId !== null || d.until !== null || d.count !== null));
+  const [more, setMore] = useState(!isNew && (d.routeId !== null || d.until !== null || d.count !== null));
   const busy = useRef(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -144,6 +144,24 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   const acc = d.accountId ? accById[d.accountId] : undefined;
   const toAcc = d.toAccountId ? accById[d.toAccountId] : undefined;
   const curCode = transfer ? (acc?.currency ?? d.currency) : d.currency;
+  const feeCurCode = acc?.currency ?? curCode;
+  const curObj = curByCode[curCode];
+  const feeCurObj = curByCode[feeCurCode];
+  let amountMinor: number | null = null;
+  try {
+    if (curObj && d.amountText.trim() !== "") amountMinor = parseAmount(d.amountText, curObj, { allowNegative: kind === "expense", allowZero: true });
+  } catch {
+    amountMinor = null;
+  }
+  let feeMinor: number | null = null;
+  try {
+    if (feeCurObj && d.feeText.trim() !== "") {
+      const f = parseAmount(d.feeText, feeCurObj, { allowNegative: true, allowZero: true });
+      if (f > 0) feeMinor = f;
+    }
+  } catch {
+    feeMinor = null;
+  }
 
   /* 帳戶 chips：未封存依群組順序；選中的即使已封存也列 */
   const chipAccounts = useMemo(() => {
@@ -212,13 +230,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
 
   /* 預覽：repeatLabel 吃規則列；用草稿拼一列（金額看不懂就不印預覽句，只印班次） */
   const preview = (() => {
-    const cur = curByCode[curCode];
-    let amount: number | null = null;
-    try {
-      if (cur && d.amountText.trim() !== "") amount = parseAmount(d.amountText, cur, { allowNegative: kind === "expense", allowZero: true });
-    } catch {
-      amount = null;
-    }
+    const amount = amountMinor;
     const fake: RepeatRow = {
       id: editId ?? "draft",
       kind,
@@ -227,7 +239,9 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
       category_id: transfer ? null : d.categoryId,
       amount_minor: amount ?? 0,
       currency: curCode,
+      item: d.item,
       note: d.note,
+      fee_minor: feeMinor,
       route_id: d.routeId,
       rule: serializeRule(rule),
       hhmm: d.hhmm,
@@ -285,7 +299,6 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   const moreSum = [
     d.hhmm,
     d.count !== null ? `記滿 ${d.count} 筆` : d.until ? `到 ${shortDayKey(d.until)} 止` : null,
-    d.note.trim() ? "有備註" : "無備註",
     route ? `${route.code ? route.code + " " : ""}${route.name}` : "不掛路線",
     repeatTags ? tagSummary(repeatTags.names) : null,
   ]
@@ -425,6 +438,21 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
           </>
         )}
 
+        {/* v1.38 3A／3B：品項／來源（補完）× 隨筆備註（純感想）× 手續費 */}
+        <div className="ns-tk-m4-out">
+          <MobileNoteField value={d.item} onChange={(item) => setDraft({ item })} />
+          <MobileMemoField value={d.note} onChange={(note) => setDraft({ note })} />
+          <MobileFeeField
+            value={d.feeText}
+            onChange={(feeText) => setDraft({ feeText })}
+            kind={kind}
+            feeCurrency={feeCurCode}
+            entryCurrency={curCode}
+            amountMinor={amountMinor}
+            curByCode={curByCode}
+          />
+        </div>
+
         <div className="ns-tk-mf-more">
           <button type="button" className="ns-tk-mf-moretog" aria-expanded={more} onClick={() => setMore(!more)}>
             更多欄位<span className="sum">{moreSum}</span>
@@ -470,8 +498,6 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                   {lastRun && <span className="ns-tk-mre-last">最後一筆 {shortDayKey(lastRun)}</span>}
                 </div>
               )}
-              {/* 售票口④ D-票-71：備註換會記得以前寫過的欄位（候選同記一筆；D-票-70 的順手帶分類只在記一筆） */}
-              <MobileNoteField value={d.note} onChange={(note) => setDraft({ note })} rows={2} />
               <div className="ns-tk-mf-field">
                 <span className="lbl">路線</span>
                 <div className="ns-tk-mf-accts in-field" role="group" aria-label="路線">

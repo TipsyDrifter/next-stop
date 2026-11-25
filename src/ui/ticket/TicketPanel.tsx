@@ -48,6 +48,7 @@ import { ClockInput, clockDraftsOkIn } from "../common/ClockInput";
 import { DatePicker } from "../common/DatePicker";
 import { RecallInput } from "../common/RecallInput";
 import { EntityTagField } from "../common/EntityTagField";
+import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { rowContextMenu } from "../common/contextMenu";
 import {
   ACCOUNT_GROUPS,
@@ -61,11 +62,13 @@ import {
   convertMinor,
   currencySymbol,
   groupAccounts,
+  isLiability,
   localTime,
   mainCurrencyOf,
   maskedMoneyText,
   matchCategories,
   moneyText,
+  orderAccounts,
   parseAmount,
   planAdjust,
   serialOf,
@@ -80,6 +83,14 @@ import {
   type Prefix,
   type TemplateRow,
 } from "../../domain/ticket";
+import {
+  INSTALLMENT_PRESETS,
+  MAX_INSTALLMENTS,
+  MIN_INSTALLMENTS,
+  installmentProgressOf,
+  planInstallmentSlices,
+} from "../../domain/ticketInstallment";
+import { MAX_CARD_DAY, MIN_CARD_DAY } from "../../domain/ticketCardCycle";
 import type { NodeRow } from "../../domain/node";
 import { WEEKDAY_LABEL, WEEKDAY_ORDER } from "../../domain/repeat";
 import {
@@ -271,6 +282,7 @@ interface Vm {
   categoryId: string | null;
   dayKey: string;
   time: string;
+  item: string;
   note: string;
   routeId: string | null;
 }
@@ -292,11 +304,13 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const [pop, setPop] = useState<PopKind>(null);
   const amtRef = useRef<HTMLInputElement>(null);
+  const feeRef = useRef<HTMLInputElement>(null);
   const store = useTicketStore.getState;
   const today = todayKey(dayStartHour);
-  /* 售票口④：備註帶上次分類（「照上次 · 復原」）、「存成常用…」小浮層 */
+  /* 售票口④：品項記憶帶上次分類（「照上次 · 復原」）、「存成常用…」小浮層；v1.38 分期刪除三段選單 */
   const [autoCat, setAutoCat] = useState<{ id: string; prev: string | null } | null>(null);
   const [savePop, setSavePop] = useState(false);
+  const [delMenuAt, setDelMenuAt] = useState<HTMLElement | null>(null);
   const saveBtnRef = useRef<HTMLButtonElement>(null);
   // 荷札欄的建議清單要 index（沒載就載一次；寫入後 tagStore 自己重載）
   useEffect(() => {
@@ -316,6 +330,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
         categoryId: row.category_id,
         dayKey: row.occurred_on,
         time: localTime(row.occurred_at),
+        item: row.item ?? "",
         note: row.note,
         routeId: row.route_id,
       }
@@ -327,6 +342,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
         categoryId: draft?.categoryId ?? null,
         dayKey: draft?.dayKey ?? today,
         time: draft?.time ?? "",
+        item: draft?.item ?? "",
         note: draft?.note ?? "",
         routeId: draft?.routeId ?? null,
       };
@@ -338,6 +354,10 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   const toAcc = vm.toAccountId ? accById[vm.toAccountId] : undefined;
   const route = vm.routeId ? routes.find((r) => r.id === vm.routeId) : undefined;
   const allowNeg = vm.kind === "expense" || vm.kind === "adjust";
+  const feeCurCode = acc?.currency ?? vm.currency;
+  const feeCur = curByCode[feeCurCode];
+  const feeDec = feeCur?.decimals ?? 2;
+  const feeSym = currencySymbol(feeCurCode);
 
   /* 舊票：改欄位＝即時存（store 失敗會自己 toast） */
   const patch = (p: EntryPatch) => {
@@ -396,6 +416,92 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     });
     return () => clearTimeout(t);
   }, [isNew]);
+
+  /* ── 手續費（v1.38 3B；獨立選填，幣別隨帳戶）── */
+  const [feeLocal, setFeeLocal] = useState(row?.fee_minor ? amountInputText(row.fee_minor, feeDec) : "");
+  const rowFee = row?.fee_minor ?? null;
+  useEffect(() => {
+    if (row && document.activeElement !== feeRef.current) setFeeLocal(row.fee_minor ? amountInputText(row.fee_minor, feeDec) : "");
+  }, [rowFee, feeDec]); // eslint-disable-line react-hooks/exhaustive-deps
+  const feeCommit = useDebouncedCommit<string>((text) => {
+    if (!row || !feeCur) return;
+    const trimmed = text.trim();
+    if (trimmed === "") {
+      if (row.fee_minor !== null) patch({ feeMinor: null });
+      return;
+    }
+    const v = tryParse(trimmed, feeCur, false, true);
+    if (v !== null && (v === 0 ? null : v) !== (row.fee_minor ?? null)) patch({ feeMinor: v === 0 ? null : v });
+  }, 600);
+  const feeText = isNew ? (draft?.feeText ?? "") : feeLocal;
+  const feeTrim = feeText.trim();
+  let feeMinor: number | null = null;
+  let feeErr: string | null = null;
+  if (feeTrim !== "" && feeCur) {
+    try {
+      const parsed = parseAmount(feeTrim, feeCur, { allowNegative: true, allowZero: true });
+      if (parsed < 0) feeErr = "手續費不能是負數";
+      else if (parsed > 0) feeMinor = parsed;
+    } catch (e) {
+      if (!hasCalcOperator(feeTrim)) feeErr = errMsg(e);
+    }
+  }
+  const onFee = (text: string) => {
+    if (isNew) store().setDraft({ feeText: text });
+    else {
+      setFeeLocal(text);
+      feeCommit.schedule(text);
+    }
+  };
+  const clearFee = () => {
+    if (isNew) store().setDraft({ feeText: "" });
+    else {
+      feeCommit.cancel();
+      setFeeLocal("");
+      if (row && row.fee_minor !== null) patch({ feeMinor: null });
+    }
+  };
+  const onFeeBlur = () => {
+    if (isNew) {
+      if (hasCalcOperator(feeText)) {
+        const next = commitCalcInput(feeText, { allowNegative: false, decimals: feeDec });
+        if (next !== feeText) store().setDraft({ feeText: next });
+      }
+      return;
+    }
+    if (!row || !feeCur) return;
+    feeCommit.cancel();
+    const trimmed = feeLocal.trim();
+    if (trimmed === "") {
+      if (row.fee_minor !== null) patch({ feeMinor: null });
+      setFeeLocal("");
+      return;
+    }
+    try {
+      const v = parseAmount(trimmed, feeCur, { allowNegative: true, allowZero: true });
+      if (v < 0) throw new RangeError("手續費不能是負數");
+      const next = v === 0 ? null : v;
+      if (next !== (row.fee_minor ?? null)) patch({ feeMinor: next });
+      setFeeLocal(next ? amountInputText(next, feeDec) : "");
+    } catch (e) {
+      toast(errMsg(e));
+      setFeeLocal(row.fee_minor ? amountInputText(row.fee_minor, feeDec) : "");
+    }
+  };
+  const sameFeeCur = vm.currency === feeCurCode;
+  const feeHintText = (() => {
+    if (feeMinor === null) return null;
+    if (vm.kind === "income") {
+      if (sameFeeCur && amountMinor !== null) {
+        return `實收 ${masked ? maskedMoneyText(feeCurCode) : `${feeSym} ${moneyText(amountMinor - feeMinor, feeDec)}`}`;
+      }
+      return `另扣手續費 ${masked ? maskedMoneyText(feeCurCode) : `${feeSym} ${moneyText(feeMinor, feeDec)}`}`;
+    }
+    if (sameFeeCur && amountMinor !== null) {
+      return `實扣 ${masked ? maskedMoneyText(feeCurCode) : `${feeSym} ${moneyText(amountMinor + feeMinor, feeDec)}`}`;
+    }
+    return `另計手續費 ${masked ? maskedMoneyText(feeCurCode) : `${feeSym} ${moneyText(feeMinor, feeDec)}`}`;
+  })();
 
   /* ── 折算（外幣）── */
   const [convEdit, setConvEdit] = useState(false);
@@ -512,15 +618,15 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     }
   };
 
-  /* ── 備註記憶（D-票-70）：選了以前的備註，分類還空著 ⇒ 帶上次那筆的分類（金額不帶）；「復原」退回原本的（未分類） ── */
+  /* ── 品項記憶（D-票-70 / v1.38 3A）：選了以前的品項，分類還空著 ⇒ 帶上次那筆的分類（金額不帶）；「復原」退回原本的（未分類） ── */
   const carryCat = (text: string): string | null => {
     if (vm.kind !== "expense" && vm.kind !== "income") return null;
     if (vm.categoryId && !isUncat(vm.categoryId)) return null;
     return store().lastCategoryForNote(vm.kind, text);
   };
-  const pickNote = (text: string) => {
+  const pickItem = (text: string) => {
     const c = carryCat(text);
-    const p = c ? { note: text, categoryId: c } : { note: text };
+    const p = c ? { item: text, categoryId: c } : { item: text };
     if (isNew) store().setDraft(p);
     else patch(p);
     if (c) setAutoCat({ id: c, prev: vm.categoryId });
@@ -717,6 +823,52 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             )}
           </div>
         )}
+        {vm.kind !== "adjust" && (
+          <div className={`ns-tk-bt-fee${feeTrim ? " has-val" : ""}`}>
+            <div className="ns-tk-bt-feerow">
+              <span className="lbl">手續費</span>
+              <input
+                ref={feeRef}
+                className="ns-tk-feein"
+                inputMode="decimal"
+                autoComplete="off"
+                aria-label="手續費"
+                placeholder="選填，例 15"
+                value={feeText}
+                onChange={(e) => onFee(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  if (e.key === "=") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onFee(commitCalcInput(feeText, { allowNegative: false, decimals: feeDec }));
+                  }
+                }}
+                onBlur={onFeeBlur}
+              />
+              <span className="cur">{feeCurCode}</span>
+              {feeTrim !== "" && (
+                <button
+                  type="button"
+                  className="ns-tk-feeclr"
+                  aria-label="清除手續費"
+                  title="清除手續費"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={clearFee}
+                >
+                  <TkIcon name="x" size={10} />
+                </button>
+              )}
+            </div>
+            {feeErr ? (
+              <p className="ns-tk-feehint is-err" role="alert">
+                {feeErr}
+              </p>
+            ) : (
+              feeHintText && <p className="ns-tk-feehint">{feeHintText}</p>
+            )}
+          </div>
+        )}
 
         <div className="ns-tk-bt-seal">
           <TicketSeal kind={vm.kind} fresh={fresh} />
@@ -790,6 +942,31 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               />
             </FieldRow>
           )}
+          {/* v1.38 3A：品項／來源主欄（接 RecallInput 歷史補完＋自動帶分類） */}
+          <FieldRow label="品項">
+            {isNew ? (
+              <ItemRecall value={vm.item} onChange={(item) => store().setDraft({ item })} onPick={pickItem} />
+            ) : (
+              <ItemRecallCommit value={vm.item} onCommit={(item) => patch({ item })} onPick={pickItem} />
+            )}
+          </FieldRow>
+          {/* v1.38 3A：隨筆備註純感想欄（絕不接 RecallInput，不污染候選詞庫） */}
+          <FieldRow label="隨筆" top>
+            {isNew ? (
+              <textarea
+                rows={1}
+                className="ns-tk-textin"
+                aria-label="隨筆備註"
+                placeholder="用餐隨筆或感想（不進補完）…"
+                value={vm.note}
+                onChange={(e) => store().setDraft({ note: e.target.value })}
+              />
+            ) : (
+              <div className="ns-tk-notewrap">
+                <NotePlainCommit value={vm.note} onCommit={(note) => patch({ note })} />
+              </div>
+            )}
+          </FieldRow>
           <FieldRow label="日期">
             {/* J3：共用日期 chip（桌機 DatePicker 錨定浮層）；帳不能記到未來 ⇒ max＝今天，往前不設限 */}
             <DateChip
@@ -829,16 +1006,6 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                 }}
               />
             </span>
-          </FieldRow>
-          <FieldRow label="備註" top>
-            {/* 售票口④（D-票-70、71）：備註記憶。新票改草稿；舊票離開才存、選了就存 */}
-            {isNew ? (
-              <NoteRecall value={vm.note} onChange={(note) => store().setDraft({ note })} onPick={pickNote} />
-            ) : (
-              <div className="ns-tk-notewrap">
-                <NoteRecallCommit value={vm.note} onCommit={(note) => patch({ note })} onPick={pickNote} />
-              </div>
-            )}
           </FieldRow>
           {vm.kind !== "adjust" && (
             <FieldRow label="路線">
@@ -882,6 +1049,20 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               row && <EntityTagField entityType={TK_TAG_ENTRY} entityId={row.id} suggestInline />
             )}
           </FieldLine>
+          {/* v1.38 3B：新支出刷卡分期設定 */}
+          {isNew && draft && vm.kind === "expense" && (
+            <FieldLine label="分期" top className="is-inst">
+              <DraftInstallment
+                periods={draft.installmentPeriods}
+                amountMinor={amountMinor}
+                feeMinor={feeMinor}
+                currency={vm.currency}
+                decimals={decimals}
+                dayKey={vm.dayKey}
+                onChange={(installmentPeriods) => store().setDraft({ installmentPeriods })}
+              />
+            </FieldLine>
+          )}
           {/* 售票口④（D-票-66）：定期。新票＝快設；舊票＝連著規則的那行字／「設成定期…」（精算不出）。
               第③階段的 RepeatField（「管理定期 ›」開清單）退場：「管理 ›」直接開那條規則 */}
           {isNew && draft ? (
@@ -897,6 +1078,11 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             )
           )}
         </div>
+
+        {/* v1.38 3B：檢視既有分期帳時顯示分期進度卡 */}
+        {!isNew && row?.installment_group_id && (
+          <InstallmentProgressCard row={row} today={today} mainCode={mainCode} mainDec={mainDec} masked={masked} />
+        )}
       </div>
 
       {/* 操作列黏在紙底（規範 §2.4「操作列黏底」；內容短時靠 margin-top:auto 推到底） */}
@@ -940,9 +1126,59 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                   }}
                 />
               )}
-              <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-btn" onClick={() => row && void store().deleteEntry(row.id)}>
-                刪除<kbd className="ns-tk-kbd">{capsOf("ticket.delete")}</kbd>
-              </button>
+              {row?.installment_group_id ? (
+                <>
+                  <button
+                    type="button"
+                    className="ns-btn btn-ghost ns-btn-danger ns-tk-btn"
+                    aria-haspopup="menu"
+                    aria-expanded={delMenuAt !== null}
+                    onClick={(e) => {
+                      const btn = e.currentTarget;
+                      setDelMenuAt((cur) => (cur ? null : btn));
+                    }}
+                  >
+                    刪除
+                    <TkIcon name="caret" size={11} />
+                  </button>
+                  {delMenuAt && (
+                    <PopMenu
+                      anchor={delMenuAt}
+                      overline={{ zh: "刪除分期帳", latin: "Installments" }}
+                      label="選擇分期刪除範圍"
+                      items={
+                        [
+                          {
+                            key: "one",
+                            label: `只刪這一期（第 ${row.installment_index ?? 1} 期）`,
+                            danger: true,
+                            onSelect: () => void store().deleteEntry(row.id),
+                          },
+                          {
+                            key: "from",
+                            label: `刪本期與後續期數（第 ${row.installment_index ?? 1}～${row.installment_total ?? "?"} 期）`,
+                            danger: true,
+                            onSelect: () =>
+                              void store().deleteInstallmentGroup(row.installment_group_id!, row.installment_index ?? 1),
+                          },
+                          {
+                            key: "all",
+                            label: `刪除全部分期（共 ${row.installment_total ?? "?"} 期）`,
+                            danger: true,
+                            cut: true,
+                            onSelect: () => void store().deleteInstallmentGroup(row.installment_group_id!),
+                          },
+                        ] satisfies PopMenuItem[]
+                      }
+                      onClose={() => setDelMenuAt(null)}
+                    />
+                  )}
+                </>
+              ) : (
+                <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-btn" onClick={() => row && void store().deleteEntry(row.id)}>
+                  刪除<kbd className="ns-tk-kbd">{capsOf("ticket.delete")}</kbd>
+                </button>
+              )}
               <span className={`ns-tk-saved${savedFlash ? " flash" : ""}`} aria-live="polite">
                 {savedFlash ? "已存" : "自動存檔"}
               </span>
@@ -1529,17 +1765,15 @@ function FromWish({ id }: { id: string }) {
   );
 }
 
-/* ── 備註記憶（D-票-70、71）：新票＝草稿；舊票＝離開才存（Esc 還原、Ctrl+Enter 存）、選了以前的就存 ── */
+/* ── 品項記憶（D-票-70、v1.38 3A）：新票＝草稿；舊票＝離開才存（Enter 提交、Esc 還原）、選了以前的就存 ── */
 
-function NoteRecall({ value, onChange, onPick }: { value: string; onChange(text: string): void; onPick(text: string): void }) {
+function ItemRecall({ value, onChange, onPick }: { value: string; onChange(text: string): void; onPick(text: string): void }) {
   const items = useTicketStore((s) => s.noteRecall);
   return (
     <RecallInput
-      multiline
-      rows={1}
       className="ns-tk-textin"
-      ariaLabel="備註"
-      placeholder="備註"
+      ariaLabel="品項／來源"
+      placeholder="店家、品項或來源…"
       value={value}
       items={items}
       onNeedItems={() => void useTicketStore.getState().loadNoteRecall()}
@@ -1549,7 +1783,7 @@ function NoteRecall({ value, onChange, onPick }: { value: string; onChange(text:
   );
 }
 
-function NoteRecallCommit({ value, onCommit, onPick }: { value: string; onCommit(text: string): void; onPick(text: string): void }) {
+function ItemRecallCommit({ value, onCommit, onPick }: { value: string; onCommit(text: string): void; onPick(text: string): void }) {
   const items = useTicketStore((s) => s.noteRecall);
   const [draft, setDraft] = useState(value);
   const focused = useRef(false);
@@ -1570,21 +1804,69 @@ function NoteRecallCommit({ value, onCommit, onPick }: { value: string; onCommit
   };
   return (
     <RecallInput
-      multiline
-      rows={1}
-      ariaLabel="備註"
-      placeholder="備註"
+      className="ns-tk-textin"
+      ariaLabel="品項／來源"
+      placeholder="店家、品項或來源…"
       value={draft}
       items={items}
       onNeedItems={() => void useTicketStore.getState().loadNoteRecall()}
       onChange={setDraft}
       onPick={(it) => {
-        // 選了就存（連同順便帶的分類一次寫）：先記成已送出，之後失焦不再送一次
         const t = it.text.trim();
         committed.current = t;
         setDraft(t);
         onPick(t);
       }}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={() => {
+        focused.current = false;
+        commit(draft);
+      }}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit(draft);
+        } else if (e.key === "Escape" && draft !== committed.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          setDraft(committed.current);
+        }
+      }}
+    />
+  );
+}
+
+/* ── 隨筆備註純輸入（v1.38 3A：絕不接 RecallInput，不污染歷史補完詞庫） ── */
+
+function NotePlainCommit({ value, onCommit }: { value: string; onCommit(text: string): void }) {
+  const [draft, setDraft] = useState(value);
+  const focused = useRef(false);
+  const committed = useRef(value);
+  useEffect(() => {
+    committed.current = value;
+    if (!focused.current) setDraft(value);
+  }, [value]);
+  const commit = (text: string) => {
+    const next = text.trim();
+    if (next === committed.current) {
+      setDraft(committed.current);
+      return;
+    }
+    committed.current = next;
+    setDraft(next);
+    onCommit(next);
+  };
+  return (
+    <textarea
+      rows={1}
+      className="ns-tk-textin"
+      aria-label="隨筆備註"
+      placeholder="用餐隨筆或感想（不進補完）…"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
       onFocus={() => {
         focused.current = true;
       }}
@@ -1604,6 +1886,219 @@ function NoteRecallCommit({ value, onCommit, onPick }: { value: string; onCommit
         }
       }}
     />
+  );
+}
+
+/* ── 刷卡分期（v1.38 3B）：新支出期數設定＋即時試算；舊分期帳進度卡 ── */
+
+function DraftInstallment({
+  periods,
+  amountMinor,
+  feeMinor,
+  currency,
+  decimals,
+  dayKey,
+  onChange,
+}: {
+  periods: number | null;
+  amountMinor: number | null;
+  feeMinor: number | null;
+  currency: string;
+  decimals: number;
+  dayKey: string;
+  onChange(periods: number | null): void;
+}) {
+  const isPreset = periods !== null && (INSTALLMENT_PRESETS as readonly number[]).includes(periods);
+  const [customOpen, setCustomOpen] = useState(periods !== null && periods >= MIN_INSTALLMENTS && !isPreset);
+  const [customText, setCustomText] = useState(periods && !isPreset ? String(periods) : "");
+  useEffect(() => {
+    if (periods === null) {
+      setCustomOpen(false);
+      setCustomText("");
+    } else if (!isPreset) {
+      setCustomOpen(true);
+      setCustomText(String(periods));
+    } else {
+      setCustomOpen(false);
+    }
+  }, [periods, isPreset]);
+
+  const activePeriods = periods !== null && periods >= MIN_INSTALLMENTS && periods <= MAX_INSTALLMENTS ? periods : null;
+  const sym = currencySymbol(currency);
+
+  let preview: string | null = null;
+  if (activePeriods !== null) {
+    if (amountMinor !== null && amountMinor > 0) {
+      const slices = planInstallmentSlices({
+        totalAmountMinor: amountMinor,
+        periods: activePeriods,
+        firstOccurredOn: dayKey,
+        feeMinor,
+      });
+      const first = slices[0].amountMinor;
+      const rest = slices[1]?.amountMinor ?? first;
+      preview =
+        first === rest
+          ? `共 ${activePeriods} 期 · 每期 ${sym} ${moneyText(first, decimals)}`
+          : `共 ${activePeriods} 期 · 首期 ${sym} ${moneyText(first, decimals)}，其餘每期 ${sym} ${moneyText(rest, decimals)}`;
+      if (feeMinor && feeMinor > 0) preview += "（手續費計入第 1 期）";
+    } else {
+      preview = `共 ${activePeriods} 期 · 填寫支出金額後顯示每期試算`;
+    }
+  }
+
+  return (
+    <div className="ns-tk-instset">
+      <div className="ns-tk-instchips" role="group" aria-label="刷卡分期期數">
+        <button
+          type="button"
+          className={`ns-tk-instchip${activePeriods === null && !customOpen ? " is-on" : ""}`}
+          aria-pressed={activePeriods === null && !customOpen}
+          onClick={() => {
+            setCustomOpen(false);
+            setCustomText("");
+            onChange(null);
+          }}
+        >
+          不分期
+        </button>
+        {INSTALLMENT_PRESETS.map((n) => (
+          <button
+            key={n}
+            type="button"
+            className={`ns-tk-instchip${activePeriods === n && !customOpen ? " is-on" : ""}`}
+            aria-pressed={activePeriods === n && !customOpen}
+            onClick={() => {
+              setCustomOpen(false);
+              onChange(n);
+            }}
+          >
+            {n}期
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`ns-tk-instchip${customOpen ? " is-on" : ""}`}
+          aria-pressed={customOpen}
+          onClick={() => {
+            setCustomOpen(true);
+            if (!customText) {
+              const fallback = activePeriods ?? 9;
+              setCustomText(String(fallback));
+              onChange(fallback);
+            }
+          }}
+        >
+          自訂
+        </button>
+      </div>
+      {customOpen && (
+        <div className="ns-tk-instcustom">
+          <span>自訂期數</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={MIN_INSTALLMENTS}
+            max={MAX_INSTALLMENTS}
+            aria-label="自訂分期期數"
+            placeholder={`${MIN_INSTALLMENTS}–${MAX_INSTALLMENTS}`}
+            value={customText}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setCustomText(raw);
+              const n = parseInt(raw, 10);
+              if (Number.isInteger(n) && n >= MIN_INSTALLMENTS && n <= MAX_INSTALLMENTS) onChange(n);
+            }}
+            onBlur={() => {
+              const n = parseInt(customText, 10);
+              if (!Number.isInteger(n) || n < MIN_INSTALLMENTS || n > MAX_INSTALLMENTS) {
+                const clamped = Number.isInteger(n) ? Math.min(MAX_INSTALLMENTS, Math.max(MIN_INSTALLMENTS, n)) : 6;
+                setCustomText(String(clamped));
+                onChange(clamped);
+              }
+            }}
+          />
+          <span>期（{MIN_INSTALLMENTS}–{MAX_INSTALLMENTS}）</span>
+        </div>
+      )}
+      {preview && <p className="ns-tk-insthint">{preview}</p>}
+    </div>
+  );
+}
+
+function InstallmentProgressCard({
+  row,
+  today,
+  mainCode,
+  mainDec,
+  masked,
+}: {
+  row: EntryRow;
+  today: string;
+  mainCode: string;
+  mainDec: number;
+  masked: boolean;
+}) {
+  const entriesVersion = useTicketStore((s) => s.entriesVersion);
+  const [groupRows, setGroupRows] = useState<EntryRow[] | null>(null);
+  const groupId = row.installment_group_id!;
+
+  useEffect(() => {
+    let alive = true;
+    void useTicketStore
+      .getState()
+      .loadInstallmentGroup(groupId)
+      .then((rows) => {
+        if (alive) setGroupRows(rows);
+      })
+      .catch(() => {
+        if (alive) setGroupRows(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [groupId, entriesVersion]);
+
+  const progress = useMemo(
+    () => (groupRows ? installmentProgressOf(groupRows, groupId, today) : null),
+    [groupRows, groupId, today],
+  );
+
+  const curIdx = row.installment_index ?? 1;
+  const total = progress?.totalPeriods ?? row.installment_total ?? curIdx;
+  const pct = progress && progress.totalPeriods > 0 ? Math.min(100, Math.round((progress.postedCount / progress.totalPeriods) * 100)) : 0;
+  const mainSym = currencySymbol(mainCode);
+
+  return (
+    <section className="ns-tk-instcard" aria-label="分期進度">
+      <div className="ns-tk-instcard-hd">
+        <span className="t">刷卡分期進度</span>
+        <b className="idx">
+          第 {curIdx} / {total} 期
+        </b>
+      </div>
+      <div className="ns-tk-instbar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <i style={{ width: `${pct}%` }} />
+      </div>
+      {progress ? (
+        <div className="ns-tk-instmeta">
+          <span>
+            已入帳 <b>{progress.postedCount}/{progress.totalPeriods}</b> 期
+          </span>
+          <span>
+            剩餘未攤{" "}
+            <b>
+              {masked ? maskedMoneyText(mainCode) : `${mainSym} ${moneyText(progress.remainingMainMinor, mainDec)}`}
+            </b>
+          </span>
+          <span className="due">
+            {progress.nextDueOn ? `下一期入帳 ${shortDay(progress.nextDueOn)}` : "已全數入帳"}
+          </span>
+        </div>
+      ) : (
+        <p className="ns-tk-instloading">讀取同組分期中…</p>
+      )}
+    </section>
   );
 }
 
@@ -1838,11 +2333,20 @@ function EntryRepeat({ row, today }: { row: EntryRow; today: string }) {
 
 /* ───────── 帳戶版 ───────── */
 
+const CARD_DAY_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: "", label: "未設" },
+  ...Array.from({ length: MAX_CARD_DAY - MIN_CARD_DAY + 1 }, (_, i) => {
+    const d = MIN_CARD_DAY + i;
+    return { value: String(d), label: `每月 ${d} 號` };
+  }),
+];
+
 function AcctCard({ acc }: { acc: AccountRow }) {
   const accounts = useTicketStore((s) => s.accounts);
   const currencies = useTicketStore((s) => s.currencies);
   const curByCode = useTicketStore((s) => s.curByCode);
   const balances = useTicketStore((s) => s.balances);
+  const cardCycles = useTicketStore((s) => s.cardCycles);
   const masked = useTicketStore(isTicketAmountMasked);
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const store = useTicketStore.getState;
@@ -1853,10 +2357,31 @@ function AcctCard({ acc }: { acc: AccountRow }) {
   const bal = balances[acc.id] ?? 0;
   const cur = curByCode[acc.currency];
   const dec = cur?.decimals ?? 2;
+  const sym = currencySymbol(acc.currency);
+  const isCard = acc.group_key === "card";
+  const cycle = isCard ? (cardCycles[acc.id] ?? null) : null;
   const liability = ACCOUNT_GROUPS.some((g) => g.key === acc.group_key && g.liability);
   // 幣別鎖：store 沒有「這個帳戶有沒有帳」——有餘額一定有帳，先鎖；餘額 0 但有帳的由 repository 擋（toast）
   const locked = bal !== 0;
   const archived = acc.archived_at !== null;
+
+  const paySourceOptions = useMemo(() => {
+    const liveAssets = orderAccounts(
+      accounts.filter((a) => a.deleted_at === null && a.archived_at === null && !isLiability(a.group_key) && a.id !== acc.id),
+    );
+    const opts = [
+      { value: "", label: "未設（手動選擇）" },
+      ...liveAssets.map((a) => ({ value: a.id, label: acctLabel(a, accounts) })),
+    ];
+    if (acc.auto_pay_account_id && !opts.some((o) => o.value === acc.auto_pay_account_id)) {
+      const curAuto = accounts.find((a) => a.id === acc.auto_pay_account_id && a.deleted_at === null);
+      if (curAuto) opts.push({ value: curAuto.id, label: `${acctLabel(curAuto, accounts)}（已封存）` });
+    }
+    return opts;
+  }, [accounts, acc.id, acc.auto_pay_account_id]);
+
+  const fmtCardMoney = (minor: number): string =>
+    masked ? maskedMoneyText(acc.currency) : `${sym} ${moneyText(minor, dec)}`;
 
   let diff: number | null = null;
   if (adj !== null && adj.trim() !== "" && cur) {
@@ -1998,6 +2523,100 @@ function AcctCard({ acc }: { acc: AccountRow }) {
           )}
         </div>
       </div>
+
+      {isCard && (
+        <section className="ns-tk-cc-sec" aria-label="信用卡帳單週期">
+          <div className="ns-tk-cc-over">帳單週期</div>
+          <div className="ns-tk-fields is-acct is-cc">
+            <FieldRow label="結帳日">
+              <Select
+                className="ns-tk-select"
+                aria-label="每月結帳日"
+                value={acc.statement_day !== null ? String(acc.statement_day) : ""}
+                options={CARD_DAY_OPTIONS}
+                onChange={(v) => void store().updateAccount(acc.id, { statementDay: v ? Number(v) : null })}
+              />
+            </FieldRow>
+            <FieldRow label="繳款日">
+              <Select
+                className="ns-tk-select"
+                aria-label="每月繳款截止日"
+                value={acc.payment_due_day !== null ? String(acc.payment_due_day) : ""}
+                options={CARD_DAY_OPTIONS}
+                onChange={(v) => void store().updateAccount(acc.id, { paymentDueDay: v ? Number(v) : null })}
+              />
+            </FieldRow>
+            <FieldRow label="扣款帳戶">
+              <Select
+                className="ns-tk-select"
+                aria-label="預設扣款帳戶"
+                value={acc.auto_pay_account_id ?? ""}
+                options={paySourceOptions}
+                onChange={(v) => void store().updateAccount(acc.id, { autoPayAccountId: v || null })}
+              />
+            </FieldRow>
+          </div>
+
+          {cycle && (
+            <div className={`ns-tk-cc-bill is-${cycle.status}`}>
+              <div className="ns-tk-cc-billhd">
+                <span className="t">本期帳單</span>
+                {cycle.status === "paid" ? (
+                  <span className="ns-tk-cc-badge is-paid">本期已繳清</span>
+                ) : cycle.status === "overdue" ? (
+                  <span className="ns-tk-cc-badge is-late">已逾期 {Math.abs(cycle.daysUntilDue ?? 0)} 天</span>
+                ) : cycle.status === "due" ? (
+                  <span className="ns-tk-cc-badge is-late">
+                    {cycle.daysUntilDue === 0 ? "今天截止" : `距截止 ${cycle.daysUntilDue} 天`}
+                  </span>
+                ) : cycle.daysUntilDue !== null ? (
+                  <span className="ns-tk-cc-badge">距截止 {cycle.daysUntilDue} 天</span>
+                ) : null}
+              </div>
+
+              <div className="ns-tk-cc-due">
+                <span className="k">本期應繳總額</span>
+                <b className="v">{cycle.dueMinor > 0 ? fmtCardMoney(cycle.dueMinor) : "本期已繳清"}</b>
+              </div>
+
+              <dl className="ns-tk-cc-grid">
+                <div>
+                  <dt>本期結帳日</dt>
+                  <dd>{shortDay(cycle.lastStatementOn)}</dd>
+                </div>
+                <div>
+                  <dt>繳款截止日</dt>
+                  <dd>{cycle.paymentDueOn ? shortDay(cycle.paymentDueOn) : "未設"}</dd>
+                </div>
+                <div>
+                  <dt>本期帳單金額</dt>
+                  <dd>{fmtCardMoney(cycle.billMinor)}</dd>
+                </div>
+                <div>
+                  <dt>已繳金額</dt>
+                  <dd>{fmtCardMoney(cycle.paidMinor)}</dd>
+                </div>
+                <div>
+                  <dt>下期未出帳</dt>
+                  <dd>{fmtCardMoney(cycle.unbilledMinor)}</dd>
+                </div>
+              </dl>
+
+              {!archived && (
+                <div className="ns-tk-cc-acts">
+                  <button
+                    type="button"
+                    className={`ns-btn ${cycle.dueMinor > 0 ? "btn-seal" : "btn-ghost"} ns-tk-btn ns-tk-cc-paybtn`}
+                    onClick={() => void store().openPayCardBill(acc.id)}
+                  >
+                    一鍵繳卡費
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="ns-tk-acctfoot">
         {archived ? (

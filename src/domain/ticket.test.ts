@@ -50,7 +50,13 @@ function makeEntry(overrides: Partial<EntryRow> & { id: string; occurred_on: str
     main_minor,
     account_minor: main_minor,
     to_amount_minor: null,
+    item: "",
     note: "",
+    fee_minor: null,
+    fee_main_minor: null,
+    installment_group_id: null,
+    installment_index: null,
+    installment_total: null,
     route_id: null,
     repeat_id: null,
     import_id: null,
@@ -190,7 +196,18 @@ test("3B-G4 — 主幣別切換換算（planSetMainCurrency、divideRate、mainC
 
   // rowAmount 傳入新主幣別 USD 時：USD 帳不顯示 convMain，TWD 帳則視為外幣顯示 convMain
   const accs: Record<string, AccountRow> = {
-    acc_twd: { ...SYNC, id: "acc_twd", name: "台銀", group_key: "bank", currency: "TWD", position: 0, archived_at: null },
+    acc_twd: {
+      ...SYNC,
+      id: "acc_twd",
+      name: "台銀",
+      group_key: "bank",
+      currency: "TWD",
+      position: 0,
+      archived_at: null,
+      statement_day: null,
+      payment_due_day: null,
+      auto_pay_account_id: null,
+    },
   };
   assert.equal(rowAmount(updatedEntries[1], null, accs, "USD").convMain, null);
   assert.equal(rowAmount(updatedEntries[0], null, accs, "USD").convMain, 10_00);

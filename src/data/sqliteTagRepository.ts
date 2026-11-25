@@ -612,8 +612,8 @@ export class SqliteTagRepository implements TagRepository {
       tasks.push(
         fetchIds(tkEntryIds, (chunk, inList) =>
           db
-            .select<{ id: string; kind: string; occurred_on: string; note: string | null; cat_name: string | null }[]>(
-              `SELECT e.id, e.kind, e.occurred_on, e.note, c.name AS cat_name
+            .select<{ id: string; kind: string; occurred_on: string; item: string | null; note: string | null; cat_name: string | null }[]>(
+              `SELECT e.id, e.kind, e.occurred_on, e.item, e.note, c.name AS cat_name
                FROM tk_entries e LEFT JOIN tk_categories c ON c.id = e.category_id
                WHERE e.deleted_at IS NULL AND e.id IN (${inList})`,
               chunk,
@@ -621,9 +621,10 @@ export class SqliteTagRepository implements TagRepository {
             .catch(() => []),
         ).then((rows) => {
           for (const r of rows) {
+            const item = (r.item ?? "").trim();
             const memo = (r.note ?? "").trim();
             const cat = (r.cat_name ?? "").trim();
-            const label = memo || cat || (r.kind === "transfer" ? "轉帳" : "帳目");
+            const label = item || memo || cat || (r.kind === "transfer" ? "轉帳" : "帳目");
             resolved.set("ticket:entry\u0001" + r.id, {
               entityType: "ticket:entry",
               entityId: r.id,
@@ -641,8 +642,8 @@ export class SqliteTagRepository implements TagRepository {
       tasks.push(
         fetchIds(tkRepeatIds, (chunk, inList) =>
           db
-            .select<{ id: string; kind: string; note: string | null; cat_name: string | null }[]>(
-              `SELECT r.id, r.kind, r.note, c.name AS cat_name
+            .select<{ id: string; kind: string; item: string | null; note: string | null; cat_name: string | null }[]>(
+              `SELECT r.id, r.kind, r.item, r.note, c.name AS cat_name
                FROM tk_repeats r LEFT JOIN tk_categories c ON c.id = r.category_id
                WHERE r.deleted_at IS NULL AND r.id IN (${inList})`,
               chunk,
@@ -650,7 +651,11 @@ export class SqliteTagRepository implements TagRepository {
             .catch(() => []),
         ).then((rows) => {
           for (const r of rows) {
-            const label = (r.note ?? "").trim() || (r.cat_name ?? "").trim() || (r.kind === "transfer" ? "轉帳" : "定期帳");
+            const label =
+              (r.item ?? "").trim() ||
+              (r.note ?? "").trim() ||
+              (r.cat_name ?? "").trim() ||
+              (r.kind === "transfer" ? "轉帳" : "定期帳");
             resolved.set("ticket:repeat\u0001" + r.id, {
               entityType: "ticket:repeat",
               entityId: r.id,

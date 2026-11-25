@@ -27,12 +27,14 @@ import {
   buildEntryRow,
   categoryArchivedUp,
   categoryLabel,
+  entryExpenseMain,
   mainCurrencyOf,
   maskedMoneyText,
   moneyText,
   monthOf,
   monthRange,
   monthRangeLabel,
+  normalizeFeeMinor,
   parseAmount,
   quickAmountText,
   ticketId,
@@ -99,7 +101,9 @@ export interface RepeatDraft {
   accountId: string | null;
   toAccountId: string | null;
   categoryId: string | null;
+  item: string;
   note: string;
+  feeText: string;
   routeId: string | null;
   freq: RepeatFreq;
   byweekday: number[];
@@ -122,7 +126,9 @@ export interface NewRepeatInput {
   categoryId: string | null;
   amountMinor: number;
   currency: string;
+  item?: string;
   note: string;
+  feeMinor?: number | null;
   routeId: string | null;
   rule: FixedRepeatRule;
   hhmm: string;
@@ -204,7 +210,7 @@ export function effectiveBudget(
   return def ? { row: def, override: false } : null;
 }
 
-/** 該月支出淨額（0-7 口徑）；category ⇒ 含它底下所有子孫（D-票-42、78）；支援自訂帳務月起算日 */
+/** 該月支出淨額（0-7 口徑，含手續費）；category ⇒ 含它底下所有子孫（D-票-42、78）；支援自訂帳務月起算日 */
 export function budgetUsed(
   entries: readonly EntryRow[],
   scope: BudgetScope,
@@ -216,9 +222,13 @@ export function budgetUsed(
   const ids = scope.kind === "category" ? new Set(categoryIdsIncluding([scope.categoryId], cats)) : null;
   let sum = 0;
   for (const e of entries) {
-    if (e.deleted_at !== null || e.kind !== "expense" || e.occurred_on < r.from || e.occurred_on >= r.toExcl) continue;
-    if (ids && !(e.category_id !== null && ids.has(e.category_id))) continue;
-    sum += e.main_minor;
+    if (e.deleted_at !== null || e.occurred_on < r.from || e.occurred_on >= r.toExcl) continue;
+    if (ids === null) {
+      sum += entryExpenseMain(e);
+    } else {
+      if (e.kind !== "expense" || e.category_id === null || !ids.has(e.category_id)) continue;
+      sum += e.main_minor + (e.fee_main_minor ?? 0);
+    }
   }
   return sum;
 }
@@ -315,8 +325,10 @@ export function overBudgetDay(
   if (!(budgetUsed(entries, { kind: "total" }, month, [], startDay) > totalMinor)) return null;
   const byDay: Record<string, number> = {};
   for (const e of entries) {
-    if (e.deleted_at !== null || e.kind !== "expense" || monthOf(e.occurred_on, startDay) !== month) continue;
-    byDay[e.occurred_on] = (byDay[e.occurred_on] ?? 0) + e.main_minor;
+    if (e.deleted_at !== null || monthOf(e.occurred_on, startDay) !== month) continue;
+    const exp = entryExpenseMain(e);
+    if (exp === 0) continue;
+    byDay[e.occurred_on] = (byDay[e.occurred_on] ?? 0) + exp;
   }
   let cum = 0;
   let crossed: string | null = null;
@@ -477,7 +489,9 @@ export function repeatToInput(r: RepeatRow, day: string, dayStartHour: number): 
     categoryId: r.kind === "transfer" ? null : r.category_id,
     occurredOn: day,
     occurredAt: atOf(day, r.hhmm, repeatDayStart(r, dayStartHour)),
+    item: r.item ?? "",
     note: r.note,
+    feeMinor: r.fee_minor ?? null,
     routeId: r.route_id,
   };
 }
@@ -708,6 +722,8 @@ export function amountInputText(minor: number, decimals: number): string {
 export function draftFromRepeat(r: RepeatRow, ctx: EntryCtx): RepeatDraft {
   const rule = parseFixedRule(r.rule);
   const cur = ctx.curByCode[r.currency];
+  const acc = ctx.accById[r.account_id];
+  const feeCur = acc ? ctx.curByCode[acc.currency] : cur;
   const start = rule ? rule.start : r.next_on ?? "";
   return {
     kind: r.kind,
@@ -716,7 +732,9 @@ export function draftFromRepeat(r: RepeatRow, ctx: EntryCtx): RepeatDraft {
     accountId: r.account_id,
     toAccountId: r.to_account_id,
     categoryId: r.category_id,
+    item: r.item ?? "",
     note: r.note,
+    feeText: r.fee_minor !== null && r.fee_minor > 0 ? amountInputText(r.fee_minor, feeCur ? feeCur.decimals : 2) : "",
     routeId: r.route_id,
     freq: rule ? rule.freq : "monthly",
     byweekday: rule && rule.byweekday ? rule.byweekday.slice() : [],
@@ -793,6 +811,14 @@ export function draftToRepeatInput(d: RepeatDraft, ctx: EntryCtx): NewRepeatInpu
   const rule = fixedRule(d.freq, d.start, { byweekday, bymonthday, interval: d.interval });
   rule.until = until;
   rule.count = d.count;
+  let feeMinor: number | null = null;
+  if (d.feeText && d.feeText.trim() !== "") {
+    const feeCur = ctx.curByCode[account.currency];
+    if (!feeCur) throw new RangeError(`沒有這個幣別：${account.currency}`);
+    const parsed = parseAmount(d.feeText, feeCur, { allowNegative: true, allowZero: true });
+    if (parsed < 0) throw new RangeError("手續費不能是負數");
+    feeMinor = parsed === 0 ? null : parsed;
+  }
   const input: NewRepeatInput = {
     kind: d.kind,
     accountId: d.accountId,
@@ -800,7 +826,9 @@ export function draftToRepeatInput(d: RepeatDraft, ctx: EntryCtx): NewRepeatInpu
     categoryId: d.kind === "transfer" ? null : d.categoryId,
     amountMinor,
     currency,
+    item: d.item ?? "",
     note: d.note,
+    feeMinor,
     routeId: d.routeId,
     rule,
     hhmm: d.hhmm.trim(),
@@ -823,7 +851,9 @@ export function checkRepeatInput(input: NewRepeatInput, ctx: EntryCtx): void {
       categoryId: input.categoryId,
       occurredOn: input.rule.start,
       occurredAt: atOf(input.rule.start, input.hhmm, 0),
+      item: input.item ?? "",
       note: input.note,
+      feeMinor: input.feeMinor ?? null,
       routeId: input.routeId,
     },
     ctx,
@@ -842,7 +872,9 @@ export function buildRepeatRow(input: NewRepeatInput, ctx: EntryCtx, meta: { id:
     category_id: input.kind === "transfer" ? null : input.categoryId,
     amount_minor: input.amountMinor,
     currency: input.currency,
+    item: input.item ?? "",
     note: input.note,
+    fee_minor: normalizeFeeMinor(input.feeMinor),
     route_id: input.routeId,
     rule: serializeRule(input.rule),
     hhmm: input.hhmm,
@@ -862,7 +894,7 @@ export function buildRepeatRow(input: NewRepeatInput, ctx: EntryCtx, meta: { id:
 }
 
 /** 模板欄（匯入比對與 applyRepeatPatch 共用） */
-const REPEAT_TEMPLATE_COLS = ["kind", "account_id", "to_account_id", "category_id", "amount_minor", "currency", "note", "rule", "hhmm"] as const;
+const REPEAT_TEMPLATE_COLS = ["kind", "account_id", "to_account_id", "category_id", "amount_minor", "currency", "item", "note", "fee_minor", "rule", "hhmm"] as const;
 
 /**
  * 改規則（0-8）：合併 → 驗證 → 有差的欄＋updated_at；`rule` 字串變了 ⇒ next_on＝nextOpenRun(新規則, skipped_days, today)（吃換算後的規則：記滿 N 筆放寬就回到進行中）。
@@ -893,7 +925,9 @@ export function applyRepeatPatch(
     categoryId: kind === "transfer" ? null : patch.categoryId !== undefined ? patch.categoryId : kind !== r.kind ? null : r.category_id,
     amountMinor: patch.amountMinor ?? r.amount_minor,
     currency,
+    item: patch.item !== undefined ? patch.item : (r.item ?? ""),
     note: patch.note ?? r.note,
+    feeMinor: patch.feeMinor !== undefined ? normalizeFeeMinor(patch.feeMinor) : normalizeFeeMinor(r.fee_minor),
     routeId: patch.routeId !== undefined ? patch.routeId : r.route_id,
     rule,
     hhmm: patch.hhmm ?? r.hhmm,
@@ -907,7 +941,9 @@ export function applyRepeatPatch(
     category_id: input.categoryId,
     amount_minor: input.amountMinor,
     currency: input.currency,
+    item: input.item ?? "",
     note: input.note,
+    fee_minor: normalizeFeeMinor(input.feeMinor),
     route_id: input.routeId,
     rule: serializeRule(input.rule),
     hhmm: input.hhmm,
@@ -960,16 +996,18 @@ export function repeatLabel(r: RepeatRow, ctx: EntryCtx, opts?: { masked?: boole
   const dec = cur ? cur.decimals : 2;
   const mainCode = mainCurrencyOf(ctx.curByCode).code;
   const foreign = r.currency !== mainCode && !(cur && cur.is_main === 1) ? ` ${r.currency}` : "";
+  const title = (r.item || r.note).trim();
   if (r.kind === "transfer") {
     const amtText = opts?.masked
       ? maskedMoneyText(r.currency, { prefix: "⇄" })
       : `${moneyText(r.amount_minor, dec, { prefix: "⇄" })}${foreign}`;
-    return `${desc} · ${accName(r.account_id, ctx.accById)} → ${accName(r.to_account_id, ctx.accById)} · ${amtText}`;
+    return `${desc} · ${accName(r.account_id, ctx.accById)} → ${accName(r.to_account_id, ctx.accById)} · ${amtText}${title ? ` · ${title}` : ""}`;
   }
   const amtText = opts?.masked
     ? maskedMoneyText(r.currency)
     : `${quickAmountText(r.kind, r.amount_minor, dec)}${foreign}`;
-  return `${desc} · ${catText(r.category_id, r.kind, ctx.catById)} · ${amtText} · ${accName(r.account_id, ctx.accById)}`;
+  const catPart = title || catText(r.category_id, r.kind, ctx.catById);
+  return `${desc} · ${catPart} · ${amtText} · ${accName(r.account_id, ctx.accById)}`;
 }
 
 /** 管理頁的分區：暫停優先；上次實體化被擋 ⇒ blocked；沒有下一班 ⇒ ended */
@@ -1109,7 +1147,9 @@ export interface QuickRepeatSource {
   accountId: string | null;
   toAccountId: string | null;
   categoryId: string | null;
+  item?: string;
   note: string;
+  feeText?: string;
   routeId: string | null;
   dayKey: string;
   time: string;
@@ -1128,7 +1168,9 @@ export function quickRepeatDraft(d: QuickRepeatSource, q: RepeatQuick, fromEntry
     accountId: d.accountId,
     toAccountId: d.toAccountId,
     categoryId: d.categoryId,
+    item: d.item ?? "",
     note: d.note,
+    feeText: d.feeText ?? "",
     routeId: d.routeId,
     freq: q.freq,
     byweekday: [q.weekday],
@@ -1143,7 +1185,7 @@ export function quickRepeatDraft(d: QuickRepeatSource, q: RepeatQuick, fromEntry
 }
 
 /** 既有帳（還沒連規則）→ 快設要的欄；精算不能設（回 null） */
-export function quickSourceOfEntry(e: EntryRow, decimals: number, hhmm: string): QuickRepeatSource | null {
+export function quickSourceOfEntry(e: EntryRow, decimals: number, hhmm: string, feeDecimals: number = decimals): QuickRepeatSource | null {
   if (e.kind === "adjust") return null;
   return {
     kind: e.kind,
@@ -1152,7 +1194,9 @@ export function quickSourceOfEntry(e: EntryRow, decimals: number, hhmm: string):
     accountId: e.account_id,
     toAccountId: e.to_account_id,
     categoryId: e.category_id,
+    item: e.item ?? "",
     note: e.note,
+    feeText: e.fee_minor !== null && e.fee_minor > 0 ? amountInputText(e.fee_minor, feeDecimals) : "",
     routeId: e.route_id,
     dayKey: e.occurred_on,
     time: hhmm,
@@ -1167,7 +1211,7 @@ export function isRepeatMade(e: Pick<EntryRow, "id" | "repeat_id" | "occurred_on
   return e.repeat_id !== null && materializeId(e.repeat_id, e.occurred_on) === e.id;
 }
 
-/** 今日頁提示的數字：筆數（全部）、淨額＝收入 − 支出（主幣別；轉帳校正不入，同 0-7 口徑） */
+/** 今日頁提示的數字：筆數（全部）、淨額＝收入 − 支出（主幣別、含手續費；同 0-7 口徑） */
 export function repeatDaySum(entries: readonly EntryRow[]): { count: number; net: number } {
   let net = 0;
   let count = 0;
@@ -1175,7 +1219,7 @@ export function repeatDaySum(entries: readonly EntryRow[]): { count: number; net
     if (e.deleted_at !== null) continue;
     count++;
     if (e.kind === "income") net += e.main_minor;
-    else if (e.kind === "expense") net -= e.main_minor;
+    net -= entryExpenseMain(e);
   }
   return { count, net };
 }

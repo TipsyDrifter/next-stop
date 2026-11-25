@@ -127,6 +127,101 @@
 [data-shell="mobile"] .ns-tk-m4-savetpl .ns-tk-mf-field { border-bottom: 1px dashed var(--color-line); }
 [data-shell="mobile"] .ns-tk-m4-savetpl .ns-tk-mre-from { padding: 10px 0 0; line-height: 1.7; }
 
+/* ═══ 七、v1.38 3A／3B：常用票種品項與手續費、隨筆備註、手續費欄、刷卡分期與進度卡 ═══ */
+[data-shell="mobile"] .ns-tk-m4-mark .n .it { font-size: var(--fs-micro); color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-mark .v .fee { margin-left: 5px; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-micro); color: var(--color-ink-faint); }
+
+/* 隨筆備註純感想欄 */
+[data-shell="mobile"] .ns-tk-m4-memo .ns-tk-mf-memo { min-height: 44px; padding: 10px 0 8px; }
+
+/* 手續費獨立選填欄 */
+[data-shell="mobile"] .ns-tk-m4-fee { border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-m4-out > .ns-tk-m4-fee:last-child { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-m4-fee > .ns-tk-mf-field { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-m4-feein {
+  grid-column: 2 / -1; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: var(--ctl-h);
+}
+[data-shell="mobile"] .ns-tk-m4-feein .sym { flex: none; font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-feein input {
+  flex: 1 1 auto; min-width: 0; min-height: var(--ctl-h); padding: 0;
+  background: transparent; border: 0; outline: none;
+  font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-m4-feein input::placeholder { font-family: var(--font-body); font-weight: 400; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-feein .clr {
+  flex: none; width: var(--ctl-h); height: var(--ctl-h); margin-right: -10px;
+  display: grid; place-items: center; border: 0; background: transparent;
+  font-size: 18px; color: var(--color-ink-faint); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-m4-feein .clr:active { color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-m4-feehint {
+  margin: -2px 0 10px calc(44px + 12px);
+  font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-m4-feehint.is-err { color: var(--late); }
+
+/* 刷卡分期設定（新支出） */
+[data-shell="mobile"] .ns-tk-m4-inst { border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-m4-out > .ns-tk-m4-inst:last-child { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-m4-inst > .ns-tk-mf-field { border-bottom: 0; padding: 6px 0; }
+[data-shell="mobile"] .ns-tk-m4-instbox { grid-column: 2 / -1; min-width: 0; display: grid; gap: 8px; padding: 4px 0 6px; }
+[data-shell="mobile"] .ns-tk-m4-instpills { display: flex; flex-wrap: wrap; gap: 6px; }
+[data-shell="mobile"] .ns-tk-m4-instpill {
+  flex: 0 1 auto; min-height: var(--ctl-h); min-width: 52px; padding: 0 10px; box-sizing: border-box;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-soft);
+  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-m4-instpill:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-m4-instpill.on {
+  outline: var(--sel-line); outline-offset: -1px;
+  background: var(--ns-tk-sel); color: var(--sel-fg); font-weight: 600;
+}
+[data-shell="mobile"] .ns-tk-m4-instpill:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-m4-instcust { display: inline-flex; align-items: center; gap: 8px; min-height: var(--ctl-h); font-size: var(--fs-sm); color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-m4-instcust input {
+  width: 64px; min-height: var(--ctl-h); padding: 0 6px; box-sizing: border-box;
+  border: 0; border-bottom: 1px solid var(--accent); border-radius: 0; background: transparent; outline: none;
+  font-family: var(--font-display); font-weight: 600; font-size: 16px; text-align: center; color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-m4-instcust small { font-size: var(--fs-xs); color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-instsum {
+  margin: 0; font-size: var(--fs-xs); line-height: 1.5; letter-spacing: .03em;
+  color: var(--color-ink-soft); font-variant-numeric: tabular-nums;
+}
+
+/* 既有分期帳進度卡（進度條採墨色 --stamp-ink，遵循視覺規範 §1.8） */
+[data-shell="mobile"] .ns-tk-m4-instcard {
+  margin: 12px 18px 0; padding: 12px 14px; box-sizing: border-box;
+  border: 1px solid var(--ns-tk-mglass); border-radius: var(--radius-card);
+  background: var(--color-paper-used); box-shadow: var(--ns-tk-mhi);
+  display: grid; gap: 8px;
+}
+[data-shell="mobile"] .ns-tk-m4-instcard .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+[data-shell="mobile"] .ns-tk-m4-instcard .hd .t { font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-instcard .hd .badge {
+  padding: 1px 6px; border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: var(--radius-ctl); background: var(--sel-bg);
+  font-size: var(--fs-xs); font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-m4-instcard .bar {
+  height: 5px; width: 100%; overflow: hidden;
+  border-radius: var(--radius-pill); background: color-mix(in srgb, var(--color-ink) 12%, transparent);
+}
+[data-shell="mobile"] .ns-tk-m4-instcard .bar .fill {
+  display: block; height: 100%; border-radius: var(--radius-pill); background: var(--stamp-ink);
+}
+[data-shell="mobile"] .ns-tk-m4-instcard .meta {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px;
+  font-size: var(--fs-xs); color: var(--color-ink-faint); font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-m4-instcard .meta b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-m4-instcard .next { margin: 0; font-size: var(--fs-xs); color: var(--color-ink-faint); }
+
 @media (prefers-reduced-motion: reduce) {
   [data-shell="mobile"] .ns-tk-mw-bought .tog .chev { transition: none; }
 }

@@ -32,6 +32,7 @@ import {
   categoryParentMap,
   categoryPath,
   categorySubtreeIds,
+  entryExpenseMain,
   flattenForest,
   formatDisplayMoney,
   monthOf,
@@ -287,18 +288,18 @@ export function inRange(dayKey: string, r: { from: string; toExcl: string }): bo
 
 /* ───────────────────────── §4.3 統計（0-7～0-9） ───────────────────────── */
 
-/** 期間內的收入／支出／淨額／收支筆數；與 `monthSum(entries, month, startDay)` 同義 */
+/** 期間內的收入／支出／淨額／收支筆數；與 `monthSum(entries, month, startDay)` 同義（含手續費） */
 export function statsOverview(entries: readonly EntryRow[], r: { from: string; toExcl: string }): Overview {
   let income = 0;
   let expense = 0;
   let count = 0;
   for (const e of entries) {
     if (e.deleted_at !== null || !inRange(e.occurred_on, r)) continue;
+    expense += entryExpenseMain(e);
     if (e.kind === "income") {
       income += e.main_minor;
       count++;
     } else if (e.kind === "expense") {
-      expense += e.main_minor;
       count++;
     }
   }
@@ -318,7 +319,7 @@ export function monthlyTrend(
     const p = byMonth[monthOf(e.occurred_on, startDay)];
     if (!p) continue;
     if (e.kind === "income") p.income += e.main_minor;
-    else if (e.kind === "expense") p.expense += e.main_minor;
+    p.expense += entryExpenseMain(e);
   }
   return out;
 }
@@ -417,7 +418,7 @@ export function breakdown(
 
   for (const e of entries) {
     if (e.deleted_at !== null || e.kind !== kind || !inRange(e.occurred_on, r)) continue;
-    const v = e.main_minor;
+    const v = kind === "expense" ? e.main_minor + (e.fee_main_minor ?? 0) : e.main_minor;
     if (facet === "category") {
       const cat = e.category_id ? ctx.catById[e.category_id] : undefined;
       if (!cat) {
@@ -512,7 +513,7 @@ export function tagBreakdown(
   let total = 0;
   for (const e of entries) {
     if (e.deleted_at !== null || e.kind !== kind || !inRange(e.occurred_on, r)) continue;
-    const v = e.main_minor;
+    const v = kind === "expense" ? e.main_minor + (e.fee_main_minor ?? 0) : e.main_minor;
     total += v;
     const keys = tagsOf[e.id] ?? [];
     if (!keys.length) {
@@ -658,7 +659,7 @@ export function monthGrid(month: string, weekStart: 0 | 1, startDay: number = DE
   return rows;
 }
 
-/** monthGrid 每格套 groupByDay 口徑（income／expense＝main_minor 合計、count＝收支筆數；轉帳校正不入） */
+/** monthGrid 每格套 groupByDay 口徑（income／expense 含手續費、count＝收支筆數；轉帳手續費入 expense） */
 export function calendarCells(
   entries: readonly EntryRow[],
   month: string,
@@ -668,11 +669,20 @@ export function calendarCells(
 ): CalendarCell[][] {
   const sums: Record<string, { income: number; expense: number; count: number }> = {};
   for (const e of entries) {
-    if (e.deleted_at !== null || (e.kind !== "income" && e.kind !== "expense")) continue;
+    if (e.deleted_at !== null) continue;
+    const exp = entryExpenseMain(e);
+    if (e.kind !== "income" && e.kind !== "expense" && exp === 0) continue;
     const s = (sums[e.occurred_on] = sums[e.occurred_on] ?? { income: 0, expense: 0, count: 0 });
-    if (e.kind === "income") s.income += e.main_minor;
-    else s.expense += e.main_minor;
-    s.count++;
+    if (e.kind === "income") {
+      s.income += e.main_minor;
+      s.expense += exp;
+      s.count++;
+    } else if (e.kind === "expense") {
+      s.expense += exp;
+      s.count++;
+    } else {
+      s.expense += exp;
+    }
   }
   return monthGrid(month, weekStart, startDay).map((row) =>
     row.map((dayKey) => {
@@ -691,7 +701,7 @@ export function calendarCells(
 
 /**
  * 0-2 (a)：格內支出一個數＋有收入才多一行「＋N」（手機也是 ＋N，D-票-28）。
- * count 0 ⇒ 兩個都空；只有收入的天支出那格不印 0（同原型）；當日淨退 ⇒ "−350"。
+ * count 0 且收支皆 0 ⇒ 兩個都空；只有收入的天支出那格不印 0（同原型）；當日淨退 ⇒ "−350"。
  * `masked: true` 時以精簡 `****` 顯示，不撐破窄月曆格。
  */
 export function cellText(
@@ -700,7 +710,7 @@ export function cellText(
   compact: boolean,
   masked = false,
 ): { expense: string; income: string | null } {
-  if (c.count === 0) return { expense: "", income: null };
+  if (c.count === 0 && c.expense === 0 && c.income === 0) return { expense: "", income: null };
   if (masked) {
     return {
       expense: c.expense !== 0 || c.income === 0 ? MASK_STARS : "",
@@ -889,10 +899,10 @@ export function keywordTokens(text: string): KeywordToken[] {
   return out;
 }
 
-/** 全部 token 都要命中（AND）。文字：備註、分類名與每一層上層的名字、帳戶名與轉入帳戶名、路線名與代碼——包含即中；數字另比金額（完全相符） */
+/** 全部 token 都要命中（AND）。文字：品項／來源、備註、分類名與每一層上層的名字、帳戶名與轉入帳戶名、路線名與代碼——包含即中；數字另比金額（完全相符） */
 export function matchesKeyword(e: EntryRow, tokens: readonly KeywordToken[], ctx: ViewCtx): boolean {
   if (!tokens.length) return true;
-  const hay: string[] = [catKey(e.note)];
+  const hay: string[] = [catKey(e.item ?? ""), catKey(e.note ?? "")];
   const cat = e.category_id ? ctx.catById[e.category_id] : undefined;
   if (cat) for (const c of categoryPath(cat, ctx.catById)) hay.push(catKey(c.name)); // 自己與每一層上層（D-票-78）
   const acc = ctx.accById[e.account_id];
@@ -962,8 +972,8 @@ export function resultSummary(
   let inc = 0;
   for (const e of results) {
     if (e.deleted_at !== null) continue;
-    if (e.kind === "expense") exp += e.main_minor;
-    else if (e.kind === "income") inc += e.main_minor;
+    exp += entryExpenseMain(e);
+    if (e.kind === "income") inc += e.main_minor;
   }
   return VIEW_TEXT.found(
     results.length,
@@ -1024,8 +1034,8 @@ export function inMonthSummary(
   let inc = 0;
   for (const e of entries) {
     if (e.deleted_at !== null) continue;
-    if (e.kind === "expense") exp += e.main_minor;
-    else if (e.kind === "income") inc += e.main_minor;
+    exp += entryExpenseMain(e);
+    if (e.kind === "income") inc += e.main_minor;
   }
   return VIEW_TEXT.monthFiltered(
     entries.length,
@@ -1080,14 +1090,15 @@ export function pageResults<T>(results: readonly T[], page: number): T[] {
 
 /* ───────────────────────── §4.6 路線花費（0-11） ───────────────────────── */
 
-/** 未刪、expense、route_id＝routeId 的 main_minor 淨額；inRange 另加期間（＝§3.2 routeSpend SQL） */
+/** 未刪、expense、route_id＝routeId 的 main_minor＋fee_main_minor 淨額；inRange 另加期間（＝§3.2 routeSpend SQL） */
 export function routeSpendOf(entries: readonly EntryRow[], routeId: string, r: { from: string; toExcl: string }): { inRange: number; allTime: number } {
   let inR = 0;
   let all = 0;
   for (const e of entries) {
     if (e.deleted_at !== null || e.kind !== "expense" || e.route_id !== routeId) continue;
-    all += e.main_minor;
-    if (inRange(e.occurred_on, r)) inR += e.main_minor;
+    const v = e.main_minor + (e.fee_main_minor ?? 0);
+    all += v;
+    if (inRange(e.occurred_on, r)) inR += v;
   }
   return { inRange: inR, allTime: all };
 }
@@ -1171,10 +1182,18 @@ export function accountsRange(month: string, startDay: number = DEFAULT_MONTH_ST
   return { from: monthRange(addMonths(month, 1 - ACCOUNT_TREND_MONTHS), startDay).from, toExcl: FAR_DAY };
 }
 
-/** 一筆帳對某帳戶餘額的影響（帳戶幣別；＝balancesOf 的公式） */
+/** 一筆帳對某帳戶餘額的影響（帳戶幣別；＝balancesOf 的公式，含手續費） */
 function balanceDelta(e: EntryRow, accountId: string): number {
   let d = 0;
-  if (e.account_id === accountId) d += e.kind === "expense" || e.kind === "transfer" ? -e.account_minor : e.account_minor;
+  const fee = e.fee_minor ?? 0;
+  if (e.account_id === accountId) {
+    d +=
+      e.kind === "expense" || e.kind === "transfer"
+        ? -(e.account_minor + fee)
+        : e.kind === "income"
+          ? e.account_minor - fee
+          : e.account_minor;
+  }
   if (e.kind === "transfer" && e.to_account_id === accountId) d += e.to_amount_minor ?? 0;
   return d;
 }
@@ -1214,17 +1233,24 @@ export function accountCards(
     const main = out[id].month.main;
     if (e.kind === "transfer") {
       if (e.account_id === id) {
-        own.transferOut += e.account_minor;
-        main.transferOut += e.main_minor;
+        own.transferOut += e.account_minor + (e.fee_minor ?? 0);
+        main.transferOut += e.main_minor + (e.fee_main_minor ?? 0);
       }
       if (e.to_account_id === id) {
         own.transferIn += e.to_amount_minor ?? 0;
         main.transferIn += e.main_minor;
       }
     } else if (e.account_id === id) {
-      const k = e.kind === "adjust" ? "adjust" : e.kind;
-      own[k] += e.account_minor;
-      main[k] += e.main_minor;
+      if (e.kind === "expense") {
+        own.expense += e.account_minor + (e.fee_minor ?? 0);
+        main.expense += e.main_minor + (e.fee_main_minor ?? 0);
+      } else if (e.kind === "income") {
+        own.income += e.account_minor - (e.fee_minor ?? 0);
+        main.income += e.main_minor - (e.fee_main_minor ?? 0);
+      } else {
+        own.adjust += e.account_minor;
+        main.adjust += e.main_minor;
+      }
     }
   };
   for (const e of entries) {

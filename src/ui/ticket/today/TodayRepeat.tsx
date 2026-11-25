@@ -38,7 +38,7 @@ function signed(minor: number, dec: number): string {
   return moneyText(minor, dec, { prefix: minor > 0 ? "＋" : undefined });
 }
 
-/** 浮層一列的字：名稱（分類／轉帳兩端）、金額（原幣）、小字（規則・帳戶） */
+/** 浮層一列的字：名稱（優先品項／來源，否則分類／轉帳兩端）、金額（原幣）、小字（分類・規則・帳戶） */
 function lineOf(e: EntryRow): { name: string; amount: string; sub: string } {
   const s = useTicketStore.getState();
   const mainCode = mainCurrencyOf(s.currencies);
@@ -51,19 +51,27 @@ function lineOf(e: EntryRow): { name: string; amount: string; sub: string } {
   const rule = rep ? parseFixedRule(rep.rule) : null;
   const q = rule ? quickOfRule(rule) : null;
   const ruleText = rule ? (q ? quickRepeatLabel(q) : describeRule(rule)) : "";
+  const itemText = (e.item ?? "").trim();
   if (e.kind === "transfer") {
     const amt = masked ? maskedMoneyText(e.currency, { withSymbol: false }) : moneyText(Math.abs(e.amount_minor), dec);
-    return { name: `${acc(e.account_id)} → ${acc(e.to_account_id)}`, amount: amt + code, sub: ruleText };
+    const routeText = `${acc(e.account_id)} → ${acc(e.to_account_id)}`;
+    return {
+      name: itemText || routeText,
+      amount: amt + code,
+      sub: [itemText ? routeText : "", ruleText].filter(Boolean).join(" · "),
+    };
   }
   if (e.kind === "adjust") {
     const amt = masked ? maskedMoneyText(e.currency, { prefix: e.amount_minor > 0 ? "＋" : undefined, withSymbol: false }) : signed(e.amount_minor, dec);
-    return { name: "精算", amount: amt + code, sub: [ruleText, acc(e.account_id)].filter(Boolean).join(" · ") };
+    return { name: itemText || "精算", amount: amt + code, sub: [ruleText, acc(e.account_id)].filter(Boolean).join(" · ") };
   }
   // 支出 −（退款＝負的支出 ⇒ ＋）、收入 ＋
   const v = e.kind === "income" ? e.amount_minor : -e.amount_minor;
-  const name = e.category_id === null ? "未分類" : categoryLabel(s.catById[e.category_id] ?? null, s.catById);
+  const catName = e.category_id === null ? "未分類" : categoryLabel(s.catById[e.category_id] ?? null, s.catById);
+  const name = itemText || catName;
   const amt = masked ? maskedMoneyText(e.currency, { prefix: v > 0 ? "＋" : "−", withSymbol: false }) : signed(v, dec);
-  return { name, amount: amt + code, sub: [ruleText, acc(e.account_id)].filter(Boolean).join(" · ") };
+  const sub = [itemText && catName !== "未分類" && catName !== itemText ? catName : "", ruleText, acc(e.account_id)].filter(Boolean).join(" · ");
+  return { name, amount: amt + code, sub };
 }
 
 /** 點了：分殼切到售票口 → 等 init → 跳到那天第一筆定期帳 */

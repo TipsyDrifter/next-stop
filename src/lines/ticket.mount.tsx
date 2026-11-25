@@ -22,7 +22,7 @@ import { TICKET_CAPTURE } from "../ui/ticket/capture";
 import { useTicketStore } from "../store/ticketStore";
 import { ticketRepo } from "../data/ticketRepository";
 import { SYNC_LABEL_FALLBACK } from "../store/syncMergeLabels";
-import { repeatSyncLabel, templateSyncLabel, wishKindSyncLabel, wishSyncLabel } from "./ticketSyncLabel";
+import { entrySyncLabel, repeatSyncLabel, templateSyncLabel, wishKindSyncLabel, wishSyncLabel } from "./ticketSyncLabel";
 import { TICKET_TAG_ENTITIES } from "./ticketTagEntities";
 import { TodayRepeat } from "../ui/ticket/today/TodayRepeat";
 import { ticketReportJump } from "./ticketReport";
@@ -35,8 +35,21 @@ import { ticketReportJump } from "./ticketReport";
  */
 async function ticketSyncRowLabel(tbl: string, rowId: string): Promise<SyncRowLabel | null> {
   if (tbl === "tk_accounts") {
-    const row = (await ticketRepo.listAccounts()).find((a) => a.id === rowId);
-    return row ? { label: `帳戶「${row.name}」`, cols: ACCOUNT_COLS } : null;
+    const list = await ticketRepo.listAccounts();
+    const row = list.find((a) => a.id === rowId);
+    if (!row) return null;
+    const acc = new Map(list.map((a) => [a.id, a.name]));
+    return {
+      label: `帳戶「${row.name}」`,
+      cols: ACCOUNT_COLS,
+      fmt: (col, v) => {
+        if (col === "auto_pay_account_id") {
+          if (v === null || v === undefined) return "（沒有）";
+          return typeof v === "string" ? (acc.get(v) ?? "已刪除的帳戶") : null;
+        }
+        return null;
+      },
+    };
   }
   if (tbl === "tk_categories") {
     const row = (await ticketRepo.listCategories()).find((c) => c.id === rowId);
@@ -47,11 +60,15 @@ async function ticketSyncRowLabel(tbl: string, rowId: string): Promise<SyncRowLa
     const k = (await ticketRepo.listWishKinds()).find((x) => x.id === rowId);
     return k ? wishKindSyncLabel(k) : null;
   }
-  if (tbl !== "tk_repeats" && tbl !== "tk_wishes" && tbl !== "tk_templates") return SYNC_LABEL_FALLBACK;
+  if (tbl !== "tk_entries" && tbl !== "tk_repeats" && tbl !== "tk_wishes" && tbl !== "tk_templates") return SYNC_LABEL_FALLBACK;
   const [accounts, categories] = await Promise.all([ticketRepo.listAccounts(), ticketRepo.listCategories()]);
   const acc = new Map(accounts.map((a) => [a.id, a.name]));
   const cat = new Map(categories.map((c) => [c.id, c.name]));
   const look = { accountName: (id: string) => acc.get(id) ?? null, categoryName: (id: string) => cat.get(id) ?? null };
+  if (tbl === "tk_entries") {
+    const e = await ticketRepo.getEntry(rowId);
+    return e ? entrySyncLabel(e, look) : null;
+  }
   // 售票口④：願望「降噪耳機」、常用票種「午餐」
   if (tbl === "tk_wishes") {
     const kinds = await ticketRepo.listWishKinds();
@@ -67,7 +84,16 @@ async function ticketSyncRowLabel(tbl: string, rowId: string): Promise<SyncRowLa
   return row ? repeatSyncLabel(row, look) : null;
 }
 
-const ACCOUNT_COLS: Readonly<Record<string, string>> = { position: "順序", name: "名稱", group_key: "群組", currency: "幣別", archived_at: "封存" };
+const ACCOUNT_COLS: Readonly<Record<string, string>> = {
+  position: "順序",
+  name: "名稱",
+  group_key: "群組",
+  currency: "幣別",
+  archived_at: "封存",
+  statement_day: "結帳日",
+  payment_due_day: "繳款截止日",
+  auto_pay_account_id: "預設扣款帳戶",
+};
 const CATEGORY_COLS: Readonly<Record<string, string>> = { position: "順序", name: "名稱", kind: "收支", parent_id: "上層分類", archived_at: "封存" };
 
 /** 路線側板的「花費」列（②契約 D-票-12、0-11、0-12）；時刻表線另登記 timetable.time，RoutePanel 不改 */
@@ -90,8 +116,11 @@ export const TICKET_MOUNT: LineMount = {
   nodeFields: TICKET_NODE_FIELDS,
   quickJump: TICKET_QUICK_JUMP,
   routeListAside: RouteSpendAside,
-  // 第③階段（③契約 0-6）：同步拉完 ⇒ 實體化到期的定期帳（含 0-7 的 reconcile）。reload 只在 tk_* 有變才跑，不適合當觸發
-  afterPull: () => void useTicketStore.getState().materialize("afterPull"),
+  // 第③階段（③契約 0-6）：同步拉完 ⇒ 重置 3A 舊帳 item 搬移守門，並實體化到期的定期帳（含 0-7 的 reconcile）。reload 只在 tk_* 有變才跑，不適合當觸發
+  afterPull: () => {
+    ticketRepo.resetItemBackfill?.();
+    void useTicketStore.getState().materialize("afterPull");
+  },
   // 同步引擎班順手：同步頁清單／toast 的定期帳講人話（其餘表照舊泛稱）
   syncRowLabel: ticketSyncRowLabel,
   // 售票口④（契約 §1）：帳目、定期帳規則掛荷札，荷札頁「別處」列「售票口」一段

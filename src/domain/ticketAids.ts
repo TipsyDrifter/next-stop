@@ -14,6 +14,8 @@ import {
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   categoryArchivedUp,
+  normalizeFeeMinor,
+  type AccountRow,
   type CategoryRow,
   type EntryCtx,
   type EntryKind,
@@ -189,7 +191,7 @@ export function wishView(
     if (wishBought(w, entryById)) {
       const entry = entryById[w.entry_id as string];
       bought.push({ wish: w, entry, target: null });
-      spent += entry.main_minor;
+      spent += entry.main_minor + (entry.fee_main_minor ?? 0);
       continue;
     }
     if (w.target_id !== null && targets[w.target_id] !== undefined) {
@@ -266,18 +268,19 @@ export function applyWishPatch(w: WishRow, patch: WishPatch, nowIso: string): { 
   return { row: { ...w, ...(cols as Partial<WishRow>) }, cols };
 }
 
-/** 按「買了」的預填（D-票-69）：支出、金額＝預估（主幣別）、備註＝名稱、分類＝願望的分類（還在、是支出、自己與上層都沒封存才帶） */
+/** 按「買了」的預填（D-票-69）：支出、金額＝預估（主幣別）、品項＝名稱、備註＝願望備註、分類＝願望的分類（還在、是支出、自己與上層都沒封存才帶） */
 export function wishDraftSeed(
   w: WishRow,
   ctx: Pick<EntryCtx, "catById">,
   main: { code: string; decimals: number },
-): { kind: "expense"; amountText: string; currency: string; note: string; categoryId: string | null; wishId: string } {
+): { kind: "expense"; amountText: string; currency: string; item: string; note: string; categoryId: string | null; wishId: string } {
   const cat = w.category_id ? ctx.catById[w.category_id] : undefined;
   return {
     kind: "expense",
     amountText: w.amount_minor === null ? "" : amountInputText(w.amount_minor, main.decimals),
     currency: main.code,
-    note: w.name,
+    item: w.name,
+    note: w.note ?? "",
     categoryId: cat && cat.deleted_at === null && !categoryArchivedUp(cat, ctx.catById) && cat.kind === "expense" ? cat.id : null,
     wishId: w.id,
   };
@@ -293,14 +296,16 @@ export interface NewTemplateInput {
   accountId: string | null;
   toAccountId: string | null;
   categoryId: string | null;
+  item?: string;
   note: string;
+  feeMinor?: number | null;
   routeId: string | null;
 }
 export type TemplatePatch = Partial<NewTemplateInput>;
 
 const TEMPLATE_KINDS = ["income", "expense", "transfer"];
 
-/** 驗證與整理：名稱 trim 後不能空、kind 只能收支轉帳；轉帳不帶分類、收支不帶轉入帳戶 */
+/** 驗證與整理：名稱 trim 後不能空、kind 只能收支轉帳、手續費不能是負數；轉帳不帶分類、收支不帶轉入帳戶 */
 export function checkTemplateInput<T extends TemplatePatch>(input: T): T {
   const out = { ...input };
   if (out.name !== undefined) {
@@ -309,10 +314,11 @@ export function checkTemplateInput<T extends TemplatePatch>(input: T): T {
   }
   if (out.kind !== undefined && TEMPLATE_KINDS.indexOf(out.kind) < 0) throw new RangeError(AIDS_TEXT.templateKindBad);
   if (out.amountMinor !== undefined && out.amountMinor !== null && !Number.isInteger(out.amountMinor)) throw new RangeError("金額看不懂");
+  if (out.feeMinor !== undefined) out.feeMinor = normalizeFeeMinor(out.feeMinor);
   return out;
 }
 
-/** 從一筆帳存成常用（D-票-68「存成常用…」）：整張照抄（類型、金額、幣別、帳戶、分類、備註、路線）；精算不能存 */
+/** 從一筆帳存成常用（D-票-68「存成常用…」）：整張照抄（類型、金額、幣別、帳戶、分類、品項、備註、手續費、路線）；精算不能存 */
 export function templateFromEntry(e: EntryRow, name: string): NewTemplateInput {
   if (e.kind === "adjust") throw new RangeError(AIDS_TEXT.templateAdjust);
   return checkTemplateInput({
@@ -323,7 +329,9 @@ export function templateFromEntry(e: EntryRow, name: string): NewTemplateInput {
     accountId: e.account_id,
     toAccountId: e.kind === "transfer" ? e.to_account_id : null,
     categoryId: e.kind === "transfer" ? null : e.category_id,
+    item: e.item ?? "",
     note: e.note,
+    feeMinor: e.fee_minor ?? null,
     routeId: e.route_id,
   });
 }
@@ -339,7 +347,9 @@ export function buildTemplateRow(input: NewTemplateInput, meta: { id: string; po
     account_id: v.accountId,
     to_account_id: v.kind === "transfer" ? v.toAccountId : null,
     category_id: v.kind === "transfer" ? null : v.categoryId,
+    item: v.item ?? "",
     note: v.note,
+    fee_minor: normalizeFeeMinor(v.feeMinor),
     route_id: v.routeId,
     position: meta.position,
     device_id: null,
@@ -358,7 +368,9 @@ const TEMPLATE_PATCH_COLS: readonly [keyof NewTemplateInput, keyof TemplateRow][
   ["accountId", "account_id"],
   ["toAccountId", "to_account_id"],
   ["categoryId", "category_id"],
+  ["item", "item"],
   ["note", "note"],
+  ["feeMinor", "fee_minor"],
   ["routeId", "route_id"],
 ];
 
@@ -383,13 +395,15 @@ export interface TemplateSeed {
   accountId?: string;
   toAccountId?: string | null;
   categoryId: string | null;
+  item: string;
   note: string;
+  feeText: string;
   routeId: string | null;
   fromTemplateId: string;
 }
 
 /**
- * 點了常用票種（D-票-68「整張填好，只差存檔」）：類型、金額（沒存金額＝清空讓人打）、帳戶、分類、備註、路線。
+ * 點了常用票種（D-票-68「整張填好，只差存檔」）：類型、金額（沒存金額＝清空讓人打）、帳戶、分類、品項、備註、手續費、路線。
  * 帳戶已刪或封存 ⇒ 不給（草稿留原本的帳戶）；分類已刪、封存（含上層封存）或 kind 不合 ⇒ null；幣別跟著樣板（沒有就跟帳戶）。
  * 金額字的小數位數照「這張書籤金額的幣別」算（日圓 5000 不會變成「50」）；金額跟著帳戶幣別的（轉帳、沒存幣別的收支）
  * 帳戶不能用時不帶金額——草稿留的是原本的帳戶，不一定同幣別，帶過去數字對、幣別錯；查不出幣別也不帶。
@@ -407,11 +421,15 @@ export function templateDraftSeed(t: TemplateRow, ctx: EntryCtx): TemplateSeed {
   const cur = currency ? ctx.curByCode[currency] : undefined;
   const ownCurrency = t.kind !== "transfer" && t.currency !== null; // 收支存了自己的幣別：跟帳戶無關
   const carryAmount = t.amount_minor !== null && !!amountCur && (accOk || ownCurrency);
+  const feeCur = accOk ? ctx.curByCode[(acc as AccountRow).currency] : undefined;
+  const feeText = accOk && t.fee_minor !== null && t.fee_minor > 0 && feeCur ? amountInputText(t.fee_minor, feeCur.decimals) : "";
   const seed: TemplateSeed = {
     kind: t.kind,
     amountText: carryAmount ? amountInputText(t.amount_minor as number, (amountCur as { decimals: number }).decimals) : "",
     categoryId: t.kind === "transfer" ? null : catOk ? (cat as CategoryRow).id : null,
+    item: t.item ?? "",
     note: t.note,
+    feeText,
     routeId: t.route_id,
     fromTemplateId: t.id,
   };
@@ -421,23 +439,24 @@ export function templateDraftSeed(t: TemplateRow, ctx: EntryCtx): TemplateSeed {
   return seed;
 }
 
-/* ───────────────────────── 備註記憶 ───────────────────────── */
+/* ───────────────────────── 品項／來源記憶（相容原 NoteUse 命名） ───────────────────────── */
 
-/** `TicketRepository.listNoteUses` 的一列：還在的帳、備註非空 */
+/** `TicketRepository.listNoteUses` 的一列：還在的帳、品項／來源非空（note 欄亦放 item 值相容既有呼叫） */
 export interface NoteUse {
   note: string;
+  item?: string;
   occurred_on: string;
   kind: EntryKind;
   category_id: string | null;
 }
 
-/** 備註歷史 → 候選（次數＋最近一次＝occurred_on；鍵相同的併成一個，字取最近那次的寫法） */
+/** 品項／來源歷史 → 候選（次數＋最近一次＝occurred_on；鍵相同的併成一個，字取最近那次的寫法） */
 export function noteRecallItems(uses: readonly NoteUse[]): RecallItem[] {
-  return tallyRecall(uses.map((u) => ({ text: u.note, at: u.occurred_on })));
+  return tallyRecall(uses.map((u) => ({ text: u.item ?? u.note, at: u.occurred_on })));
 }
 
 /**
- * 選了以前的備註、分類還空著時要帶的分類（D-票-70）：同 kind、備註鍵相同（全形半形大小寫視為一樣）的帳裡，
+ * 選了以前的品項／來源、分類還空著時要帶的分類（D-票-70）：同 kind、鍵相同（全形半形大小寫視為一樣）的帳裡，
  * 最近一筆有真分類（不是未分類）而且 `usable(id)`（還在、沒封存）的那個分類；沒有＝null。
  * 「最近」＝occurred_on 大的；同一天照 uses 的順序後面的算新（repository 照 occurred_on、occurred_at、id 排好給）。
  */
@@ -447,7 +466,7 @@ export function lastCategoryForNote(uses: readonly NoteUse[], kind: EntryKind, t
   let best: NoteUse | null = null;
   for (const u of uses) {
     if (u.kind !== kind || u.category_id === null || isUncat(u.category_id)) continue;
-    if (recallKey(u.note) !== key || !usable(u.category_id)) continue;
+    if (recallKey(u.item ?? u.note) !== key || !usable(u.category_id)) continue;
     if (best === null || u.occurred_on >= best.occurred_on) best = u;
   }
   return best ? best.category_id : null;

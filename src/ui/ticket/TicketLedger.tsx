@@ -81,6 +81,7 @@ import {
   routeCtx,
 } from "../../domain/ticketView";
 import { TK_TAG_ENTRY, TK_TAG_REPEAT, entityTagMap, tagNameOf } from "../../domain/ticketTags";
+import { installmentBadgeText } from "../../domain/ticketInstallment";
 import { PageHeader } from "../common/PageHeader";
 import { DateNav } from "../common/DateNav";
 import { EmptyState } from "../common/EmptyState";
@@ -873,12 +874,25 @@ function LedgerRow({
   const amt = rowAmount(e, filterAccountId, accById, mainCode);
   const cur = curByCode[amt.currency];
   const foreign = amt.currency !== mainCode;
+  const itemTrim = (e.item ?? "").trim();
+  const noteTrim = (e.note ?? "").trim();
+  const instBadge = installmentBadgeText(e);
+  const feeMinor = e.fee_minor ?? 0;
+  const hasFee = feeMinor > 0;
+  const feeCurCode = accById[e.account_id]?.currency ?? e.currency;
+  const feeDec = curByCode[feeCurCode]?.decimals ?? 2;
+  const uncatEntry = (e.kind === "expense" || e.kind === "income") && (!e.category_id || isUncat(e.category_id));
+  const useItemAsTitle = e.kind !== "adjust" && itemTrim !== "";
+  const useNoteAsTitle = !useItemAsTitle && uncatEntry && noteTrim !== "";
+  const showSubCat = useItemAsTitle && (e.kind === "transfer" || !uncatEntry);
+  const tailNote = e.kind === "adjust" ? itemTrim || noteTrim : useNoteAsTitle ? "" : noteTrim;
+
   return (
     <li
       id={`tk-row-${e.id}`}
       role="option"
       aria-selected={selected}
-      className={`ns-tk-row${active ? " is-active" : ""}`}
+      className={`ns-tk-row${active ? " is-active" : ""}${hasFee ? " has-fee" : ""}`}
       data-kind={e.kind}
       onMouseDown={(ev) => ev.preventDefault() /* 焦點留在清單（鍵盤表接得到） */}
       onClick={onSelect}
@@ -889,16 +903,40 @@ function LedgerRow({
       </span>
       {day !== undefined && <span className="ns-tk-rday">{day}</span>}
       <span className="ns-tk-main">
-        <span className="ns-tk-cat" title={entryCatTitle(e, catById)}>
-          <EntryCat e={e} />
-        </span>
+        {useItemAsTitle ? (
+          <span className="ns-tk-cat" title={itemTrim}>
+            {itemTrim}
+          </span>
+        ) : useNoteAsTitle ? (
+          <span className="ns-tk-cat" title={noteTrim}>
+            {noteTrim}
+          </span>
+        ) : (
+          <span className="ns-tk-cat" title={entryCatTitle(e, catById)}>
+            <EntryCat e={e} />
+          </span>
+        )}
+        {showSubCat && (
+          <span className="ns-tk-subcat" title={entryCatTitle(e, catById)}>
+            <EntryCat e={e} />
+          </span>
+        )}
         {/* 第③階段（③契約 §5.4、✎-5）：定期記的帳（規則已刪也照標） */}
         {e.repeat_id && (
           <span className="ns-tk-rep" title="定期帳記的">
             定期
           </span>
         )}
-        {e.note && <span className="ns-tk-note">{e.note}</span>}
+        {instBadge && (
+          <span className="ns-tk-inst" title="刷卡分期">
+            {instBadge}
+          </span>
+        )}
+        {tailNote && (
+          <span className="ns-tk-note" title={tailNote}>
+            {tailNote}
+          </span>
+        )}
         {tagKeys.length > 0 && (
           <TagPills keys={tagKeys} max={3} compact onPick={onPickTag} className="ns-tk-rtags" />
         )}
@@ -915,8 +953,15 @@ function LedgerRow({
         className="ns-tk-amt"
         title={!masked && foreign && amt.convMain !== null ? `≈ ${mainSym} ${moneyText(amt.convMain, mainDec, { whole: true })}` : undefined}
       >
-        <b>{masked ? maskedMoneyText(amt.currency) : moneyText(amt.minor, cur?.decimals ?? 2)}</b>
-        {!masked && foreign && <span className="cur">{amt.currency}</span>}
+        <span className="ns-tk-amt-top">
+          <b>{masked ? maskedMoneyText(amt.currency) : moneyText(amt.minor, cur?.decimals ?? 2)}</b>
+          {!masked && foreign && <span className="cur">{amt.currency}</span>}
+        </span>
+        {hasFee && (
+          <span className="ns-tk-amt-fee">
+            含手續費 {masked ? maskedMoneyText(feeCurCode) : `${currencySymbol(feeCurCode)} ${moneyText(feeMinor, feeDec)}`}
+          </span>
+        )}
       </span>
       <i className="rule" aria-hidden />
     </li>

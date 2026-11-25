@@ -92,8 +92,8 @@ const CURRENCIES: CurrencyRow[] = [
   { id: ticketId("currency:USD"), code: "USD", name: "USD", decimals: 2, rate_to_main: "32", is_main: 0, position: 1, ...SYNC },
 ];
 const ACCOUNTS: AccountRow[] = [
-  { id: "a1", name: "現金", group_key: "cash", currency: "TWD", position: 0, archived_at: null, ...SYNC },
-  { id: "a2", name: "信用卡", group_key: "card", currency: "TWD", position: 0, archived_at: null, ...SYNC },
+  { id: "a1", name: "現金", group_key: "cash", currency: "TWD", position: 0, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null, ...SYNC },
+  { id: "a2", name: "信用卡", group_key: "card", currency: "TWD", position: 0, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null, ...SYNC },
 ];
 const CATS: CategoryRow[] = [
   { id: "c1", kind: "expense", name: "餐飲", parent_id: null, position: 0, archived_at: null, ...SYNC },
@@ -111,7 +111,13 @@ function makeEntry(p: Partial<EntryRow> & { id: string; occurred_on: string; acc
     main_minor: main,
     account_minor: main,
     to_amount_minor: null,
+    item: "",
     note: "",
+    fee_minor: null,
+    fee_main_minor: null,
+    installment_group_id: null,
+    installment_index: null,
+    installment_total: null,
     route_id: null,
     repeat_id: null,
     import_id: null,

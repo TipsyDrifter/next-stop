@@ -9,7 +9,7 @@
  */
 import { ruleValueText } from "../domain/repeat.ts";
 import { WISH_ACTION_LABEL } from "../domain/ticket.ts";
-import type { RepeatRow, TemplateRow, WishAction, WishKindRow, WishRow } from "../domain/ticket.ts";
+import type { EntryRow, RepeatRow, TemplateRow, WishAction, WishKindRow, WishRow } from "../domain/ticket.ts";
 import type { SyncRowLabel } from "./types.ts";
 
 /** 呼叫端注入的查名字（查不到回 null） */
@@ -20,6 +20,29 @@ export interface TicketLabelLookup {
   wishKindName?(id: string): string | null;
 }
 
+/** 帳目的欄名 */
+export const ENTRY_COLS: Readonly<Record<string, string>> = {
+  kind: "種類",
+  occurred_on: "日期",
+  occurred_at: "記帳時刻",
+  account_id: "帳戶",
+  to_account_id: "轉入帳戶",
+  category_id: "分類",
+  amount_minor: "金額",
+  currency: "幣別",
+  main_minor: "折算主幣別金額",
+  account_minor: "帳戶金額",
+  to_amount_minor: "轉入金額",
+  item: "品項／來源",
+  note: "隨筆備註",
+  fee_minor: "手續費",
+  fee_main_minor: "手續費（主幣別）",
+  installment_group_id: "分期群組",
+  installment_index: "分期期數",
+  installment_total: "分期總期數",
+  route_id: "路線",
+};
+
 /** 定期帳的欄名（白名單全集裡主人看得到、改得到的那些；匯入記帳欄不列＝印原文） */
 export const REPEAT_COLS: Readonly<Record<string, string>> = {
   kind: "種類",
@@ -28,7 +51,9 @@ export const REPEAT_COLS: Readonly<Record<string, string>> = {
   category_id: "分類",
   amount_minor: "金額",
   currency: "幣別",
-  note: "備註",
+  item: "品項／來源",
+  note: "隨筆備註",
+  fee_minor: "手續費",
   route_id: "路線",
   rule: "重複規則",
   hhmm: "記帳時刻",
@@ -62,14 +87,49 @@ export function skippedDaysText(v: unknown, max = 3): string | null {
   return days.slice(0, max).join("、") + (days.length > max ? ` 等 ${days.length} 天` : "");
 }
 
-/** 列名：備註＞分類＞帳戶（定期帳沒有名字欄，主人在清單上認它就是靠這幾個） */
-export function repeatLabel(row: Pick<RepeatRow, "note" | "category_id" | "account_id">, look: TicketLabelLookup): string {
+/** 列名：品項／來源＞備註＞分類＞帳戶（定期帳沒有名字欄，主人在清單上認它就是靠這幾個） */
+export function repeatLabel(row: Pick<RepeatRow, "note" | "category_id" | "account_id"> & { item?: string | null }, look: TicketLabelLookup): string {
   const name =
+    (row.item ?? "").trim() ||
     row.note.trim() ||
     (row.category_id ? look.categoryName(row.category_id) : null) ||
     look.accountName(row.account_id) ||
     "沒有名字";
   return `定期帳「${name}」`;
+}
+
+export function entryLabel(row: Pick<EntryRow, "item" | "note" | "category_id" | "account_id">, look: TicketLabelLookup): string {
+  const name =
+    (row.item ?? "").trim() ||
+    row.note.trim() ||
+    (row.category_id ? look.categoryName(row.category_id) : null) ||
+    look.accountName(row.account_id) ||
+    "一筆帳";
+  return `帳目「${name}」`;
+}
+
+export function entrySyncLabel(row: EntryRow, look: TicketLabelLookup): SyncRowLabel {
+  return {
+    label: entryLabel(row, look),
+    cols: ENTRY_COLS,
+    fmt: (col, v) => {
+      switch (col) {
+        case "kind":
+          return typeof v === "string" && Object.prototype.hasOwnProperty.call(KIND_WORD, v) ? KIND_WORD[v] : null;
+        case "account_id":
+        case "to_account_id":
+          if (v === null || v === undefined) return "（沒有）";
+          return typeof v === "string" ? (look.accountName(v) ?? "已刪除的帳戶") : null;
+        case "category_id":
+          if (v === null || v === undefined) return "未分類";
+          return typeof v === "string" ? (look.categoryName(v) ?? "已刪除的分類") : null;
+        case "occurred_on":
+          return md(v);
+        default:
+          return null;
+      }
+    },
+  };
 }
 
 export function repeatSyncLabel(row: RepeatRow, look: TicketLabelLookup): SyncRowLabel {
@@ -143,7 +203,9 @@ export const TEMPLATE_COLS: Readonly<Record<string, string>> = {
   account_id: "帳戶",
   to_account_id: "轉入帳戶",
   category_id: "分類",
-  note: "備註",
+  item: "品項／來源",
+  note: "隨筆備註",
+  fee_minor: "手續費",
   route_id: "路線",
   position: "順序",
 };

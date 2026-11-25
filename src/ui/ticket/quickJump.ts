@@ -10,13 +10,14 @@
  */
 import type { QuickJumpHit, QuickJumpProviderSpec } from "../../lines/types";
 import { bareName, mainCurrencyOf, maskedMoneyText, moneyText, type EntryRow } from "../../domain/ticket";
+import { installmentBadgeText } from "../../domain/ticketInstallment";
 import { VIEW_TEXT, shortDay } from "../../domain/ticketView";
 import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { runAtomicNav } from "../../store/navHistoryStore";
 import { acctLabel } from "./TicketLedger";
 
-/** 一筆帳在 Ctrl+P 的字（只讀 store 的情境；金額照原幣） */
+/** 一筆帳在 Ctrl+P 的字（只讀 store 的情境；金額照原幣；優先顯示 item，次顯示 note 摘要，分期帶「分期 i/n」） */
 export function entryJumpLabel(e: EntryRow): string {
   const s = useTicketStore.getState();
   const mainCode = mainCurrencyOf(s.currencies);
@@ -25,17 +26,26 @@ export function entryJumpLabel(e: EntryRow): string {
   const dec = s.curByCode[e.currency]?.decimals ?? s.curByCode[mainCode]?.decimals ?? 2;
   const abs = masked ? maskedMoneyText(e.currency, { withSymbol: false }) : moneyText(Math.abs(e.amount_minor), dec);
   const cur = e.currency !== mainCode ? ` ${e.currency}` : "";
-  const note = e.note ? `「${e.note}」` : "";
-  if (e.kind === "transfer") return `${abs}${cur} ${acc(e.account_id)} → ${acc(e.to_account_id)}${note}`;
+  const itemText = (e.item ?? "").trim();
+  const noteText = e.note.trim();
+  const noteBrief = noteText.length > 18 ? `${noteText.slice(0, 18)}…` : noteText;
+  const descBody =
+    itemText && noteBrief && noteBrief !== itemText
+      ? `${itemText}（${noteBrief}）`
+      : itemText || noteBrief;
+  const desc = descBody ? `「${descBody}」` : "";
+  const inst = installmentBadgeText(e);
+  const instTag = inst ? ` · ${inst}` : "";
+  if (e.kind === "transfer") return `${abs}${cur} ${acc(e.account_id)} → ${acc(e.to_account_id)}${desc}`;
   if (e.kind === "adjust") {
     const adjAmt = masked ? `±${abs}` : moneyText(e.amount_minor, dec, { prefix: e.amount_minor > 0 ? "±" : undefined });
-    return `${adjAmt}${cur} 精算${note} · ${acc(e.account_id)}`;
+    return `${adjAmt}${cur} 精算${desc} · ${acc(e.account_id)}`;
   }
   // 支出 −（退款＝負的支出 ⇒ ＋）、收入 ＋
   const plus = e.kind === "income" ? e.amount_minor >= 0 : e.amount_minor < 0;
   const cat = e.category_id ? s.catById[e.category_id] : undefined;
   const catName = e.category_id === null ? "未分類" : cat ? bareName(cat.name) || cat.name : VIEW_TEXT.catGone;
-  return `${plus ? "＋" : "−"}${abs}${cur} ${catName}${note} · ${acc(e.account_id)}`;
+  return `${plus ? "＋" : "−"}${abs}${cur} ${catName}${desc}${instTag} · ${acc(e.account_id)}`;
 }
 
 /** 目前是不是手機殼（useShell 把 data-shell 同步到 <html>；同 tagStore.isMobileShell） */

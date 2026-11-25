@@ -69,6 +69,7 @@ import {
   type DayGroup,
   type EntryRow,
 } from "../../../domain/ticket";
+import { installmentBadgeText } from "../../../domain/ticketInstallment";
 import { useBackLayer } from "../../mobile/backStack";
 import { MobileEntryForm } from "./MobileEntryForm";
 import { MobileAccountPage } from "./MobileAccountPage";
@@ -752,7 +753,20 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
   const dec = curByCode[amt.currency]?.decimals ?? 2;
   const accName = (id: string | null) => (id ? (accById[id]?.name ?? "（帳戶已刪除）") : "—");
 
+  const itemText = (e.item ?? "").trim();
+  const noteText = (e.note ?? "").trim();
+  const instBadge = installmentBadgeText(e);
+  const feeCurCode = accById[e.account_id]?.currency ?? e.currency;
+  const feeDec = curByCode[feeCurCode]?.decimals ?? 2;
+  const feeText =
+    e.fee_minor && e.fee_minor > 0
+      ? masked
+        ? maskedMoneyText(feeCurCode)
+        : `${currencySymbol(feeCurCode)} ${moneyText(e.fee_minor, feeDec)}`
+      : null;
+
   let cat: ReactElement;
+  let isUncat = false;
   if (e.kind === "transfer") {
     cat = (
       <>
@@ -770,11 +784,11 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
     );
   } else {
     const c = e.category_id ? catById[e.category_id] : undefined;
-    const uncat = !c || c.id === UNCAT_INCOME_ID || c.id === UNCAT_EXPENSE_ID;
+    isUncat = !c || c.id === UNCAT_INCOME_ID || c.id === UNCAT_EXPENSE_ID;
     // 售票口④ 第二輪（D-票-78）：只寫最後兩段「外食 › 午餐」；完整路徑在這一筆的表單（「分類」小標）
-    const path = c && !uncat ? categoryPath(c, catById) : [];
+    const path = c && !isUncat ? categoryPath(c, catById) : [];
     const p = path.length > 1 ? path[path.length - 2] : undefined;
-    cat = uncat ? (
+    cat = isUncat ? (
       <span className="unc">{c ? c.name : "（分類已刪除）"}</span>
     ) : p ? (
       <>
@@ -786,6 +800,34 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
       <>{c!.name}</>
     );
   }
+
+  /* v1.38 3A：主字優先顯示 item（空則退回分類名／note）；item 與 note 皆有值時，淡色副字呈現分類與隨筆 */
+  let primary: ReactElement;
+  let subCat: ReactElement | null = null;
+  let subNote = noteText;
+  if (itemText !== "") {
+    if (e.kind === "adjust") {
+      primary = (
+        <>
+          <span className="seikan">精算</span>
+          {itemText}
+        </>
+      );
+      subCat = <>{accName(e.account_id)}</>;
+    } else {
+      primary = <>{itemText}</>;
+      subCat = e.kind === "transfer" || !isUncat ? cat : null;
+    }
+  } else if (e.kind !== "transfer" && e.kind !== "adjust" && isUncat && noteText !== "") {
+    primary = <>{noteText}</>;
+    subCat = null;
+    subNote = "";
+  } else {
+    primary = cat;
+    subCat = null;
+  }
+
+  const hasSubLine = Boolean(day !== undefined || route || subCat || subNote);
 
   return (
     <li>
@@ -804,12 +846,13 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
       >
         <span className="sg">{SIGN[e.kind]}</span>
         <span className="main">
-          {/* 第③階段（✎-5）：定期帳記的（或被「設成定期」連上的）帳在分類後接小標；分類字包 .ct 負責省略號，小標永遠看得到 */}
+          {/* 第③階段（✎-5）＋ v1.38 3B：主字包 .ct 負責省略號，分期小牌與定期小標永遠看得到 */}
           <span className="c">
-            <span className="ct">{cat}</span>
+            <span className="ct">{primary}</span>
+            {instBadge && <span className="ns-tk-minst">{instBadge}</span>}
             {e.repeat_id && <span className="ns-tk-mrep">定期</span>}
           </span>
-          {(e.note || route || day !== undefined) && (
+          {hasSubLine && (
             <span className="nt">
               {day !== undefined && <span className="dt">{day}</span>}
               {route && (
@@ -817,7 +860,13 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
                   {route.code ?? route.name.slice(0, 1)}
                 </span>
               )}
-              <span className="t">{e.note}</span>
+              {subCat && <span className="cat">{subCat}</span>}
+              {subCat && subNote && (
+                <span className="sep" aria-hidden>
+                  ·
+                </span>
+              )}
+              {subNote && <span className="t">{subNote}</span>}
             </span>
           )}
           {tagKeys.length > 0 && (
@@ -832,6 +881,7 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
               ≈ {mainSym} {moneyText(amt.convMain, mainDec, { whole: true })}
             </span>
           )}
+          {feeText && <span className="fee">含手續費 {feeText}</span>}
         </span>
       </div>
     </li>

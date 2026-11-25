@@ -259,7 +259,7 @@ function budgetDetail(r: LostRow, names: LostNames): string | null {
 const ENTRY_KIND_LABEL: Record<string, string> = { income: "收入", expense: "支出", transfer: "轉帳", adjust: "調整" };
 function entryTitle(r: LostRow, names: LostNames): string {
   const cat = typeof r.category_id === "string" ? names.tkCategories[r.category_id] : undefined;
-  return text(r.note) ?? (cat || ENTRY_KIND_LABEL[String(r.kind)] || "一筆帳");
+  return text(r.item) ?? text(r.note) ?? (cat || ENTRY_KIND_LABEL[String(r.kind)] || "一筆帳");
 }
 
 const NODE_CHILDREN: readonly LostChildTable[] = [

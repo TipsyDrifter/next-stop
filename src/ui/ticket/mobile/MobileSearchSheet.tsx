@@ -18,7 +18,7 @@
  * 關 sheet（完成／暗幕／看結果）：有任何條件 ⇒ `openSearch`（切清單、清單畫結果，月份列換成 chips 列）；全空 ⇒ `closeSearch`。
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type CompositionEvent, type ReactNode } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
 import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
 import { useNodeStore } from "../../../store/nodeStore";
@@ -30,13 +30,23 @@ import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { MSheet } from "../../common/MSheet";
 import { useBackLayer } from "../../mobile/backStack";
 import {
+  UNCAT_EXPENSE_ID,
+  UNCAT_INCOME_ID,
   archivedAccounts,
+  categoryPath,
+  currencySymbol,
   groupAccounts,
+  mainCurrencyOf,
+  maskedMoneyText,
+  moneyText,
   monthOf,
   monthRange,
+  rowAmount,
   type CategoryKind,
   type EntryKind,
+  type EntryRow,
 } from "../../../domain/ticket";
+import { installmentBadgeText } from "../../../domain/ticketInstallment";
 import { EMPTY_FILTER, ENTRY_SORTS, ENTRY_SORT_TEXT, dayStep, isFilterActive, shortDay, type EntryFilter } from "../../../domain/ticketView";
 import { chooseSort } from "../view/sortChoice";
 import { MobileCatDrill } from "./MobileCatDrill";
@@ -77,12 +87,19 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
   const filter = useTicketStore((s) => s.filter);
   const results = useTicketStore((s) => s.results);
   const accounts = useTicketStore((s) => s.accounts);
+  const accById = useTicketStore((s) => s.accById);
+  const catById = useTicketStore((s) => s.catById);
+  const curByCode = useTicketStore((s) => s.curByCode);
+  const masked = useTicketStore(isTicketAmountMasked);
   const patchFilter = useTicketStore((s) => s.patchFilter);
   const setFilterText = useTicketStore((s) => s.setFilterText);
+  const jumpToEntry = useTicketStore((s) => s.jumpToEntry);
   const resultSort = useTicketStore((s) => s.resultSort);
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
+  const mainCur = mainCurrencyOf(curByCode);
+  const mainCode = mainCur.code;
 
   /* ── 關鍵字：本地字＋去抖；組字中不查（IME 守門，同 MobileToday 的作法） ── */
   const [text, setText] = useState(filter.text);
@@ -245,7 +262,7 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
               inputMode="search"
               enterKeyHint="search"
               aria-label="關鍵字"
-              placeholder="備註、分類、帳戶、金額…"
+              placeholder="品項、隨筆、分類、帳戶、金額…"
               value={text}
               onChange={(e) => {
                 setText(e.target.value);
@@ -279,6 +296,25 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
               </button>
             )}
           </label>
+          {text.trim() !== "" && results && results.length > 0 && (
+            <ul className="ns-tk-ms-preview" aria-label="即時符合結果">
+              {results.slice(0, 3).map((e) => (
+                <SearchPreviewRow
+                  key={e.id}
+                  e={e}
+                  accById={accById}
+                  catById={catById}
+                  curByCode={curByCode}
+                  mainCode={mainCode}
+                  masked={masked}
+                  onPick={() => {
+                    onClose();
+                    void jumpToEntry(e.id);
+                  }}
+                />
+              ))}
+            </ul>
+          )}
         </Sec>
 
         <Sec title="期間">
@@ -416,5 +452,82 @@ function Sec({ title, children }: { title: string; children: ReactNode }) {
       <p className="ns-tk-ms-lbl">{title}</p>
       {children}
     </section>
+  );
+}
+
+function SearchPreviewRow({
+  e,
+  accById,
+  catById,
+  curByCode,
+  mainCode,
+  masked,
+  onPick,
+}: {
+  e: EntryRow;
+  accById: ReturnType<typeof useTicketStore.getState>["accById"];
+  catById: ReturnType<typeof useTicketStore.getState>["catById"];
+  curByCode: ReturnType<typeof useTicketStore.getState>["curByCode"];
+  mainCode: string;
+  masked: boolean;
+  onPick(): void;
+}) {
+  const itemText = (e.item ?? "").trim();
+  const noteText = (e.note ?? "").trim();
+  const instBadge = installmentBadgeText(e);
+  const amt = rowAmount(e, null, accById, mainCode);
+  const dec = curByCode[amt.currency]?.decimals ?? 2;
+  const feeCurCode = accById[e.account_id]?.currency ?? e.currency;
+  const feeDec = curByCode[feeCurCode]?.decimals ?? 2;
+  const feeText =
+    e.fee_minor && e.fee_minor > 0
+      ? masked
+        ? maskedMoneyText(feeCurCode)
+        : `${currencySymbol(feeCurCode)} ${moneyText(e.fee_minor, feeDec)}`
+      : null;
+
+  const accName = (id: string | null) => (id ? (accById[id]?.name ?? "（帳戶已刪除）") : "—");
+  let catLabel = "";
+  let isUncat = false;
+  if (e.kind === "transfer") {
+    catLabel = `${accName(e.account_id)} → ${accName(e.to_account_id)}`;
+  } else if (e.kind === "adjust") {
+    catLabel = `精算 · ${accName(e.account_id)}`;
+  } else {
+    const c = e.category_id ? catById[e.category_id] : undefined;
+    isUncat = !c || c.id === UNCAT_INCOME_ID || c.id === UNCAT_EXPENSE_ID;
+    if (isUncat) {
+      catLabel = c ? c.name : "（分類已刪除）";
+    } else {
+      const path = categoryPath(c!, catById);
+      const p = path.length > 1 ? path[path.length - 2] : undefined;
+      catLabel = p ? `${p.name} › ${c!.name}` : c!.name;
+    }
+  }
+
+  const primary = itemText || (isUncat && noteText ? noteText : catLabel);
+  const subParts: string[] = [shortDay(e.occurred_on)];
+  if (itemText && (e.kind === "transfer" || !isUncat)) subParts.push(catLabel);
+  if (noteText && (itemText || !isUncat)) subParts.push(noteText);
+
+  return (
+    <li>
+      <button type="button" className="ns-tk-ms-prevrow" onClick={onPick}>
+        <span className="m">
+          <span className="p">
+            <span className="t">{primary}</span>
+            {instBadge && <span className="ns-tk-minst">{instBadge}</span>}
+          </span>
+          <span className="sub">{subParts.join(" · ")}</span>
+        </span>
+        <span className="a">
+          <b>
+            {amt.prefix}
+            {masked ? maskedMoneyText(amt.currency, { withSymbol: false }) : moneyText(amt.minor, dec)}
+          </b>
+          {feeText && <span className="fee">含手續費 {feeText}</span>}
+        </span>
+      </button>
+    </li>
   );
 }

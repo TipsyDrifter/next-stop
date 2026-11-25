@@ -663,11 +663,18 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
       };
       const route = (r: ExportRow): string => nodeName(r.route_id);
 
+      const instText = (r: ExportRow): string =>
+        r.installment_index != null && r.installment_total != null ? `${r.installment_index}/${r.installment_total}` : "";
+      const feeNumber = (feeMinor: unknown, accountId: unknown, fallbackCur: unknown): number | null => {
+        const feeCur = str(accs.get(str(accountId))?.currency) || str(fallbackCur);
+        return minorToNumber(feeMinor, feeCur ? decOf(feeCur) : mainDecimals);
+      };
+
       return [
         {
           name: "帳目.csv",
           rows: [
-            ["日期", "類型", "金額", "幣別", "帳戶", "轉入帳戶", "轉入金額", "分類", "上層分類", "備註", "荷札", "路線"],
+            ["日期", "類型", "金額", "幣別", "手續費", "帳戶", "轉入帳戶", "轉入金額", "分類", "上層分類", "品項／來源", "隨筆備註", "分期", "荷札", "路線"],
             ...[...tb("tk_entries")]
               .sort((a, b) => cmpStr(str(a.occurred_on), str(b.occurred_on)) || cmpStr(str(a.occurred_at), str(b.occurred_at)) || cmpStr(str(a.id), str(b.id)))
               .map((e): CsvCell[] => [
@@ -675,13 +682,16 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
                 ENTRY_KIND_TEXT[str(e.kind)] ?? str(e.kind),
                 minorToNumber(e.amount_minor, decOf(e.currency)),
                 str(e.currency),
+                feeNumber(e.fee_minor, e.account_id, e.currency),
                 accName(e.account_id),
                 accName(e.to_account_id),
                 // 跨幣別轉帳才有：用轉入帳戶的幣別算小數位
                 minorToNumber(e.to_amount_minor, decOf(accs.get(str(e.to_account_id))?.currency)),
                 catName(e.category_id),
                 catParent(e.category_id),
+                str(e.item),
                 str(e.note),
+                instText(e),
                 tagsOf("ticket:entry", e.id),
                 route(e),
               ]),
@@ -690,10 +700,18 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
         {
           name: "帳戶.csv",
           rows: [
-            ["名稱", "群組", "幣別", "已封存"],
+            ["名稱", "群組", "幣別", "結帳日", "繳款截止日", "扣款帳戶", "已封存"],
             ...[...tb("tk_accounts")]
               .sort((a, b) => groupIdx(a.group_key) - groupIdx(b.group_key) || cmpPos(a, b))
-              .map((a): CsvCell[] => [str(a.name), groupLabel(a.group_key), str(a.currency), yesNo(a.archived_at)]),
+              .map((a): CsvCell[] => [
+                str(a.name),
+                groupLabel(a.group_key),
+                str(a.currency),
+                num(a.statement_day),
+                num(a.payment_due_day),
+                accName(a.auto_pay_account_id),
+                yesNo(a.archived_at),
+              ]),
           ],
         },
         {
@@ -706,15 +724,17 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
         {
           name: "定期帳.csv",
           rows: [
-            ["類型", "金額", "幣別", "帳戶", "轉入帳戶", "分類", "上層分類", "備註", "重複", "時刻", "下一班", "已暫停", "路線"],
+            ["類型", "金額", "幣別", "手續費", "帳戶", "轉入帳戶", "分類", "上層分類", "品項／來源", "隨筆備註", "重複", "時刻", "下一班", "已暫停", "路線"],
             ...[...tb("tk_repeats")].sort(cmpPos).map((r): CsvCell[] => [
               ENTRY_KIND_TEXT[str(r.kind)] ?? str(r.kind),
               minorToNumber(r.amount_minor, decOf(r.currency)),
               str(r.currency),
+              feeNumber(r.fee_minor, r.account_id, r.currency),
               accName(r.account_id),
               accName(r.to_account_id),
               catName(r.category_id),
               catParent(r.category_id),
+              str(r.item),
               str(r.note),
               repeatText(r.rule),
               str(r.hhmm),
@@ -763,7 +783,7 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
         {
           name: "常用票種.csv",
           rows: [
-            ["名稱", "類型", "金額", "幣別", "帳戶", "轉入帳戶", "分類", "上層分類", "備註", "路線"],
+            ["名稱", "類型", "金額", "幣別", "手續費", "帳戶", "轉入帳戶", "分類", "上層分類", "品項／來源", "隨筆備註", "路線"],
             ...[...tb("tk_templates")].sort(cmpPos).map((t): CsvCell[] => {
               // 沒指定幣別就跟著帳戶；帳戶也沒指定就用主幣別
               const cur = str(t.currency) || str(accs.get(str(t.account_id))?.currency);
@@ -772,10 +792,12 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
                 ENTRY_KIND_TEXT[str(t.kind)] ?? str(t.kind),
                 minorToNumber(t.amount_minor, cur ? decOf(cur) : mainDecimals),
                 cur,
+                feeNumber(t.fee_minor, t.account_id, cur),
                 accName(t.account_id),
                 accName(t.to_account_id),
                 catName(t.category_id),
                 catParent(t.category_id),
+                str(t.item),
                 str(t.note),
                 route(t),
               ];

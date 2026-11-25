@@ -31,7 +31,7 @@
  *   走 store 的 openDialog，由 MobileSheetHost 疊在表單上面（表單開著時它登記成 "dialog"）。
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { useTicketStore, type TicketDraft } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore, type TicketDraft } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { groupRoutesByLine } from "../../notes/useAttachOptions";
@@ -40,7 +40,7 @@ import { addDays, todayKey } from "../../../lib/date";
 import { roundelStyle } from "../../common/roundel";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { MFullPage } from "../../common/MFullPage";
-import { MSheet } from "../../common/MSheet";
+import { MSheet, MSheetItem } from "../../common/MSheet";
 import { Segmented } from "../../common/Segmented";
 import { ClockInput, clockDraftsOkIn } from "../../common/ClockInput";
 import { useBackLayer } from "../../mobile/backStack";
@@ -64,12 +64,16 @@ import {
 } from "../../../domain/ticket";
 import { IconCaret, IconRight, groupLabelOf, nextDraft, useImeGuard } from "./mobileBits";
 import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "../ticketClock";
-import { quickFollowDay, quickRepeat, repeatLineText, type RepeatQuick, type RepeatQuickFreq } from "../../../domain/ticketPlan";
+import { amountInputText, quickFollowDay, quickRepeat, repeatLineText, type RepeatQuick, type RepeatQuickFreq } from "../../../domain/ticketPlan";
 import { TK_TAG_ENTRY, cleanTagNames, tagNamesOf } from "../../../domain/ticketTags";
 import { keyOf } from "../../../domain/tags";
 import { useLinkedRepeat } from "../plan/RepeatField";
 import { CatPathText, MobileCatDrill, levelFor } from "./MobileCatDrill";
 import {
+  MobileFeeField,
+  MobileInstallmentField,
+  MobileInstallmentProgressCard,
+  MobileMemoField,
   MobileNoteField,
   RepeatPickSheets,
   RepeatQuickRow,
@@ -147,7 +151,7 @@ function NewEntry({ draft }: { draft: TicketDraft }) {
 
 /* ═══════════ 舊票（本地草稿，按「存」送一次 patch） ═══════════ */
 
-function draftFromRow(row: EntryRow, dec: number): EntryDraft {
+function draftFromRow(row: EntryRow, dec: number, feeDec: number): EntryDraft {
   return {
     kind: row.kind === "adjust" ? "expense" : row.kind,
     amountText: moneyText(row.amount_minor, dec).replace(/,/g, ""),
@@ -157,7 +161,10 @@ function draftFromRow(row: EntryRow, dec: number): EntryDraft {
     categoryId: row.category_id,
     dayKey: row.occurred_on,
     time: localTime(row.occurred_at),
+    item: row.item ?? "",
     note: row.note,
+    feeText: row.fee_minor && row.fee_minor > 0 ? amountInputText(row.fee_minor, feeDec) : "",
+    installmentPeriods: null,
     routeId: row.route_id,
     mainOverrideText: null,
     toAmountText: null,
@@ -176,6 +183,9 @@ function EditEntry({ row }: { row: EntryRow }) {
   const curByCode = useTicketStore((s) => s.curByCode);
   const updateEntry = useTicketStore((s) => s.updateEntry);
   const deleteEntry = useTicketStore((s) => s.deleteEntry);
+  const deleteInstallmentGroup = useTicketStore((s) => s.deleteInstallmentGroup);
+  const loadInstallmentGroup = useTicketStore((s) => s.loadInstallmentGroup);
+  const entriesVersion = useTicketStore((s) => s.entriesVersion);
   const closePanel = useTicketStore((s) => s.closePanel);
   const setEntryRepeatQuick = useTicketStore((s) => s.setEntryRepeatQuick);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -183,7 +193,29 @@ function EditEntry({ row }: { row: EntryRow }) {
   const tagIndex = useTagStore((s) => s.index);
   const adjust = row.kind === "adjust";
   const linked = useLinkedRepeat(row);
-  const [d, setD] = useState<EntryDraft>(() => draftFromRow(row, curByCode[row.currency]?.decimals ?? 2));
+  const [d, setD] = useState<EntryDraft>(() => {
+    const feeCurCode = accById[row.account_id]?.currency ?? row.currency;
+    return draftFromRow(row, curByCode[row.currency]?.decimals ?? 2, curByCode[feeCurCode]?.decimals ?? 2);
+  });
+  const [instRows, setInstRows] = useState<EntryRow[] | null>(null);
+  useEffect(() => {
+    const gid = row.installment_group_id;
+    if (!gid) {
+      setInstRows(null);
+      return;
+    }
+    let alive = true;
+    void loadInstallmentGroup(gid)
+      .then((list) => {
+        if (alive) setInstRows(list);
+      })
+      .catch(() => {
+        if (alive) setInstRows([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [row.installment_group_id, entriesVersion, loadInstallmentGroup]);
   /* 荷札草稿（售票口④）：index 載好才知道原本掛了什麼；null＝還不知道（這時按「存」不碰荷札） */
   const [tags, setTags] = useState<string[] | null>(() => (tagIndex ? tagNamesOf(tagIndex, TK_TAG_ENTRY, row.id) : null));
   const origTags = useRef<string[] | null>(tags);
@@ -258,6 +290,12 @@ function EditEntry({ row }: { row: EntryRow }) {
       onSave={() => void save()}
       onCancel={closePanel}
       onDelete={() => void deleteEntry(row.id)}
+      onDeleteInstallment={
+        row.installment_group_id
+          ? (fromIndex?: number) => void deleteInstallmentGroup(row.installment_group_id!, fromIndex)
+          : undefined
+      }
+      instRows={instRows}
       tags={tags ?? []}
       onTags={(next) => setTags(next)}
       quick={quick}
@@ -294,7 +332,19 @@ function buildPatch(
     if (d.toAccountId !== row.to_account_id) p.toAccountId = d.toAccountId;
   }
   if (!adjust && kind !== "transfer" && d.categoryId !== row.category_id) p.categoryId = d.categoryId;
+  if (d.item !== (row.item ?? "")) p.item = d.item;
   if (d.note !== row.note) p.note = d.note;
+  if (!adjust) {
+    let nextFee: number | null = null;
+    if (d.feeText.trim() !== "") {
+      const feeCur = ctx.curByCode[acc.currency];
+      if (!feeCur) throw new RangeError(`沒有這個幣別：${acc.currency}`);
+      const parsedFee = parseAmount(d.feeText, feeCur, { allowNegative: true, allowZero: true });
+      if (parsedFee < 0) throw new RangeError("手續費不能是負數");
+      nextFee = parsedFee === 0 ? null : parsedFee;
+    }
+    if (nextFee !== (row.fee_minor ?? null)) p.feeMinor = nextFee;
+  }
   if (d.routeId !== row.route_id) p.routeId = d.routeId;
   if (d.dayKey !== row.occurred_on || d.time !== localTime(row.occurred_at)) {
     p.occurredOn = d.dayKey;
@@ -332,6 +382,8 @@ function FormShell({
   onSave: onSaveRaw,
   onCancel,
   onDelete,
+  onDeleteInstallment,
+  instRows = null,
   tags,
   onTags,
   quick,
@@ -351,6 +403,8 @@ function FormShell({
   onSave(again: boolean): void;
   onCancel(): void;
   onDelete?(): void;
+  onDeleteInstallment?(fromIndex?: number): void;
+  instRows?: readonly EntryRow[] | null;
   /* 售票口④ */
   /** 荷札草稿（名稱；按「存」才寫） */
   tags: readonly string[];
@@ -379,8 +433,9 @@ function FormShell({
   const routeGroups = useMemo(() => groupRoutesByLine(liveRoutes, liveLines), [liveRoutes, liveLines]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
+  const masked = useTicketStore(isTicketAmountMasked);
 
-  const [sheet, setSheet] = useState<"currency" | "date" | "newCat" | null>(null);
+  const [sheet, setSheet] = useState<"currency" | "date" | "newCat" | "instDelete" | null>(null);
   // 磨光①（主線手機殼契約 §1.5、§9.3）：返回鍵＝「取消」（新帳 requestEscape：有內容先問；舊帳 closePanel）——丙-5 起由 MFullPage
   // 以 backId "ticket.form" 登記（返回鍵＝左鈕），本檔不再另登一層。
   // 幣別／日期／新增分類 sheet 疊在全螢幕表單上：權重要比 "full" 高才會先關它，所以登記成 "dialog"（toast 也跟著移到頂帶下方，不壓在 sheet 上）；
@@ -450,6 +505,17 @@ function FormShell({
   const toCur = transfer && toAcc ? curByCode[toAcc.currency] : undefined;
   const crossTransfer = !!(transfer && toCur && cur && toCur.code !== cur.code);
   const autoTo = crossTransfer && amountMinor !== null && cur && toCur ? convertMinor(amountMinor, cur, toCur) : null;
+  const feeCurCode = acc?.currency ?? curCode;
+  const feeCur = curByCode[feeCurCode];
+  let feeMinor: number | null = null;
+  try {
+    if (feeCur && d.feeText.trim() !== "") {
+      const f = parseAmount(d.feeText, feeCur, { allowNegative: true, allowZero: true });
+      if (f > 0) feeMinor = f;
+    }
+  } catch {
+    feeMinor = null;
+  }
 
   /* 時刻（丙-5 F3）：帳日＋牆鐘 ↔ ClockInput 的毫秒（ticketClock.ts）；草稿時刻看不懂（理論上不會）就先擺在日界線那一刻 */
   const { lo: clockLo, hi: clockHi } = ticketClockBounds(d.dayKey, dayStartHour);
@@ -616,6 +682,16 @@ function FormShell({
         </div>
         {/* 售票口④ D-票-69：從願望「買了」開的 */}
         {wishName !== null && <p className="ns-tk-mre-from">從願望清單帶入「{wishName}」· 存了就移到「已買」</p>}
+        {/* v1.38 3B：既有分期帳進度卡 */}
+        {!isNew && entry?.installment_group_id && (
+          <MobileInstallmentProgressCard
+            entry={entry}
+            groupRows={instRows}
+            today={today}
+            curByCode={curByCode}
+            masked={masked}
+          />
+        )}
         <div className="ns-tk-mf-amt">
           <span className="sg">{adjust ? "±" : SIGN[kind]}</span>
           <input
@@ -802,10 +878,33 @@ function FormShell({
           </>
         )}
 
-        {/* 售票口④ D-票-67：備註與定期在「更多欄位」外面（分類格子下面） */}
+        {/* v1.38 3A／3B：品項／來源（補完）× 隨筆備註（純感想）× 手續費 × 刷卡分期 × 定期 */}
         <div className="ns-tk-m4-out">
-          <MobileNoteField value={d.note} onChange={(note) => onPatch({ note })} onPick={onNotePick} />
-          {adjust ? null : isNew && quick ? (
+          <MobileNoteField value={d.item} onChange={(item) => onPatch({ item })} onPick={onNotePick} />
+          <MobileMemoField value={d.note} onChange={(note) => onPatch({ note })} />
+          {!adjust && (
+            <MobileFeeField
+              value={d.feeText}
+              onChange={(feeText) => onPatch({ feeText })}
+              kind={kind}
+              feeCurrency={feeCurCode}
+              entryCurrency={curCode}
+              amountMinor={amountMinor}
+              curByCode={curByCode}
+            />
+          )}
+          {isNew && !adjust && kind === "expense" && (
+            <MobileInstallmentField
+              periods={d.installmentPeriods}
+              onChange={(installmentPeriods) => onPatch({ installmentPeriods })}
+              amountMinor={amountMinor}
+              feeMinor={feeMinor}
+              currency={curCode}
+              curByCode={curByCode}
+              dayKey={d.dayKey}
+            />
+          )}
+          {adjust || entry?.installment_group_id ? null : isNew && quick ? (
             <RepeatQuickRow
               value={quick}
               dayKey={d.dayKey}
@@ -930,7 +1029,15 @@ function FormShell({
                 存成常用…
               </button>
             )}
-            <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn" onClick={onDelete}>
+            <button
+              type="button"
+              className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn"
+              aria-haspopup={entry?.installment_group_id ? "dialog" : undefined}
+              onClick={() => {
+                if (entry?.installment_group_id && onDeleteInstallment) setSheet("instDelete");
+                else onDelete?.();
+              }}
+            >
               刪除
             </button>
           </>
@@ -999,6 +1106,37 @@ function FormShell({
           backId="ticket.form.pick"
           backKind="dialog"
         />
+      )}
+      {sheet === "instDelete" && entry?.installment_group_id && (
+        <MSheet list title="刪除分期帳" onClose={() => setSheet(null)} backId="ticket.form.pick" backKind="dialog">
+          <MSheetItem
+            danger
+            onClick={() => {
+              setSheet(null);
+              onDelete?.();
+            }}
+          >
+            只刪這一期（第 {entry.installment_index ?? 1} 期）
+          </MSheetItem>
+          <MSheetItem
+            danger
+            onClick={() => {
+              setSheet(null);
+              onDeleteInstallment?.(entry.installment_index ?? 1);
+            }}
+          >
+            刪本期與後續（第 {entry.installment_index ?? 1}–{entry.installment_total ?? entry.installment_index ?? 1} 期）
+          </MSheetItem>
+          <MSheetItem
+            danger
+            onClick={() => {
+              setSheet(null);
+              onDeleteInstallment?.();
+            }}
+          >
+            刪除全部分期（共 {entry.installment_total ?? 1} 期）
+          </MSheetItem>
+        </MSheet>
       )}
       {quick && (
         <RepeatPickSheets which={repPick} value={quick} dayKey={d.dayKey} backId="ticket.form.rep" onChange={onQuick} onClose={() => setRepPick(null)} />

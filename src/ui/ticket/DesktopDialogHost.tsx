@@ -13,6 +13,7 @@ import { NewAccountForm } from "./dialogs/NewAccountForm";
 import { TicketManagePanel } from "./dialogs/TicketManagePanel";
 import { RepeatEditor } from "./plan/RepeatEditor";
 import { SaveTemplateDialog } from "./dialogs/SaveTemplate";
+import { LegacySplitBody } from "./dialogs/LegacySplitModal";
 
 const TITLE: Record<TicketDialog["kind"], string> = {
   manage: "管帳",
@@ -25,6 +26,7 @@ const TITLE: Record<TicketDialog["kind"], string> = {
   repeat: "定期帳",
   templates: "管帳",
   saveTemplate: "存成常用",
+  legacySplit: "舊帳隨筆分流小幫手",
 };
 
 export function DesktopDialogHost() {
@@ -41,6 +43,7 @@ export function DesktopDialogHost() {
   const isManage = dialog.kind === "manage" || isTicketManageTab(dialog.kind);
   const isRepeat = dialog.kind === "repeat";
   const isNewAccount = dialog.kind === "newAccount";
+  const isLegacySplit = dialog.kind === "legacySplit";
   // 規則編輯器與新增帳戶的 Esc／×／暗幕＝「取消」：從「管帳」開的退回原分籤
   const onClose = () => {
     if (isNewAccount) {
@@ -66,8 +69,8 @@ export function DesktopDialogHost() {
       onConfirm: () => useTicketStore.getState().closeRepeatEditor(),
     });
   };
-  const wide = isManage || isRepeat;
-  const hasFoot = isNewAccount || isRepeat;
+  const wide = isManage || isRepeat || isLegacySplit;
+  const hasFoot = isNewAccount || isRepeat || isLegacySplit;
   return (
     <DialogShell
       title={TITLE[dialog.kind]}
@@ -82,6 +85,7 @@ export function DesktopDialogHost() {
         {isNewAccount && <NewAccountForm onDone={closeAccountDialog} />}
         {isRepeat && <RepeatEditor onDone={onClose} />}
         {dialog.kind === "saveTemplate" && <SaveTemplateDialog onDone={closeDialog} />}
+        {isLegacySplit && <LegacySplitBody onClose={closeDialog} />}
       </DialogFootTarget>
     </DialogShell>
   );

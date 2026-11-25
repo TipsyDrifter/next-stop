@@ -118,7 +118,7 @@ function cur(code: string, decimals: number, rate: string, isMain = false): Curr
   return { id: ticketId("currency:" + code), code, name: code, decimals, rate_to_main: rate, is_main: isMain ? 1 : 0, position: 0, ...SYNC };
 }
 function acc(id: string, name: string, group: string, currency = "TWD", extra: Partial<AccountRow> = {}): AccountRow {
-  return { id, name, group_key: group, currency, position: 0, archived_at: null, ...SYNC, ...extra };
+  return { id, name, group_key: group, currency, position: 0, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null, ...SYNC, ...extra };
 }
 function cat(id: string, kind: CategoryKind, name: string, parent: string | null, position: number, extra: Partial<CategoryRow> = {}): CategoryRow {
   return { id, kind, name, parent_id: parent, position, archived_at: null, ...SYNC, ...extra };
@@ -201,7 +201,13 @@ function entry(p: Partial<EntryRow> & { id: string }): EntryRow {
     main_minor: 0,
     account_minor: 0,
     to_amount_minor: null,
+    item: "",
     note: "",
+    fee_minor: null,
+    fee_main_minor: null,
+    installment_group_id: null,
+    installment_index: null,
+    installment_total: null,
     route_id: null,
     import_id: null,
     import_source: null,
@@ -330,7 +336,7 @@ describe("D. deriveAmounts", () => {
   const curByCode = byCode([TWD, USD]);
   test("11. 同幣別", () => {
     assert.deepEqual(deriveAmounts({ kind: "expense", amountMinor: 8000, currency: "TWD", account: CASH, toAccount: null, curByCode }), {
-      main_minor: 8000, account_minor: 8000, to_amount_minor: null,
+      main_minor: 8000, account_minor: 8000, to_amount_minor: null, fee_minor: null, fee_main_minor: null,
     });
   });
   test("12. TWD 帳戶記 USD ⇒ account_minor === main_minor", () => {
@@ -605,21 +611,22 @@ describe("I. parseQuickEntry", () => {
 
   test("34. 0-7 兩個範例", () => {
     const a = parseQuickEntry("80 午餐 便當 @學生證", qctx(ACCS, CASH.id));
-    assert.deepEqual(a, { kind: "expense", amountMinor: 8000, currency: "TWD", accountId: STUDENT.id, categoryId: "c:🍜 食物/午餐", categoryMatched: true, note: "便當" });
+    assert.deepEqual(a, { kind: "expense", amountMinor: 8000, currency: "TWD", accountId: STUDENT.id, categoryId: "c:🍜 食物/午餐", categoryMatched: true, item: "便當", note: "" });
     const b = parseQuickEntry("+2000 補貼 家教費", qctx(ACCS, BANK.id));
-    assert.deepEqual(b, { kind: "income", amountMinor: 200000, currency: "TWD", accountId: BANK.id, categoryId: "c:💴 補貼", categoryMatched: true, note: "家教費" });
+    assert.deepEqual(b, { kind: "income", amountMinor: 200000, currency: "TWD", accountId: BANK.id, categoryId: "c:💴 補貼", categoryMatched: true, item: "家教費", note: "" });
   });
 
   test("35. 第一個字不是金額 ⇒ 錯誤訊息逐字", () => {
     throwsMsg(() => parseQuickEntry("午餐 80", qctx(ACCS, null)), "開頭先寫金額，例如「80 午餐」");
   });
 
-  test("36. 比不到分類 ⇒ 整段當備註、未分類、toast 尾有「（分類待補）」", () => {
+  test("36. 比不到分類 ⇒ 整段當品項、未分類、toast 尾有「（分類待補）」", () => {
     const c = qctx(ACCS, BANK.id);
     const q = parseQuickEntry("80 不存在的東西 好吃", c);
     assert.equal(q.categoryId, UNCAT_EXPENSE_ID);
     assert.equal(q.categoryMatched, false);
-    assert.equal(q.note, "不存在的東西 好吃");
+    assert.equal(q.item, "不存在的東西 好吃");
+    assert.equal(q.note, "");
     assert.equal(quickToast(q, c), "已記 −80 不存在的東西 好吃 · 帳戶（分類待補）");
   });
 
@@ -639,7 +646,8 @@ describe("I. parseQuickEntry", () => {
     throwsMsg(() => parseQuickEntry("12.345 午餐", c), "TWD 最多 2 位小數");
     const b = parseQuickEntry("80 午餐 @現金 @學生證", c);
     assert.equal(b.accountId, STUDENT.id);
-    assert.equal(b.note, "@現金");
+    assert.equal(b.item, "@現金");
+    assert.equal(b.note, "");
   });
 
   test("39. quickToast：支出、收入（名稱帶 emoji）、外幣帳戶帶幣別碼", () => {
@@ -667,6 +675,8 @@ function makeSqliteDb(): TestDb {
   for (const mf of ["0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8"));
   // 第③階段（③契約 0-3）：tk_entries 多 repeat_id、另兩張表——sqlite 實作的 ENT_COLS 已含 repeat_id，真機也一定跑過 0010
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0010_ticket_plan.sql"), "utf8"));
+  // v1.38（0027）：品項、手續費、分期與信用卡結帳日
+  raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0027_ticket_v138.sql"), "utf8"));
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   const db: TestDb = {
     ops: [],
@@ -1177,6 +1187,85 @@ describe("E3. repository：孤兒子分類排序、用量（memory／sqlite）",
       assert.deepEqual(Object.fromEntries(late.accounts.map((c: AU) => [c.id, c.n])), { [a1.id]: 2, [a2.id]: 3 }); // a1：w、z；a2：x、y、未分類
       // 起點在未來 ⇒ 空
       assert.deepEqual(await repo.usageSince("2027-01-01"), { categories: [], accounts: [] });
+    });
+
+    test(`v1.38：手續費餘額口徑、信用卡欄位、分期建立/查詢/整組刪除/復原、批次品項分流（${impl.name}）`, async () => {
+      const { repo, db } = await impl.make();
+      await repo.ensureStarterRows();
+      const bank = await repo.createAccount({ name: "銀行", group: "bank", currency: "TWD", openingMinor: 100000, occurredOn: REPO_DAY });
+      const card = await repo.createAccount({
+        name: "信用卡",
+        group: "card",
+        currency: "TWD",
+        openingMinor: null,
+        occurredOn: REPO_DAY,
+        statementDay: 15,
+        paymentDueDay: 2,
+        autoPayAccountId: bank.id,
+      });
+      assert.equal(card.statement_day, 15);
+      assert.equal(card.payment_due_day, 2);
+      assert.equal(card.auto_pay_account_id, bank.id);
+
+      // 非信用卡群組自動清除結帳日欄位
+      const nonCard = await repo.createAccount({
+        name: "一般現金",
+        group: "cash",
+        currency: "TWD",
+        openingMinor: null,
+        occurredOn: REPO_DAY,
+        statementDay: 10,
+        paymentDueDay: 20,
+        autoPayAccountId: bank.id,
+      });
+      assert.equal(nonCard.statement_day, null);
+      assert.equal(nonCard.payment_due_day, null);
+      assert.equal(nonCard.auto_pay_account_id, null);
+
+      // 手續費扣帳戶餘額（支出 1000 + 手續費 150 = 1150；收入 5000 - 手續費 200 = 4800；轉帳 2000 + 手續費 150）
+      await repo.createEntry(newEntry({ accountId: bank.id, amountMinor: 1000, feeMinor: 150, item: "匯款支出" }));
+      await repo.createEntry(newEntry({ kind: "income", accountId: bank.id, amountMinor: 5000, feeMinor: 200, item: "稿費入帳" }));
+      await repo.createEntry(newEntry({ kind: "transfer", accountId: bank.id, toAccountId: nonCard.id, amountMinor: 2000, feeMinor: 150, item: "提款" }));
+      const bals = await repo.balances();
+      assert.equal(bals[bank.id], 100000 - 1150 + 4800 - 2150);
+      assert.equal(bals[nonCard.id], 2000);
+
+      // 3 期分期建立、查詢、整組刪除與復原
+      const inst = await repo.createInstallmentEntries(
+        newEntry({ accountId: card.id, amountMinor: 10000, item: "筆電", note: "分期測試", occurredOn: "2026-10-10" }),
+        3,
+      );
+      assert.equal(inst.length, 3);
+      assert.equal(inst[0].item, "筆電");
+      assert.equal(inst[0].installment_index, 1);
+      assert.equal(inst[0].installment_total, 3);
+      assert.equal(inst.reduce((s: number, r: EntryRow) => s + r.amount_minor, 0), 10000);
+      const gid = inst[0].installment_group_id!;
+      assert.equal((await repo.listInstallmentGroup(gid)).length, 3);
+      const deletedIds = await repo.softDeleteInstallmentGroup(gid, 2);
+      assert.equal(deletedIds.length, 2);
+      assert.equal((await repo.listInstallmentGroup(gid)).length, 1);
+      await repo.restoreEntries(deletedIds);
+      assert.equal((await repo.listInstallmentGroup(gid)).length, 3);
+
+      // 批次文字更新（舊帳分流）
+      await repo.batchUpdateEntryTexts([
+        { id: inst[0].id, item: "Apple Store", note: "買筆電" },
+      ]);
+      const updated = await repo.getEntry(inst[0].id);
+      assert.equal(updated?.item, "Apple Store");
+      assert.equal(updated?.note, "買筆電");
+
+      // SQLite 存量回填（item IS NULL -> 搬移 note 且不寫 outbox）
+      if (db) {
+        const opsBefore = db.ops.length;
+        await db.execute("UPDATE tk_entries SET item = NULL, note = '舊備註品項' WHERE id = $1", [inst[0].id]);
+        repo.resetItemBackfill();
+        const backfilled = await repo.getEntry(inst[0].id);
+        assert.equal(backfilled?.item, "舊備註品項");
+        assert.equal(backfilled?.note, "");
+        assert.equal(db.ops.length, opsBefore);
+      }
     });
   }
 });

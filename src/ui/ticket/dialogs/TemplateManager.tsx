@@ -8,13 +8,115 @@
  * 新增只從帳目詳情「存成常用…」（整筆照抄最省事）；這裡不另做一張空白表單。
  */
 import { useState } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
-import type { TemplateRow } from "../../../domain/ticket";
+import {
+  UNCAT_EXPENSE_ID,
+  UNCAT_INCOME_ID,
+  categoryLabel,
+  mainCurrencyOf,
+  maskedMoneyText,
+  moneyText,
+  type TemplateRow,
+} from "../../../domain/ticket";
 import { ManagerList, ManagerRow, type PopMenuItem } from "../../common/ManagerRow";
 import { indexOfAnchor, useDragReorder } from "../../common/dragReorder";
-import { templateWhat } from "./templateText";
+import { acctLabel } from "../TicketLedger";
+import { templateWhat, type WhatCtx } from "./templateText";
 import "../ticket-4.css";
+import "../ticket-v138.css";
+
+const KIND_WORD: Record<TemplateRow["kind"], string> = { expense: "支出", income: "收入", transfer: "轉帳" };
+const isUncat = (id: string | null): boolean => id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID;
+
+function TemplateDetail({ t, ctx, masked }: { t: TemplateRow; ctx: WhatCtx; masked: boolean }) {
+  const mainCode = mainCurrencyOf(Object.values(ctx.curByCode));
+  const acc = t.account_id ? ctx.accById[t.account_id] : undefined;
+  const toAcc = t.kind === "transfer" && t.to_account_id ? ctx.accById[t.to_account_id] : undefined;
+  const cur = t.currency ?? acc?.currency ?? mainCode;
+  const dec = ctx.curByCode[cur]?.decimals ?? 2;
+  const amountText =
+    t.amount_minor === null
+      ? "未固定（帶入時填寫）"
+      : `${KIND_WORD[t.kind]} ${masked ? maskedMoneyText(cur, { withSymbol: false }) : moneyText(Math.abs(t.amount_minor), dec)}${cur !== mainCode ? ` ${cur}` : ""}`;
+
+  const feeCurCode = acc?.currency ?? cur;
+  const feeDec = ctx.curByCode[feeCurCode]?.decimals ?? dec;
+  const feeText =
+    t.fee_minor !== null && t.fee_minor > 0
+      ? `${masked ? maskedMoneyText(feeCurCode, { withSymbol: false }) : moneyText(t.fee_minor, feeDec)}${feeCurCode !== mainCode ? ` ${feeCurCode}` : ""}`
+      : null;
+
+  const accountText =
+    acc && acc.deleted_at === null
+      ? toAcc && toAcc.deleted_at === null
+        ? `${acctLabel(acc, ctx.accounts)} → ${acctLabel(toAcc, ctx.accounts)}`
+        : acctLabel(acc, ctx.accounts)
+      : null;
+
+  const cat = t.kind !== "transfer" && t.category_id && !isUncat(t.category_id) ? ctx.catById[t.category_id] : undefined;
+  const catText = cat ? categoryLabel(cat, ctx.catById) : null;
+  const route = t.route_id ? ctx.routes.find((r) => r.id === t.route_id && r.deleted_at === null) : undefined;
+  const itemText = (t.item ?? "").trim();
+  const noteText = t.note.trim();
+
+  const applyNow = () => {
+    const s = useTicketStore.getState();
+    s.closeDialog();
+    void s.applyTemplate(t.id);
+  };
+
+  return (
+    <div className="tk-v38-tpl-detail">
+      <dl className="tk-v38-tpl-grid">
+        <div className="tk-v38-tpl-item">
+          <dt>類型金額</dt>
+          <dd className={t.amount_minor === null ? "is-empty" : "is-num"}>{amountText}</dd>
+        </div>
+        <div className="tk-v38-tpl-item">
+          <dt>手續費</dt>
+          <dd className={feeText ? "is-num" : "is-empty"}>{feeText ?? "無"}</dd>
+        </div>
+        {accountText && (
+          <div className="tk-v38-tpl-item">
+            <dt>帳戶</dt>
+            <dd title={accountText}>{accountText}</dd>
+          </div>
+        )}
+        {catText && (
+          <div className="tk-v38-tpl-item">
+            <dt>分類</dt>
+            <dd title={catText}>{catText}</dd>
+          </div>
+        )}
+        <div className="tk-v38-tpl-item">
+          <dt>品項／來源</dt>
+          <dd className={itemText ? undefined : "is-empty"} title={itemText || undefined}>
+            {itemText || "（未填）"}
+          </dd>
+        </div>
+        <div className="tk-v38-tpl-item">
+          <dt>隨筆備註</dt>
+          <dd className={noteText ? undefined : "is-empty"} title={noteText || undefined}>
+            {noteText || "（未填）"}
+          </dd>
+        </div>
+        {route && (
+          <div className="tk-v38-tpl-item is-wide">
+            <dt>路線</dt>
+            <dd title={route.name}>{route.name}</dd>
+          </div>
+        )}
+      </dl>
+      <div className="tk-v38-tpl-foot">
+        <span>帶入後可調整金額、品項、隨筆或手續費</span>
+        <button type="button" className="ns-btn ns-btn--sm btn-ghost" onClick={applyNow}>
+          帶入記一筆
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /** 一個常用票種的動作（⋯、右鍵）；inManager＝已經在這個對話框裡（不給「改名、排序…」，帶入時先關對話框） */
 export function templateMenu(t: TemplateRow, inManager = false): PopMenuItem[] {
@@ -40,11 +142,12 @@ export function TemplateManager(_props: { onDone(): void }) {
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const masked = useTicketStore(isTicketAmountMasked);
   const renameTemplate = useTicketStore((s) => s.renameTemplate);
   const moveTemplateTo = useTicketStore((s) => s.moveTemplateTo);
   const routes = useNodeStore((s) => s.routes);
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
-  const ctx = { accounts, accById, catById, curByCode, routes };
+  const ctx: WhatCtx = { accounts, accById, catById, curByCode, routes };
 
   useDragReorder({
     root,
@@ -72,14 +175,15 @@ export function TemplateManager(_props: { onDone(): void }) {
                 dataId={t.id}
                 name={t.name}
                 onRename={(next) => renameTemplate(t.id, next)}
-                note={templateWhat(t, ctx, [], true)}
+                note={templateWhat(t, ctx, [], true, masked)}
+                detail={<TemplateDetail t={t} ctx={ctx} masked={masked} />}
                 onUp={i > 0 ? () => void moveTemplateTo(t.id, i - 1) : undefined}
                 onDown={i < templates.length - 1 ? () => void moveTemplateTo(t.id, i + 1) : undefined}
                 menu={templateMenu(t, true)}
               />
             ))}
           </ManagerList>
-          <p className="ns-tk-dhint">記一筆時排在最上面，照這裡的順序。</p>
+          <p className="ns-tk-dhint">記一筆時排在最上面，照這裡的順序；展開齒輪可檢視品項、隨筆與手續費。</p>
         </>
       )}
     </div>

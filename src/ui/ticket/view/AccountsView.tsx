@@ -24,7 +24,7 @@
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
-import { ACCOUNT_GROUPS, accountTotals, archivedAccounts, groupAccounts, mainCurrencyOf, maskedMoneyText, moneyText, type AccountRow } from "../../../domain/ticket";
+import { ACCOUNT_GROUPS, accountTotals, archivedAccounts, currencySymbol, groupAccounts, mainCurrencyOf, maskedMoneyText, moneyText, type AccountRow } from "../../../domain/ticket";
 import { accountFlowParts, type AccountCard } from "../../../domain/ticketView";
 import { indexOfAnchor, useDragReorder } from "../../common/dragReorder";
 import { EmptyState } from "../../common/EmptyState";
@@ -34,6 +34,7 @@ import { IconDots, IconPlus } from "../../common/icons";
 import { Money } from "../parts/Money";
 import { acctLabel } from "../TicketLedger";
 import { switchView } from "./ViewSwitch";
+import "../ticket-4.css";
 import "../ticket-4b.css";
 
 const isLiability = (groupKey: string): boolean => ACCOUNT_GROUPS.some((g) => g.key === groupKey && g.liability);
@@ -149,6 +150,7 @@ function Card({ account: a, first, last }: { account: AccountRow; first?: boolea
   const accounts = useTicketStore((s) => s.accounts);
   const balances = useTicketStore((s) => s.balances);
   const card = useTicketStore((s) => s.accountCards?.[a.id] ?? null);
+  const cycle = useTicketStore((s) => (a.group_key === "card" ? (s.cardCycles[a.id] ?? null) : null));
   const panel = useTicketStore((s) => s.panel);
   const dec = useTicketStore((s) => s.curByCode[a.currency]?.decimals ?? 2);
   const masked = useTicketStore(isTicketAmountMasked);
@@ -161,6 +163,7 @@ function Card({ account: a, first, last }: { account: AccountRow; first?: boolea
   const label = acctLabel(a, accounts);
   const bal = balances[a.id] ?? card?.balance ?? 0; // balances 每次 refresh 都是新的；card 是上次算卡時的快照
   const on = panel.kind === "account" && panel.id === a.id;
+  const sym = currencySymbol(a.currency);
 
   const items: PopMenuItem[] = [
     { key: "rename", label: "改名", onSelect: () => setRenaming(true) },
@@ -260,6 +263,46 @@ function Card({ account: a, first, last }: { account: AccountRow; first?: boolea
         >
           <IconDots />
         </button>
+        {cycle && (
+          <div className={`ns-tk-ac-cc is-${cycle.status}`}>
+            <span className="cc-meta">
+              <span>
+                結帳日 {cycle.statementDay} 號
+                {cycle.paymentDueDay !== null && ` · 繳款日 ${cycle.paymentDueDay} 號`}
+              </span>
+              <span className="cc-sep" aria-hidden>
+                ·
+              </span>
+              {cycle.dueMinor > 0 ? (
+                <span className="cc-due">
+                  本期應繳{" "}
+                  <b>{masked ? maskedMoneyText(a.currency) : `${sym} ${moneyText(cycle.dueMinor, dec)}`}</b>
+                  {cycle.status === "overdue" && (
+                    <em className="cc-late">逾期 {Math.abs(cycle.daysUntilDue ?? 0)} 天</em>
+                  )}
+                  {cycle.status === "due" && cycle.daysUntilDue !== null && (
+                    <em className="cc-late">{cycle.daysUntilDue === 0 ? "今天截止" : `剩 ${cycle.daysUntilDue} 天`}</em>
+                  )}
+                </span>
+              ) : (
+                <span className="cc-paid">本期已繳清</span>
+              )}
+            </span>
+            {!archived && cycle.dueMinor > 0 && (
+              <button
+                type="button"
+                className="ns-btn ns-btn--sm btn-ghost ns-tk-ac-paybtn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void store().openPayCardBill(a.id);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                繳卡費
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {/* 選單放在卡外：portal 裡的點擊照 React 樹往上冒，放在卡裡會順便觸發卡的「開側板」 */}
       {menuAt && (

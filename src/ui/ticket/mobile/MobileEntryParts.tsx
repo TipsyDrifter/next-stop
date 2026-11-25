@@ -13,8 +13,8 @@
  * - `TkTag`：售票口手機的荷札牌（`.ns-tk-mtag`，造型同旅客筆記手機牌：細框、左端切角、打孔；只用 --tag-* token，不借別線的 class）。
  * 樣式全在 `ticket-4-mobile.css`。
  */
-import type { ReactNode } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { useState, type ReactNode } from "react";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
@@ -22,8 +22,26 @@ import { MSheet } from "../../common/MSheet";
 import { Segmented } from "../../common/Segmented";
 import { RecallInput } from "../../common/RecallInput";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { shortDayKey } from "../../common/DatePicker";
 import { keyOf } from "../../../domain/tags";
-import { mainCurrencyOf, moneyText, type AccountRow, type CurrencyRow, type TemplateRow } from "../../../domain/ticket";
+import {
+  currencySymbol,
+  mainCurrencyOf,
+  maskedMoneyText,
+  moneyText,
+  parseAmount,
+  type AccountRow,
+  type CurrencyRow,
+  type EntryRow,
+  type TemplateRow,
+} from "../../../domain/ticket";
+import {
+  INSTALLMENT_PRESETS,
+  MAX_INSTALLMENTS,
+  MIN_INSTALLMENTS,
+  installmentProgressOf,
+  planInstallmentSlices,
+} from "../../../domain/ticketInstallment";
 import { REPEAT_QUICK_FREQS, REPEAT_QUICK_TEXT, quickFirstRun, type RepeatQuick, type RepeatQuickFreq } from "../../../domain/ticketPlan";
 import { WEEKDAY_LABEL, WEEKDAY_ORDER } from "../../../domain/repeat";
 import { dayStep, shortDay } from "../../../domain/ticketView";
@@ -36,10 +54,14 @@ export function templateAmountText(
   t: Pick<TemplateRow, "kind" | "amount_minor" | "currency" | "account_id">,
   accById: Readonly<Record<string, AccountRow>>,
   curByCode: Readonly<Record<string, CurrencyRow>>,
+  masked = false,
 ): string {
   if (t.amount_minor === null) return "—";
   const mainCode = mainCurrencyOf(Object.values(curByCode));
   const code = t.currency ?? (t.account_id ? accById[t.account_id]?.currency : undefined) ?? mainCode;
+  if (masked) {
+    return maskedMoneyText(code, { prefix: t.kind === "income" ? "＋" : t.kind === "transfer" ? "⇄" : "−", withSymbol: false });
+  }
   const dec = curByCode[code]?.decimals ?? 2;
   const abs = Math.abs(t.amount_minor);
   const body = t.kind === "expense" ? moneyText(-abs, dec) : moneyText(abs, dec, { prefix: t.kind === "income" ? "＋" : "⇄" });
@@ -50,12 +72,24 @@ export function TemplateCards({ activeId }: { activeId: string | null }) {
   const templates = useTicketStore((s) => s.templates);
   const accById = useTicketStore((s) => s.accById);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const masked = useTicketStore(isTicketAmountMasked);
   const applyTemplate = useTicketStore((s) => s.applyTemplate);
   if (templates.length === 0) return null;
+  const mainCode = mainCurrencyOf(Object.values(curByCode));
   return (
     <div className="ns-tk-m4-marks" role="group" aria-label="常用票種">
       {templates.map((t) => {
         const on = t.id === activeId;
+        const item = (t.item ?? "").trim();
+        const showItem = item !== "" && item !== t.name.trim();
+        const feeAccCur = (t.account_id ? accById[t.account_id]?.currency : undefined) ?? t.currency ?? mainCode;
+        const feeDec = curByCode[feeAccCur]?.decimals ?? 2;
+        const feeLabel =
+          t.fee_minor && t.fee_minor > 0
+            ? masked
+              ? `+費 ${maskedMoneyText(feeAccCur, { withSymbol: false })}`
+              : `+費 ${currencySymbol(feeAccCur)} ${moneyText(t.fee_minor, feeDec)}`
+            : null;
         return (
           <button
             key={t.id}
@@ -65,8 +99,14 @@ export function TemplateCards({ activeId }: { activeId: string | null }) {
             aria-pressed={on}
             onClick={() => void applyTemplate(t.id)}
           >
-            <span className="n">{t.name}</span>
-            <span className="v">{templateAmountText(t, accById, curByCode)}</span>
+            <span className="n">
+              {t.name}
+              {showItem && <small className="it"> · {item}</small>}
+            </span>
+            <span className="v">
+              {templateAmountText(t, accById, curByCode, masked)}
+              {feeLabel && <small className="fee">{feeLabel}</small>}
+            </span>
           </button>
         );
       })}
@@ -74,42 +114,382 @@ export function TemplateCards({ activeId }: { activeId: string | null }) {
   );
 }
 
-/* ═══════════ 備註（會記得以前寫過的） ═══════════ */
+/* ═══════════ 品項／來源（接 RecallInput 歷史補完） ═══════════ */
 
 export function MobileNoteField({
   value,
   onChange,
   onPick,
   rows = 1,
+  label = "品項",
+  ariaLabel = "品項／來源",
+  placeholder = "店家、品項或來源…",
 }: {
   value: string;
   onChange(next: string): void;
   /** 選了以前寫過的某一句（值已經換成它） */
   onPick?(text: string): void;
   rows?: number;
+  label?: string;
+  ariaLabel?: string;
+  placeholder?: string;
 }) {
   const items = useTicketStore((s) => s.noteRecall);
   const load = useTicketStore((s) => s.loadNoteRecall);
   return (
     <div className="ns-tk-mf-field top ns-tk-m4-note">
       <span className="lbl" aria-hidden>
-        備註
+        {label}
       </span>
       <RecallInput
-        multiline
+        multiline={rows > 1}
         rows={rows}
         value={value}
         onChange={onChange}
         items={items}
         onNeedItems={() => void load()}
         onPick={(it) => onPick?.(it.text)}
-        ariaLabel="備註"
-        placeholder="備註"
+        ariaLabel={ariaLabel}
+        placeholder={placeholder}
         className="ns-tk-mf-note"
         wrapClassName="ns-tk-m4-recall"
         shell="mobile"
       />
     </div>
+  );
+}
+
+/* ═══════════ 隨筆備註（純感想欄，絕不接 RecallInput） ═══════════ */
+
+export function MobileMemoField({
+  value,
+  onChange,
+  rows = 2,
+}: {
+  value: string;
+  onChange(next: string): void;
+  rows?: number;
+}) {
+  return (
+    <div className="ns-tk-mf-field top ns-tk-m4-memo">
+      <span className="lbl" aria-hidden>
+        隨筆
+      </span>
+      <textarea
+        rows={rows}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="隨筆備註"
+        placeholder="隨筆感想（不進補完）…"
+        className="ns-tk-mf-note ns-tk-mf-memo"
+        autoComplete="off"
+      />
+    </div>
+  );
+}
+
+/* ═══════════ 手續費獨立選填欄（44px 觸控高度＋幣別前綴＋實扣提示） ═══════════ */
+
+export function MobileFeeField({
+  value,
+  onChange,
+  kind,
+  feeCurrency,
+  entryCurrency,
+  amountMinor,
+  curByCode,
+}: {
+  value: string;
+  onChange(next: string): void;
+  kind: "expense" | "income" | "transfer";
+  feeCurrency: string;
+  entryCurrency: string;
+  amountMinor: number | null;
+  curByCode: Readonly<Record<string, CurrencyRow>>;
+}) {
+  const feeCur = curByCode[feeCurrency];
+  const dec = feeCur?.decimals ?? 2;
+  const sym = currencySymbol(feeCurrency);
+
+  let feeMinor: number | null = null;
+  let feeErr: string | null = null;
+  if (value.trim() !== "") {
+    if (feeCur) {
+      try {
+        const parsed = parseAmount(value, feeCur, { allowNegative: true, allowZero: true });
+        if (parsed < 0) feeErr = "手續費不能是負數";
+        else if (parsed > 0) feeMinor = parsed;
+      } catch (e) {
+        feeErr = e instanceof Error ? e.message : "格式不正確";
+      }
+    }
+  }
+
+  let hint: string | null = null;
+  if (feeMinor !== null && feeMinor > 0) {
+    const sameCur = feeCurrency === entryCurrency;
+    if (amountMinor !== null && sameCur) {
+      if (kind === "expense") {
+        hint = `含手續費實扣 ${sym} ${moneyText(amountMinor + feeMinor, dec)}`;
+      } else if (kind === "transfer") {
+        hint = `轉出帳戶實扣 ${sym} ${moneyText(amountMinor + feeMinor, dec)}`;
+      } else {
+        hint = `扣除手續費實收 ${sym} ${moneyText(amountMinor - feeMinor, dec)}`;
+      }
+    } else {
+      hint =
+        kind === "income"
+          ? `另從帳戶扣除手續費 ${sym} ${moneyText(feeMinor, dec)}`
+          : `另從帳戶加扣手續費 ${sym} ${moneyText(feeMinor, dec)}`;
+    }
+  }
+
+  return (
+    <div className="ns-tk-m4-fee">
+      <div className="ns-tk-mf-field">
+        <span className="lbl" aria-hidden>
+          手續費
+        </span>
+        <div className="ns-tk-m4-feein">
+          <span className="sym" aria-hidden>
+            {sym}
+          </span>
+          <input
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            enterKeyHint="done"
+            value={value}
+            placeholder="0（選填）"
+            aria-label="手續費"
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {value.trim() !== "" && (
+            <button type="button" className="clr" aria-label="清除手續費" onClick={() => onChange("")}>
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+      {feeErr ? (
+        <p className="ns-tk-m4-feehint is-err" role="status">
+          {feeErr}
+        </p>
+      ) : hint ? (
+        <p className="ns-tk-m4-feehint">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/* ═══════════ 刷卡分期設定（新支出限定） ═══════════ */
+
+export function MobileInstallmentField({
+  periods,
+  onChange,
+  amountMinor,
+  feeMinor,
+  currency,
+  curByCode,
+  dayKey,
+}: {
+  periods: number | null;
+  onChange(next: number | null): void;
+  amountMinor: number | null;
+  feeMinor: number | null;
+  currency: string;
+  curByCode: Readonly<Record<string, CurrencyRow>>;
+  dayKey: string;
+}) {
+  const isPreset = periods !== null && (INSTALLMENT_PRESETS as readonly number[]).includes(periods);
+  const [customOpen, setCustomOpen] = useState(periods !== null && !isPreset);
+  const [customText, setCustomText] = useState(periods !== null && !isPreset ? String(periods) : "");
+  const showCustom = customOpen || (periods !== null && !isPreset);
+
+  const cur = curByCode[currency];
+  const dec = cur?.decimals ?? 2;
+  const sym = currencySymbol(currency);
+
+  const pickNone = () => {
+    setCustomOpen(false);
+    setCustomText("");
+    onChange(null);
+  };
+  const pickPreset = (n: number) => {
+    setCustomOpen(false);
+    onChange(n);
+  };
+  const pickCustom = () => {
+    setCustomOpen(true);
+    const parsed = parseInt(customText.trim(), 10);
+    if (Number.isInteger(parsed) && parsed >= MIN_INSTALLMENTS && parsed <= MAX_INSTALLMENTS) {
+      onChange(parsed);
+    } else if (periods === null || isPreset) {
+      const def = 10;
+      setCustomText(String(def));
+      onChange(def);
+    }
+  };
+  const onCustomInput = (raw: string) => {
+    const clean = raw.replace(/[^\d]/g, "").slice(0, 2);
+    setCustomText(clean);
+    const n = parseInt(clean, 10);
+    if (Number.isInteger(n) && n >= MIN_INSTALLMENTS && n <= MAX_INSTALLMENTS) {
+      onChange(n);
+    }
+  };
+
+  let summary: string | null = null;
+  if (periods !== null && periods >= MIN_INSTALLMENTS) {
+    if (amountMinor !== null && amountMinor > 0) {
+      try {
+        const slices = planInstallmentSlices({
+          totalAmountMinor: amountMinor,
+          periods,
+          firstOccurredOn: dayKey,
+          feeMinor,
+        });
+        const first = slices[0];
+        const second = slices[1];
+        const last = slices[slices.length - 1];
+        const feeNote = feeMinor && feeMinor > 0 ? "（手續費併入首期）" : "";
+        if (first.amountMinor !== second.amountMinor) {
+          summary = `首期 ${sym} ${moneyText(first.amountMinor, dec)}，第 2–${periods} 期各 ${sym} ${moneyText(second.amountMinor, dec)} · 至 ${shortDayKey(last.occurredOn)}${feeNote}`;
+        } else {
+          summary = `每期 ${sym} ${moneyText(first.amountMinor, dec)} × ${periods} 期 · 至 ${shortDayKey(last.occurredOn)}${feeNote}`;
+        }
+      } catch {
+        summary = `分 ${periods} 期`;
+      }
+    } else {
+      summary = `分 ${periods} 期 · 填寫金額後試算每期攤還`;
+    }
+  }
+
+  return (
+    <div className="ns-tk-m4-inst">
+      <div className="ns-tk-mf-field top">
+        <span className="lbl" aria-hidden>
+          分期
+        </span>
+        <div className="ns-tk-m4-instbox">
+          <div className="ns-tk-m4-instpills" role="radiogroup" aria-label="刷卡分期">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!showCustom && periods === null}
+              className={"ns-tk-m4-instpill" + (!showCustom && periods === null ? " on" : "")}
+              onClick={pickNone}
+            >
+              不分期
+            </button>
+            {INSTALLMENT_PRESETS.map((n) => {
+              const active = !showCustom && periods === n;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={"ns-tk-m4-instpill" + (active ? " on" : "")}
+                  onClick={() => pickPreset(n)}
+                >
+                  {n} 期
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={showCustom}
+              className={"ns-tk-m4-instpill" + (showCustom ? " on" : "")}
+              onClick={pickCustom}
+            >
+              自訂
+            </button>
+          </div>
+          {showCustom && (
+            <label className="ns-tk-m4-instcust">
+              <span>期數</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                value={customText}
+                placeholder={`${MIN_INSTALLMENTS}–${MAX_INSTALLMENTS}`}
+                aria-label="自訂分期期數"
+                onChange={(e) => onCustomInput(e.target.value)}
+              />
+              <small>期（{MIN_INSTALLMENTS}–{MAX_INSTALLMENTS}）</small>
+            </label>
+          )}
+          {summary && <p className="ns-tk-m4-instsum">{summary}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════ 既有分期帳進度卡 ═══════════ */
+
+export function MobileInstallmentProgressCard({
+  entry,
+  groupRows,
+  today,
+  curByCode,
+  masked,
+}: {
+  entry: EntryRow;
+  groupRows: readonly EntryRow[] | null;
+  today: string;
+  curByCode: Readonly<Record<string, CurrencyRow>>;
+  masked: boolean;
+}) {
+  if (!entry.installment_group_id) return null;
+  const prog = groupRows ? installmentProgressOf(groupRows, entry.installment_group_id, today) : null;
+  const mainCur = mainCurrencyOf(curByCode);
+  const mainCode = mainCur.code;
+  const mainDec = mainCur.decimals;
+  const mainSym = currencySymbol(mainCode);
+
+  const fmt = (minor: number) =>
+    masked ? maskedMoneyText(mainCode) : `${mainSym} ${moneyText(minor, mainDec)}`;
+
+  const idx = entry.installment_index ?? 1;
+  const total = prog?.totalPeriods ?? entry.installment_total ?? 1;
+  const posted = prog?.postedCount ?? 0;
+  const pct = total > 0 ? Math.min(100, Math.round((posted / total) * 100)) : 0;
+
+  return (
+    <section className="ns-tk-m4-instcard" aria-label="刷卡分期進度">
+      <div className="hd">
+        <span className="t">刷卡分期進度</span>
+        <span className="badge">
+          第 {idx} / {total} 期
+        </span>
+      </div>
+      {prog ? (
+        <>
+          <div className="bar" role="progressbar" aria-valuenow={posted} aria-valuemin={0} aria-valuemax={total}>
+            <span className="fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="meta">
+            <span>
+              已入帳 <b>{prog.postedCount}</b> 期 · <b>{fmt(prog.postedMainMinor)}</b>
+            </span>
+            <span>
+              剩餘 <b>{prog.remainingCount}</b> 期 · <b>{fmt(prog.remainingMainMinor)}</b>
+            </span>
+          </div>
+          <p className="next">
+            {prog.nextDueOn ? `下期入帳：${shortDayKey(prog.nextDueOn)}` : "已全數入帳"}
+            {prog.aliveCount < prog.totalPeriods && `（現存 ${prog.aliveCount} 期）`}
+          </p>
+        </>
+      ) : (
+        <p className="next">讀取分期進度…</p>
+      )}
+    </section>
   );
 }
 

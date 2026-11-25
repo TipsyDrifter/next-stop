@@ -49,13 +49,18 @@ export function repeatUncat(r: RepeatRow): boolean {
 }
 
 /**
- * 列上要不要另印備註：空的不印；和分類同名（去 emoji 後；例：分類「💰 生活費」備註「生活費」）不印——不然會讀成「生活費 生活費」。
- * 未分類的列各殼自己決定（手機拿備註當名字）。
+ * 列上要不要另印品項／隨筆：優先顯示 `r.item`（與分類去 emoji 後同名則略過避免重複），
+ * 若另有與品項／分類不同的 `r.note` 則以 ` · ` 接續帶出；兩者皆空回 null。
  */
 export function repeatNoteShown(r: RepeatRow, catById: Readonly<Record<string, CategoryRow>>): string | null {
+  const item = (r.item ?? "").trim();
   const note = r.note.trim();
-  if (!note) return null;
   const c = r.category_id ? catById[r.category_id] : undefined;
-  if (c && bareName(c.name) === note) return null;
-  return note;
+  const catBare = c ? bareName(c.name) : "";
+  const showItem = item !== "" && item !== catBare;
+  const showNote = note !== "" && note !== catBare && note !== item;
+  if (showItem && showNote) return `${item} · ${note}`;
+  if (showItem) return item;
+  if (showNote) return note;
+  return null;
 }

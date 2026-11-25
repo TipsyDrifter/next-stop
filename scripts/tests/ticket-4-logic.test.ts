@@ -127,7 +127,7 @@ const NOW = new Date(2026, 10, 2, 9, 0).toISOString();
 const SYNC = { device_id: null, created_at: NOW, updated_at: NOW, synced_at: null, deleted_at: null };
 const TWD: CurrencyRow = { id: ticketId("currency:TWD"), code: "TWD", name: "TWD", decimals: 2, rate_to_main: "1", is_main: 1, position: 0, ...SYNC };
 const USD: CurrencyRow = { id: ticketId("currency:USD"), code: "USD", name: "USD", decimals: 2, rate_to_main: "31.5", is_main: 0, position: 1, ...SYNC };
-const acc = (id: string, extra: Partial<AccountRow> = {}): AccountRow => ({ id, name: id, group_key: "cash", currency: "TWD", position: 0, archived_at: null, ...SYNC, ...extra });
+const acc = (id: string, extra: Partial<AccountRow> = {}): AccountRow => ({ id, name: id, group_key: "cash", currency: "TWD", position: 0, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null, ...SYNC, ...extra });
 const cat = (id: string, kind: "income" | "expense", parent: string | null = null, extra: Partial<CategoryRow> = {}): CategoryRow => ({
   id, kind, name: id, parent_id: parent, position: 0, archived_at: null, ...SYNC, ...extra,
 });
@@ -159,7 +159,13 @@ function ent(p: Partial<EntryRow> & { occurred_on: string }): EntryRow {
     main_minor: amount,
     account_minor: amount,
     to_amount_minor: null,
+    item: "",
     note: "",
+    fee_minor: null,
+    fee_main_minor: null,
+    installment_group_id: null,
+    installment_index: null,
+    installment_total: null,
     route_id: null,
     repeat_id: null,
     import_id: null,
@@ -450,19 +456,19 @@ describe("E. 願望與常用票種的純函式", () => {
     assert.deepEqual(A.applyWishPatch(row, { name: "w1", amountMinor: 1000 }, NOW).cols, {});
     assert.deepEqual(A.applyWishPatch(row, { name: " 耳機 ", amountMinor: null }, "T2").cols, { name: "耳機", amount_minor: null, updated_at: "T2" });
   });
-  test("20. wishDraftSeed：支出、金額＝預估（主幣別）、備註＝名稱、分類（封存或收入的不帶）", () => {
+  test("20. wishDraftSeed：支出、金額＝預估（主幣別）、品項＝名稱、分類（封存或收入的不帶）", () => {
     const main = { code: "TWD", decimals: 2 };
     assert.deepEqual(A.wishDraftSeed(w("降噪耳機", { amount_minor: 780000, category_id: "c-lunch" }), CTX, main), {
-      kind: "expense", amountText: "7800", currency: "TWD", note: "降噪耳機", categoryId: "c-lunch", wishId: "降噪耳機",
+      kind: "expense", amountText: "7800", currency: "TWD", item: "降噪耳機", note: "", categoryId: "c-lunch", wishId: "降噪耳機",
     });
     assert.equal(A.wishDraftSeed(w("x", { amount_minor: null, category_id: "c-old" }), CTX, main).categoryId, null);
     assert.equal(A.wishDraftSeed(w("x", { amount_minor: null }), CTX, main).amountText, "");
     assert.equal(A.wishDraftSeed(w("x", { category_id: "c-salary" }), CTX, main).categoryId, null);
   });
   test("21. templateFromEntry：整張照抄；精算不能存；轉帳不帶分類", () => {
-    const e = ent({ occurred_on: "2026-11-01", note: "學餐", route_id: "rt" });
+    const e = ent({ occurred_on: "2026-11-01", item: "學餐", note: "加蛋", fee_minor: 500, route_id: "rt" });
     assert.deepEqual(A.templateFromEntry(e, " 午餐 "), {
-      name: "午餐", kind: "expense", amountMinor: 12000, currency: "TWD", accountId: "a-cash", toAccountId: null, categoryId: "c-lunch", note: "學餐", routeId: "rt",
+      name: "午餐", kind: "expense", amountMinor: 12000, currency: "TWD", accountId: "a-cash", toAccountId: null, categoryId: "c-lunch", item: "學餐", note: "加蛋", feeMinor: 500, routeId: "rt",
     });
     throwsMsg(() => A.templateFromEntry(ent({ occurred_on: "2026-11-01", kind: "adjust" }), "x"), A.AIDS_TEXT.templateAdjust);
     throwsMsg(() => A.templateFromEntry(e, ""), A.AIDS_TEXT.templateNameEmpty);
@@ -472,11 +478,11 @@ describe("E. 願望與常用票種的純函式", () => {
   });
   test("22. templateDraftSeed：整張填；帳戶已刪或封存 ⇒ 不給（草稿留原本的）；分類封存或 kind 不合 ⇒ null；沒存金額 ⇒ 清空", () => {
     const base = A.buildTemplateRow(
-      { name: "午餐", kind: "expense", amountMinor: 12050, currency: "TWD", accountId: "a-cash", toAccountId: null, categoryId: "c-lunch", note: "學餐", routeId: null },
+      { name: "午餐", kind: "expense", amountMinor: 12050, currency: "TWD", accountId: "a-cash", toAccountId: null, categoryId: "c-lunch", item: "學餐", note: "加蛋", feeMinor: 500, routeId: null },
       { id: "t1", position: 0, nowIso: NOW },
     );
     assert.deepEqual(A.templateDraftSeed(base, CTX), {
-      kind: "expense", amountText: "120.5", currency: "TWD", accountId: "a-cash", categoryId: "c-lunch", note: "學餐", routeId: null, fromTemplateId: "t1",
+      kind: "expense", amountText: "120.5", currency: "TWD", accountId: "a-cash", categoryId: "c-lunch", item: "學餐", note: "加蛋", feeText: "5", routeId: null, fromTemplateId: "t1",
     });
     const gone: TemplateRow = { ...base, account_id: "a-old", category_id: "c-old", amount_minor: null, currency: null };
     const s = A.templateDraftSeed(gone, CTX);
@@ -524,7 +530,7 @@ interface TestDb {
 function makeSqliteDb(): TestDb {
   const raw = new DatabaseSync(":memory:");
   raw.exec("PRAGMA foreign_keys = ON");
-  for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
+  for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish", "0019_waitroom_kind", "0027_ticket_v138"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
   // moveWishTo／getWishTargets 的等候判定會查 nodes／notes／time_blocks（別支 migration 的表）；這裡只要最小殼
   raw.exec("CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY NOT NULL, kind TEXT, name TEXT, deleted_at TEXT)");
   raw.exec("CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY NOT NULL, kind TEXT, entry_date TEXT, deleted_at TEXT)");
@@ -579,12 +585,12 @@ async function setup(impl: Impl) {
   const lunch = await repo.createCategory({ kind: "expense", name: "午餐", parentId: food.id });
   return { repo, db, cash, food, lunch };
 }
-const expenseInput = (accountId: string, categoryId: string | null, day: string, note = "", amountMinor = 12000) => ({
-  kind: "expense", amountMinor, currency: "TWD", accountId, toAccountId: null, categoryId, occurredOn: day, occurredAt: atOf(day, "12:00", 0), note, routeId: null,
+const expenseInput = (accountId: string, categoryId: string | null, day: string, item = "", amountMinor = 12000, note = "") => ({
+  kind: "expense", amountMinor, currency: "TWD", accountId, toAccountId: null, categoryId, occurredOn: day, occurredAt: atOf(day, "12:00", 0), item, note, routeId: null,
 });
 
-describe("F. repository（memory／sqlite；sqlite 套 0007＋0010＋0016 真 DDL）", () => {
-  test("24. 0016：兩張表的欄＝ticket.rs 白名單＋id＋device_id／synced_at；檔頭照 0010 寫法、沒有 CHECK", () => {
+describe("F. repository（memory／sqlite；sqlite 套 0007＋0010＋0016＋0027 真 DDL）", () => {
+  test("24. 0016+0027：兩張表的欄＝ticket.rs 白名單＋id＋device_id／synced_at；檔頭照 0010 寫法、沒有 CHECK", () => {
     for (const mf of ["0016_ticket_wish", "0019_waitroom_kind"]) {
       const sql = readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8");
       assert.ok(!sql.includes("\r"), `${mf} LF 行尾`);
@@ -592,7 +598,7 @@ describe("F. repository（memory／sqlite；sqlite 套 0007＋0010＋0016 真 DD
       assert.match(sql, /號碼只寫在檔名與 migrations\.rs 那一行；正式號由主對話進驗收時發/);
     }
     const d = new DatabaseSync(":memory:");
-    for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish", "0019_waitroom_kind"]) d.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
+    for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish", "0019_waitroom_kind", "0027_ticket_v138"]) d.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
     for (const [tbl, cols] of [["tk_wishes", "TK_WISHES_COLS"], ["tk_templates", "TK_TEMPLATES_COLS"]] as const) {
       const names = new Set(d.prepare(`PRAGMA table_info(${tbl})`).all().map((r) => String((r as { name: string }).name)));
       for (const c of [...rustCols(cols), "id", "device_id", "synced_at"]) assert.ok(names.has(c), `${tbl}.${c}`);
@@ -706,10 +712,11 @@ describe("F. repository（memory／sqlite；sqlite 套 0007＋0010＋0016 真 DD
       if (db) assert.equal(db.ops.length, m2);
     });
 
-    test(`29. listNoteUses：還在的帳、備註非空（空白也不算）、精算不算；實體化回記出來的那幾筆（${impl.name}）`, async () => {
+    test(`29. listNoteUses：還在的帳、品項非空（空白與純隨筆不算）、精算不算；實體化回記出來的那幾筆（${impl.name}）`, async () => {
       const { repo, cash, lunch } = await setup(impl);
       await repo.createEntry(expenseInput(cash.id, lunch.id, "2026-11-01", "麥味登"));
       await repo.createEntry(expenseInput(cash.id, lunch.id, "2026-11-01", "   "));
+      await repo.createEntry(expenseInput(cash.id, lunch.id, "2026-11-01", "", 12000, "純隨筆不進詞庫"));
       const gone = await repo.createEntry(expenseInput(cash.id, lunch.id, "2026-11-01", "刪掉的"));
       await repo.softDeleteEntry(gone.id);
       await repo.adjustBalance(cash.id, 999, "2026-11-01", "餘額調整"); // 精算的備註是系統寫的，不列
@@ -791,13 +798,13 @@ describe("G. ticketStore 售票口④", async () => {
     st().closePanel();
   });
 
-  test("33. 存並再記：清金額、備註、荷札、定期、願望；留類型、帳戶、分類、日期", async () => {
+  test("33. 存並再記：清金額、品項、備註、手續費、分期、荷札、定期、願望；留類型、帳戶、分類、日期", async () => {
     st().openNew();
-    st().setDraft({ amountText: "50", categoryId: lunch.id, note: "飲料", tags: ["手搖"] });
+    st().setDraft({ amountText: "50", categoryId: lunch.id, item: "大杯紅茶", note: "去冰", feeText: "5", tags: ["手搖"] });
     st().setDraftRepeat("weekly");
     assert.equal(await st().saveDraft({ again: true }), true);
     const d = st().draft!;
-    assert.deepEqual([d.amountText, d.note, d.tags, d.repeat.freq, d.wishId, d.categoryId, d.accountId], ["", "", [], "none", null, lunch.id, cashId]);
+    assert.deepEqual([d.amountText, d.item, d.note, d.feeText, d.installmentPeriods, d.tags, d.repeat.freq, d.wishId, d.categoryId, d.accountId], ["", "", "", "", null, [], "none", null, lunch.id, cashId]);
     st().closePanel();
   });
 
@@ -831,22 +838,23 @@ describe("G. ticketStore 售票口④", async () => {
     assert.equal(await st().setEntryRepeatQuick(e.id, P.quickRepeat("weekly", TODAY)), false);
   });
 
-  test("36. 備註記憶：懶載、存檔後重載；lastCategoryForNote 只回可用的分類", async () => {
+  test("36. 品項記憶：懶載、存檔後重載；lastCategoryForNote 只回可用的分類（純備註不進詞庫）", async () => {
     assert.equal(st().noteRecall, null);
     await st().loadNoteRecall();
     assert.ok(st().noteRecall!.some((x) => x.text === "房租"));
     assert.equal(st().lastCategoryForNote("expense", "房租"), lunch.id);
     assert.equal(st().lastCategoryForNote("income", "房租"), null);
     st().openNew();
-    st().setDraft({ amountText: "60", categoryId: lunch.id, note: "全新備註" });
+    st().setDraft({ amountText: "60", categoryId: lunch.id, item: "全新店家", note: "純隨筆不該記憶" });
     await st().saveDraft({ again: false });
     await new Promise((r) => setTimeout(r, 0));
     await st().loadNoteRecall();
-    assert.ok(st().noteRecall!.some((x) => x.text === "全新備註"), "存檔後作廢、背景重載");
+    assert.ok(st().noteRecall!.some((x) => x.text === "全新店家"), "存檔後作廢、背景重載");
+    assert.ok(!st().noteRecall!.some((x) => x.text === "純隨筆不該記憶"), "隨筆備註不進詞庫");
   });
 
   test("37. 常用票種：存成常用（帶荷札）→ 點了整張填進草稿（含荷札）；改名、搬、刪復原", async () => {
-    const e = (await repo.listEntries(TODAY, addDays(TODAY, 1), null)).find((x) => x.note === "房租")!;
+    const e = (await repo.listEntries(TODAY, addDays(TODAY, 1), null)).find((x) => x.item === "房租")!;
     const t = (await st().saveTemplateFromEntry(e.id, "房租"))!;
     assert.ok(t);
     assert.deepEqual(tags.map.get(`ticket:template|${t.id}`), ["家"]);
@@ -854,7 +862,7 @@ describe("G. ticketStore 售票口④", async () => {
     st().openNew();
     await st().applyTemplate(t.id);
     const d = st().draft!;
-    assert.deepEqual([d.amountText, d.categoryId, d.note, d.accountId, d.fromTemplateId, d.tags], ["12000", lunch.id, "房租", cashId, t.id, ["家"]]);
+    assert.deepEqual([d.amountText, d.categoryId, d.item, d.note, d.accountId, d.fromTemplateId, d.tags], ["12000", lunch.id, "房租", "", cashId, t.id, ["家"]]);
     st().closePanel();
     await st().renameTemplate(t.id, "每月房租");
     assert.equal(st().templates.find((x) => x.id === t.id)!.name, "每月房租");
@@ -884,21 +892,22 @@ describe("G. ticketStore 售票口④", async () => {
     await st().removeBudget(total, null); // 收乾淨：後面的測試不看預算
   });
 
-  test("38. buyWish：開記一筆（支出、金額、備註＝名稱、分類、願望的荷札、wishId）", async () => {
+  test("38. buyWish：開記一筆（支出、金額、品項＝名稱、分類、願望的荷札、wishId）", async () => {
     const w = (await st().createWish({ name: "行動電源", amountText: "990", categoryId: lunch.id, tags: ["3C"] }))!;
     await st().buyWish(w.id);
     const d = st().draft!;
-    assert.deepEqual([d.kind, d.amountText, d.note, d.categoryId, d.tags, d.wishId], ["expense", "990", "行動電源", lunch.id, ["3C"], w.id]);
+    assert.deepEqual([d.kind, d.amountText, d.item, d.note, d.categoryId, d.tags, d.wishId], ["expense", "990", "行動電源", "", lunch.id, ["3C"], w.id]);
     st().closePanel();
     await st().deleteWish(w.id);
     assert.ok(!st().wishes.some((x) => x.id === w.id));
   });
 
-  test("39. 捕捉框：一行的 #荷札 掛上、不進備註", async () => {
+  test("39. 捕捉框：一行的 #荷札 掛上、不進品項", async () => {
     const res = await st().addQuickEntry({ body: "45 午餐 和同學 #聚餐 #fff", dayKey: TODAY, routeId: null } as never);
     assert.ok(res.toast);
-    const last = (await repo.listEntries(TODAY, addDays(TODAY, 1), null)).find((x) => x.note.includes("和同學"))!;
-    assert.equal(last.note, "和同學 #fff");
+    const last = (await repo.listEntries(TODAY, addDays(TODAY, 1), null)).find((x) => x.item.includes("和同學"))!;
+    assert.equal(last.item, "和同學 #fff");
+    assert.equal(last.note, "");
     assert.deepEqual(tags.map.get(`ticket:entry|${last.id}`), ["聚餐"]);
   });
 
@@ -1030,6 +1039,78 @@ describe("G. ticketStore 售票口④", async () => {
     await st().deleteEntry(made);
     await st().jumpToRepeatDay(day);
     assert.equal(st().selectedId, manual.id, "沒有定期帳 ⇒ 那天第一列（jumpToDay）");
+  });
+
+  test("48. v1.38 Store：分期建立/整組刪除復原、信用卡繳卡費預填、舊帳長句分流", async () => {
+    // 信用卡帳戶與本期刷卡（跨本月帳單）
+    const card = await st().createAccount({
+      name: "玉山卡",
+      group: "card",
+      currency: "TWD",
+      openingText: "",
+      statementDay: 15,
+      paymentDueDay: 2,
+      autoPayAccountId: cashId,
+    });
+    assert.ok(card);
+    assert.equal(card!.statement_day, 15);
+    assert.ok(st().cardCycles[card!.id]);
+
+    // 建 3 期分期
+    st().openNew();
+    st().setDraft({
+      accountId: card!.id,
+      amountText: "3000",
+      categoryId: lunch.id,
+      item: "Switch",
+      note: "分三期",
+      installmentPeriods: 3,
+      tags: ["電玩"],
+    });
+    assert.equal(await st().saveDraft({ again: false }), true);
+    assert.ok(lastToast().includes("3 期"));
+    const allInst = (await st().loadAllAliveEntries()).filter((e) => e.item === "Switch");
+    assert.equal(allInst.length, 3);
+    assert.deepEqual(tags.map.get(`ticket:entry|${allInst[0].id}`), ["電玩"]);
+    const gid = allInst[0].installment_group_id!;
+    assert.equal((await st().loadInstallmentGroup(gid)).length, 3);
+
+    // 整組刪除並復原
+    await st().deleteInstallmentGroup(gid);
+    assert.equal((await st().loadInstallmentGroup(gid)).length, 0);
+    toastsOf().at(-1)!.onAction!();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal((await st().loadInstallmentGroup(gid)).length, 3);
+
+    // openPayCardBill：從 auto_pay_account_id 轉帳給信用卡，並預填本期應繳金額
+    st().openPayCardBill(card!.id);
+    const payDraft = st().draft!;
+    assert.equal(payDraft.kind, "transfer");
+    assert.equal(payDraft.accountId, cashId);
+    assert.equal(payDraft.toAccountId, card!.id);
+    assert.equal(payDraft.item, "玉山卡 繳卡費");
+    st().closePanel();
+
+    // 舊帳分流候選 & 套用
+    const leg = await repo.createEntry({
+      kind: "expense",
+      amountMinor: 25000,
+      currency: "TWD",
+      accountId: cashId,
+      toAccountId: null,
+      categoryId: lunch.id,
+      occurredOn: TODAY,
+      occurredAt: atOf(TODAY, "12:00", 0),
+      item: "全聯 買鮮奶跟吐司順便補衛生紙",
+      note: "",
+      routeId: null,
+    });
+    const cands = await st().findLegacySplits();
+    assert.ok(cands.some((c) => c.entryId === leg.id));
+    await st().applyLegacySplits([{ id: leg.id, item: "全聯", note: "買鮮奶跟吐司順便補衛生紙" }]);
+    const after = (await repo.getEntry(leg.id))!;
+    assert.equal(after.item, "全聯");
+    assert.equal(after.note, "買鮮奶跟吐司順便補衛生紙");
   });
 });
 

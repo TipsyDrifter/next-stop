@@ -18,6 +18,7 @@ import {
   type ReportDaySpreadData,
   type ReportRouteRef,
 } from "../../domain/report";
+import { UNCAT_NAME } from "../../domain/ticket";
 import { fmtDur } from "../../domain/timetable";
 import { addDays } from "../../lib/date";
 import { runAtomicNav } from "../../store/navHistoryStore";
@@ -682,18 +683,23 @@ export function ReportDaySpread({
                 <ul className="ns-rp-spread-ledger">
                   {money.entries.map((e) => {
                     const route = resolveRoute(e.routeId);
+                    const itemText = e.item?.trim() ?? "";
+                    const noteText = e.note.trim();
+                    const subText = [itemText && e.category !== UNCAT_NAME ? e.category : null, noteText]
+                      .filter(Boolean)
+                      .join(" · ");
                     return (
                       <li key={e.id} className="ns-rp-spread-expense">
                         <div className="exp-main">
                           <div className="exp-head">
-                            <span className="cat-nm">{e.category}</span>
+                            <span className="cat-nm">{itemText || e.category}</span>
                             {route && <RouteBadge route={route} />}
                             {e.tagKeys && e.tagKeys.length > 0 && (
                               <TagPills keys={e.tagKeys} compact max={2} onPick={pillOnPick} />
                             )}
                             {e.clock && <span className="exp-clk">{e.clock}</span>}
                           </div>
-                          {e.note && <p className="exp-note">{e.note}</p>}
+                          {subText && <p className="exp-note">{subText}</p>}
                         </div>
                         <span className="amt">
                           {formatReportMoney(e.minor, money.decimals, amountMasked)}

@@ -58,11 +58,13 @@ import {
   bareName,
   categoryArchivedUp,
   clampMonthStartDay,
+  currencySymbol,
   defaultAccountId,
   draftToInput,
   frequentAccountIds,
   frequentCategoryIds,
   groupByDay,
+  isLiability,
   localTime,
   mainCurrencyOf,
   moneyText,
@@ -93,6 +95,7 @@ import {
   DEFAULT_BREAKDOWN_SORT,
   DEFAULT_ENTRY_SORT,
   EMPTY_FILTER,
+  FAR_DAY,
   GONE_KEY,
   TICKET_MANAGE_TABS,
   UNSPLIT_KEY,
@@ -101,6 +104,7 @@ import {
   accountsRange,
   breakdown,
   calendarCells,
+  dayStep,
   facetAllowed,
   filterMonthEntries,
   filterToQuery,
@@ -195,6 +199,9 @@ import {
   type WishTargetKind,
   type WishView,
 } from "../domain/ticketAids";
+import { MAX_INSTALLMENTS, MIN_INSTALLMENTS } from "../domain/ticketInstallment";
+import { creditCardCycleOf, type CreditCardCycleSummary } from "../domain/ticketCardCycle";
+import { findLegacySplitCandidates, type LegacySplitCandidate } from "../domain/ticketSplit";
 import type { RecallItem } from "../domain/recall";
 import { keyOf } from "../domain/tags";
 import { tagRepo } from "../data/tagRepo";
@@ -235,7 +242,9 @@ export type TicketDialog =
   | { kind: "repeat"; id: string | null; seed?: Partial<RepeatDraft> }
   /* 售票口④（D-票-68）：管帳「常用票種…」（改名、刪除、排序）；帳目詳情「存成常用…」取名（entryId＝來源那筆） */
   | { kind: "templates" }
-  | { kind: "saveTemplate"; entryId: string };
+  | { kind: "saveTemplate"; entryId: string }
+  /* v1.38 3A：舊帳隨筆分流小幫手 */
+  | { kind: "legacySplit" };
 
 /** 向下相容既有六種管理對話框呼叫端：統一正規化為統合「管帳」對話框並定位至對應分籤 */
 export function normalizeTicketDialog(d: TicketDialog): TicketDialog {
@@ -308,8 +317,26 @@ export interface TicketStore {
 
   /* 帳戶 */
   /** 回新帳戶（失敗 toast、回 null）；當下 dialog 帶 then ⇒ 接著 openNew／pick（2-16） */
-  createAccount(input: { name: string; group: AccountGroup; currency: string; openingText: string }): Promise<AccountRow | null>;
-  updateAccount(id: string, patch: { name?: string; group?: AccountGroup; currency?: string }): Promise<void>;
+  createAccount(input: {
+    name: string;
+    group: AccountGroup;
+    currency: string;
+    openingText: string;
+    statementDay?: number | null;
+    paymentDueDay?: number | null;
+    autoPayAccountId?: string | null;
+  }): Promise<AccountRow | null>;
+  updateAccount(
+    id: string,
+    patch: {
+      name?: string;
+      group?: AccountGroup;
+      currency?: string;
+      statementDay?: number | null;
+      paymentDueDay?: number | null;
+      autoPayAccountId?: string | null;
+    },
+  ): Promise<void>;
   archiveAccount(id: string): void; // askConfirm（§5.7 封存確認）→ setAccountArchived(id, true)
   unarchiveAccount(id: string): Promise<void>;
   deleteAccount(id: string): Promise<void>;
@@ -528,6 +555,15 @@ export interface TicketStore {
   setLockPin(newPin: string, currentPin?: string): Promise<boolean>;
   clearLockPin(currentPin: string): Promise<boolean>;
   lockLedger(): void;
+
+  /* ═══ v1.38 3A／3B：品項分流、刷卡分期與信用卡帳單週期 ═══ */
+  cardCycles: Record<string, CreditCardCycleSummary>;
+  openPayCardBill(accountId: string): Promise<void>;
+  deleteInstallmentGroup(groupId: string, fromIndex?: number): Promise<void>;
+  loadInstallmentGroup(groupId: string): Promise<EntryRow[]>;
+  applyLegacySplits(updates: readonly { id: string; item: string; note: string }[]): Promise<number>;
+  loadAllAliveEntries(): Promise<EntryRow[]>;
+  findLegacySplits(): Promise<LegacySplitCandidate[]>;
 }
 
 /** 售票口各處金額是否應顯示為隱私遮罩（開啟遮罩或帳本處於鎖定狀態） */
@@ -605,6 +641,10 @@ export const TK_TEXT = {
   pinCleared: "已關閉帳本密碼鎖",
   pinWrong: "密碼不正確，請再試一次",
   ledgerLocked: "帳本已鎖定",
+  /* v1.38 */
+  installmentSaved: (periods: number, perText: string) => `已建立 ${periods} 期分期帳（每期約 ${perText}）`,
+  installmentDeleted: (count: number) => `已刪除 ${count} 期分期帳`,
+  legacySplitsApplied: (count: number) => `已分流整理 ${count} 筆舊帳`,
 } as const;
 
 /* ───────── §3.8.3 常數與模組層狀態 ───────── */
@@ -738,7 +778,10 @@ function draftHasContent(d: TicketDraft | null): boolean {
   if (!d) return false;
   return (
     d.amountText.trim() !== "" ||
+    d.item.trim() !== "" ||
     d.note.trim() !== "" ||
+    d.feeText.trim() !== "" ||
+    (d.installmentPeriods ?? 0) >= 2 ||
     d.categoryId !== draftBaseCategoryId ||
     d.mainOverrideText !== null ||
     d.toAmountText !== null ||
@@ -856,7 +899,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     const cur = s.curByCode[row.currency];
     const amount = quickAmountText(row.kind, row.amount_minor, dec) + (cur && cur.is_main !== 1 ? ` ${row.currency}` : "");
     const cat = row.category_id ? s.catById[row.category_id] : undefined;
-    const label = cat && !isUncat(cat.id) ? bareName(cat.name) : row.note ? Array.from(row.note).slice(0, 12).join("") : UNCAT_NAME;
+    const desc = row.item || row.note;
+    const label = cat && !isUncat(cat.id) ? bareName(cat.name) : desc ? Array.from(desc).slice(0, 12).join("") : UNCAT_NAME;
     return TK_TEXT.saved(amount, label, acc);
   }
 
@@ -880,14 +924,41 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     };
   }
 
-  /** 帳戶頁：讀走勢第一個月起到最後的帳（全部帳戶、一次），配現在的餘額算每張卡。不排隊：呼叫端在 serial 裡（refresh 內）或包 serial */
+  /** 計算各信用卡帳單週期摘要（純函式） */
+  function computeCardCycles(accounts: readonly AccountRow[], entries: readonly EntryRow[], dayKey: string): Record<string, CreditCardCycleSummary> {
+    const out: Record<string, CreditCardCycleSummary> = {};
+    for (const a of accounts) {
+      const cy = creditCardCycleOf(a, entries, dayKey);
+      if (cy) out[a.id] = cy;
+    }
+    return out;
+  }
+
+  /** 帳戶頁：讀走勢第一個月起到最後的帳（全部帳戶、一次），配現在的餘額算每張卡與信用卡帳單週期。不排隊：呼叫端在 serial 裡（refresh 內）或包 serial */
   async function loadAccountCards(): Promise<void> {
     const sd = get().monthStartDay;
-    const month = monthOf(today(), sd);
+    const t = today();
+    const month = monthOf(t, sd);
     const r = accountsRange(month, sd);
     const entries = await ticketRepo.listEntries(r.from, r.toExcl, null);
     const s = get();
-    set({ accountCards: accountCards(s.accounts, s.balances, entries, month, sd) });
+    set({
+      accountCards: accountCards(s.accounts, s.balances, entries, month, sd),
+      cardCycles: computeCardCycles(s.accounts, entries, t),
+    });
+  }
+
+  /** 非帳戶頁時的信用卡週期更新（只在有信用卡設定結帳日時查詢近 65 天＋未來） */
+  async function refreshCardCycles(): Promise<void> {
+    const s = get();
+    const cards = s.accounts.filter((a) => a.deleted_at === null && a.group_key === "card" && a.statement_day !== null);
+    if (!cards.length) {
+      if (Object.keys(s.cardCycles).length) set({ cardCycles: {} });
+      return;
+    }
+    const t = today();
+    const entries = await ticketRepo.listEntries(dayStep(t, -65), FAR_DAY, null);
+    set({ cardCycles: computeCardCycles(s.accounts, entries, t) });
   }
 
   /** 讀 trendRange(period, monthStartDay) 的帳＋重算 stats。不排隊：呼叫端在 serial 裡（refresh 內）或包 serial */
@@ -1217,6 +1288,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     wishKinds: [],
     wish: EMPTY_WISH_VIEW,
     accountCards: null,
+    cardCycles: {},
     statsSort: DEFAULT_BREAKDOWN_SORT,
     monthStartDay: DEFAULT_MONTH_START_DAY,
     privacyMasked: false,
@@ -1338,6 +1410,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         set({ overDay: computeOverDay(entries, get().month) });
         if (get().view === "stats") await loadStats();
         if (get().view === "accounts") await loadAccountCards(); // 售票口④ 第二輪：帳戶頁開著才重查（沒開過＝不查）
+        else await refreshCardCycles();
         if (isFilterActive(get().filter)) await runQuery();
         // 售票口④：帳變了 ⇒ 備註記憶作廢（載過就背景重載）、今日頁的定期提示重查
         invalidateNoteRecall();
@@ -1350,6 +1423,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     async reload(ctx) {
       const touched = ctx.wiped || ctx.changed.some((t) => t.startsWith("tk_") || t === "settings");
       if (!touched) return;
+      ticketRepo.resetItemBackfill?.();
       if (ctx.wiped) {
         set({ panel: { kind: "none" }, draft: null, selectedId: null, dialog: null, filterAccountId: null, ready: false });
         // 第②階段：視圖回清單、搜尋清空、統計與路線花費作廢（②契約 §3.4）
@@ -1357,7 +1431,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         routeSpendMonth = "";
         set({
           view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], resultSort: DEFAULT_ENTRY_SORT,
-          listFilter: EMPTY_FILTER, listSort: DEFAULT_ENTRY_SORT, drill: null, statsRoot: null, accountCards: null,
+          listFilter: EMPTY_FILTER, listSort: DEFAULT_ENTRY_SORT, drill: null, statsRoot: null, accountCards: null, cardCycles: {},
           statsEntries: [], stats: null, pendingDay: null, dayNotice: null, routeSpend: {},
           monthStartDay: DEFAULT_MONTH_START_DAY,
         });
@@ -1485,7 +1559,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         set({ dialog: { kind: "newAccount", then: { new: seed ?? {} } } });
         return;
       }
-      const currency = (accountId && s.accById[accountId]?.currency) || mainCur().code;
+      const targetAccId = seed?.accountId ?? accountId;
+      const currency = (targetAccId && s.accById[targetAccId]?.currency) || mainCur().code;
       const dayKey = seed?.dayKey ?? today();
       const draft: TicketDraft = {
         kind: DEFAULT_KIND,
@@ -1496,7 +1571,10 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         categoryId: null,
         dayKey,
         time: localTime(new Date().toISOString()),
+        item: "",
         note: "",
+        feeText: "",
+        installmentPeriods: null,
         routeId: null,
         mainOverrideText: null,
         toAmountText: null,
@@ -1511,6 +1589,35 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       set({ panel: { kind: "new" }, draft: withGuessedTo(draft), selectedId: null, savedAt: null });
     },
 
+    async openPayCardBill(accountId) {
+      const s = get();
+      const card = s.accById[accountId];
+      if (!card || card.deleted_at !== null || card.group_key !== "card") return;
+      let cycle: CreditCardCycleSummary | null = s.cardCycles[accountId] ?? null;
+      if (!cycle && card.statement_day !== null) {
+        const t = today();
+        const entries = await ticketRepo.listEntries(dayStep(t, -65), FAR_DAY, accountId);
+        cycle = creditCardCycleOf(card, entries, t);
+      }
+      const dueMinor = cycle && cycle.dueMinor > 0 ? cycle.dueMinor : Math.max(0, -(s.balances[accountId] ?? 0));
+      const amountText = dueMinor > 0 ? amountInputText(dueMinor, decimalsOf(card.currency)) : "";
+      const autoPay = card.auto_pay_account_id ? s.accById[card.auto_pay_account_id] : undefined;
+      const autoPayOk = !!autoPay && autoPay.deleted_at === null && autoPay.archived_at === null && autoPay.id !== card.id;
+      const firstAsset = orderAccounts(s.accounts).find((a) => a.deleted_at === null && a.archived_at === null && !isLiability(a.group_key) && a.id !== card.id);
+      const payFromId = autoPayOk ? autoPay.id : (firstAsset?.id ?? defaultAccountId(s.accounts, s.lastAccountId));
+      const payFrom = payFromId ? s.accById[payFromId] : undefined;
+      const sameCurrency = !payFrom || payFrom.currency === card.currency;
+      get().openNew({
+        kind: "transfer",
+        accountId: payFromId,
+        toAccountId: card.id,
+        currency: payFrom?.currency ?? card.currency,
+        amountText: sameCurrency ? amountText : "",
+        toAmountText: sameCurrency ? null : amountText || null,
+        item: `${card.name} 繳卡費`,
+      });
+    },
+
     setDraft(patch) {
       const s = get();
       if (!s.draft) return;
@@ -1518,15 +1625,23 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const acc = d.accountId ? s.accById[d.accountId] : undefined;
       if (d.kind === "transfer") {
         d.categoryId = null;
+        d.installmentPeriods = null;
         if (acc) d.currency = acc.currency;
       } else {
         d.toAccountId = null;
         d.toAmountText = null;
+        if (d.kind === "income") d.installmentPeriods = null;
         // 換帳戶 ⇒ 幣別跟著換（除非這次一起指定了幣別）
         if (patch.accountId !== undefined && patch.currency === undefined && acc) d.currency = acc.currency;
         // 換收支類型 ⇒ 不同類型的分類清掉
         const cat = d.categoryId ? s.catById[d.categoryId] : undefined;
         if (cat && cat.kind !== d.kind) d.categoryId = null;
+      }
+      if (patch.installmentPeriods !== undefined && (patch.installmentPeriods ?? 0) >= 2) {
+        d.repeat = noRepeat(d.dayKey);
+      }
+      if (patch.repeat !== undefined && patch.repeat.freq !== "none") {
+        d.installmentPeriods = null;
       }
       if (patch.currency !== undefined && patch.currency !== s.draft.currency) d.mainOverrideText = patch.mainOverrideText ?? null;
       // 售票口④：改記帳日 ⇒ 定期的星期幾／幾號（沒點改過的）跟著走
@@ -1540,20 +1655,28 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const d = get().draft;
       if (!d) return false;
       try {
-        // 先驗完再寫（任何一項不合法 ⇒ 整筆不寫）：帳、荷札名稱、定期規則（從下一班起；同一套 draftToRepeatInput）
+        // 先驗完再寫（任何一項不合法 ⇒ 整筆不寫）：帳、手續費、分期期數、荷札名稱、定期規則
         const input = draftToInput(d, entryCtx(), dayStart());
         const names = draftTagNames(d.tags);
-        const rd = quickRepeatDraft(d, d.repeat, null);
+        const isInstallment = d.kind === "expense" && (d.installmentPeriods ?? 0) >= 2;
+        const periods = isInstallment ? (d.installmentPeriods as number) : 0;
+        if (isInstallment && (!Number.isInteger(periods) || periods < MIN_INSTALLMENTS || periods > MAX_INSTALLMENTS)) {
+          throw new RangeError(`分期期數需為 ${MIN_INSTALLMENTS}～${MAX_INSTALLMENTS} 之間的整數`);
+        }
+        const rd = isInstallment ? null : quickRepeatDraft(d, d.repeat, null);
         const repInput = rd ? draftToRepeatInput(rd, entryCtx()) : null;
         const res = await serial(async () => {
-          const row = await ticketRepo.createEntry(input);
+          const createdRows = isInstallment ? await ticketRepo.createInstallmentEntries(input, periods) : [await ticketRepo.createEntry(input)];
+          const row = createdRows[0];
           let tagFail = false;
           if (names.length) {
-            try {
-              await writeTags(TK_TAG_ENTRY, row.id, names);
-            } catch (e) {
-              console.warn("[ticket] 帳的荷札沒掛上", e);
-              tagFail = true;
+            for (const r of createdRows) {
+              try {
+                await writeTags(TK_TAG_ENTRY, r.id, names);
+              } catch (e) {
+                console.warn("[ticket] 帳的荷札沒掛上", e);
+                tagFail = true;
+              }
             }
           }
           // 帳已寫入：之後每一步失敗都只記下來、不往外丟（往外丟＝回報「沒存」、草稿留著，再按一次就重複記帳）
@@ -1604,7 +1727,10 @@ export const useTicketStore = create<TicketStore>((set, get) => {
             draft: {
               ...d,
               amountText: "",
+              item: "",
               note: "",
+              feeText: "",
+              installmentPeriods: null,
               mainOverrideText: null,
               toAmountText: null,
               tags: [],
@@ -1624,7 +1750,14 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         if (res.repeatFail) toast(TK_TEXT.repeatFail);
         else if (res.tagFail) toast(TK_TEXT.tagsFail);
         else if (res.wishFail) toast(TK_TEXT.wishFail);
-        else {
+        else if (isInstallment && row.installment_group_id) {
+          const groupId = row.installment_group_id;
+          const perMinor = Math.round(input.amountMinor / periods);
+          const perText = `${currencySymbol(row.currency)} ${moneyText(perMinor, decimalsOf(row.currency))}`;
+          toast(TK_TEXT.installmentSaved(periods, perText), TK_TEXT.undo, () => {
+            void write(() => ticketRepo.softDeleteInstallmentGroup(groupId));
+          });
+        } else {
           let text = savedText(row);
           if (res.repeatId) text += TK_TEXT.savedRepeat(quickRepeatLabel(d.repeat)) + (filled ? TK_TEXT.repeatSavedFilled(filled) : "");
           if (d.wishId) text += TK_TEXT.savedWish;
@@ -1657,6 +1790,53 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         failToast(e);
         return false;
       }
+    },
+
+    async deleteInstallmentGroup(groupId, fromIndex) {
+      await write(
+        async () => {
+          const deletedIds = await ticketRepo.softDeleteInstallmentGroup(groupId, fromIndex);
+          const s = get();
+          if (s.selectedId && deletedIds.includes(s.selectedId)) {
+            set({ selectedId: null, panel: { kind: "none" } });
+          } else if (s.panel.kind === "entry" && deletedIds.includes(s.panel.id)) {
+            set({ panel: { kind: "none" } });
+          }
+          return deletedIds;
+        },
+        (deletedIds) => {
+          if (!deletedIds.length) return;
+          toast(TK_TEXT.installmentDeleted(deletedIds.length), TK_TEXT.undo, () => {
+            void write(() => ticketRepo.restoreEntries(deletedIds));
+          });
+        },
+      );
+    },
+
+    async loadInstallmentGroup(groupId) {
+      return ticketRepo.listInstallmentGroup(groupId);
+    },
+
+    async applyLegacySplits(updates) {
+      let count = 0;
+      const ok = await write(
+        async () => {
+          count = await ticketRepo.batchUpdateEntryTexts(updates);
+        },
+        () => {
+          if (count > 0) toast(TK_TEXT.legacySplitsApplied(count));
+        },
+      );
+      return ok ? count : 0;
+    },
+
+    async loadAllAliveEntries() {
+      return ticketRepo.listAllAliveEntries();
+    },
+
+    async findLegacySplits() {
+      const rows = await ticketRepo.listAllAliveEntries();
+      return findLegacySplitCandidates(rows);
     },
 
     openEntry(id) {
@@ -1702,7 +1882,16 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         const openingMinor =
           input.openingText.trim() === "" ? null : parseAmount(input.openingText, cur, { allowNegative: true, allowZero: true });
         const row = await serial(() =>
-          ticketRepo.createAccount({ name: input.name, group: input.group, currency: input.currency, openingMinor, occurredOn: today() }),
+          ticketRepo.createAccount({
+            name: input.name,
+            group: input.group,
+            currency: input.currency,
+            openingMinor,
+            occurredOn: today(),
+            statementDay: input.statementDay,
+            paymentDueDay: input.paymentDueDay,
+            autoPayAccountId: input.autoPayAccountId,
+          }),
         );
         await serial(() => get().refresh());
         // 建完接著做（2-16）：只認「當下」的 dialog——中途被蓋掉或取消，意圖就跟著沒了
@@ -2048,6 +2237,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           categoryId: parsed.categoryId,
           occurredOn: input.dayKey,
           occurredAt: new Date().toISOString(),
+          item: parsed.item,
           note: parsed.note,
           routeId: input.routeId,
         });
@@ -2403,7 +2593,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           accountId,
           toAccountId: null,
           categoryId: null,
+          item: "",
           note: "",
+          feeText: "",
           routeId: null,
           freq: "monthly",
           byweekday: [],
@@ -2505,7 +2697,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         get().closeRepeatEditor();
         const rule = parseFixedRule(row.rule) ?? input.rule;
         if (tagFail) toast(TK_TEXT.repeatTagsFail);
-        else toast(TK_TEXT.repeatSaved(repeatDesc(rule, row.kind, row.account_id, row.to_account_id, row.category_id, row.note)) + (n ? TK_TEXT.repeatSavedFilled(n) : ""));
+        else toast(TK_TEXT.repeatSaved(repeatDesc(rule, row.kind, row.account_id, row.to_account_id, row.category_id, row.item || row.note)) + (n ? TK_TEXT.repeatSavedFilled(n) : ""));
         return true;
       } catch (e) {
         failToast(e);
@@ -2559,6 +2751,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         s.entries.find((x) => x.id === id) ?? s.statsEntries.find((x) => x.id === id) ?? (s.results ? s.results.find((x) => x.id === id) : undefined);
       if (!e || e.kind === "adjust") return;
       const rule = ruleFromEntry(e);
+      const feeDec = decimalsOf(s.accById[e.account_id]?.currency ?? e.currency);
       const seed: Partial<RepeatDraft> = {
         kind: e.kind,
         amountText: amountInputText(e.amount_minor, decimalsOf(e.currency)),
@@ -2566,7 +2759,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         accountId: e.account_id,
         toAccountId: e.to_account_id,
         categoryId: e.category_id,
+        item: e.item ?? "",
         note: e.note,
+        feeText: e.fee_minor !== null && e.fee_minor > 0 ? amountInputText(e.fee_minor, feeDec) : "",
         routeId: e.route_id,
         freq: "monthly",
         byweekday: [],
@@ -2596,7 +2791,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const d = get().draft;
       if (!d) return;
       const next = quickRepeat(freq, d.dayKey, d.repeat.until);
-      set({ draft: { ...d, repeat: next } });
+      set({ draft: { ...d, repeat: next, ...(freq !== "none" ? { installmentPeriods: null } : {}) } });
     },
 
     async setEntryRepeatQuick(entryId, quick) {
@@ -2605,7 +2800,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         const e = await freshEntry(entryId);
         if (!e) throw new RangeError("這一筆已經刪除了");
         if (e.repeat_id !== null) return false; // 已連規則：管理在「管理 ›」（完整編輯器）
-        const src = quickSourceOfEntry(e, decimalsOf(e.currency), localTime(e.occurred_at));
+        const feeDec = decimalsOf(get().accById[e.account_id]?.currency ?? e.currency);
+        const src = quickSourceOfEntry(e, decimalsOf(e.currency), localTime(e.occurred_at), feeDec);
         if (!src) throw new RangeError("精算不能設成定期");
         const rd = quickRepeatDraft(src, quick, e.id);
         if (!rd) return false;
@@ -2631,7 +2827,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         const n = await runMaterialize();
         await serial(() => get().refresh());
         const rule = parseFixedRule(rep.rule) ?? input.rule;
-        toast(TK_TEXT.repeatSaved(repeatDesc(rule, rep.kind, rep.account_id, rep.to_account_id, rep.category_id, rep.note)) + (n ? TK_TEXT.repeatSavedFilled(n) : ""));
+        toast(TK_TEXT.repeatSaved(repeatDesc(rule, rep.kind, rep.account_id, rep.to_account_id, rep.category_id, rep.item || rep.note)) + (n ? TK_TEXT.repeatSavedFilled(n) : ""));
         return true;
       } catch (err) {
         failToast(err);
@@ -2702,7 +2898,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         console.warn("[ticket] 讀常用票種的荷札失敗", e);
       }
       // 點書籤＝整張換成書籤那筆：從願望「買了」帶來的關聯一起放掉（不然存了會把願望標成已買、金額卻是書籤的；C 11-02 定）
-      const patch: Partial<TicketDraft> = { ...seed, tags, mainOverrideText: null, toAmountText: null, wishId: null };
+      const patch: Partial<TicketDraft> = { ...seed, tags, mainOverrideText: null, toAmountText: null, installmentPeriods: null, wishId: null };
       if (get().draft && get().panel.kind === "new") get().setDraft(patch);
       else get().openNew(patch);
     },

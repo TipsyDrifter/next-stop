@@ -43,6 +43,7 @@ import {
   planMoveTo,
   planMoveUnder,
   planSetMainCurrency,
+  shiftOccurredAt,
   ticketId,
   type AccountRow,
   type CategoryKind,
@@ -107,6 +108,8 @@ import {
 } from "../domain/ticketAids";
 import { todayKey } from "../lib/date";
 import { matchesQuery } from "../domain/ticketView";
+import { planInstallmentSlices } from "../domain/ticketInstallment";
+import { clampCardDay } from "../domain/ticketCardCycle";
 import type {
   AccountPatch,
   CurrencyPatch,
@@ -124,7 +127,19 @@ const IN_LIMIT = 500;
 
 /** §3.2 白名單（同步的「主人資料」欄；device_id／synced_at 不同步）。新列的 op 送這些欄的完整值。 */
 const CUR_COLS = ["code", "name", "decimals", "rate_to_main", "is_main", "position", "created_at", "updated_at", "deleted_at"] as const;
-const ACC_COLS = ["name", "group_key", "currency", "position", "archived_at", "created_at", "updated_at", "deleted_at"] as const;
+const ACC_COLS = [
+  "name",
+  "group_key",
+  "currency",
+  "position",
+  "archived_at",
+  "statement_day",
+  "payment_due_day",
+  "auto_pay_account_id",
+  "created_at",
+  "updated_at",
+  "deleted_at",
+] as const;
 const CAT_COLS = ["kind", "name", "parent_id", "position", "archived_at", "created_at", "updated_at", "deleted_at"] as const;
 const ENT_COLS = [
   "kind",
@@ -138,7 +153,13 @@ const ENT_COLS = [
   "main_minor",
   "account_minor",
   "to_amount_minor",
+  "item",
   "note",
+  "fee_minor",
+  "fee_main_minor",
+  "installment_group_id",
+  "installment_index",
+  "installment_total",
   "route_id",
   "repeat_id", // 第③階段（③契約 0-3）
   "import_id",
@@ -169,7 +190,9 @@ const REP_COLS = [
   "category_id",
   "amount_minor",
   "currency",
+  "item",
   "note",
+  "fee_minor",
   "route_id",
   "rule",
   "hhmm",
@@ -196,7 +219,9 @@ const TPL_COLS = [
   "account_id",
   "to_account_id",
   "category_id",
+  "item",
   "note",
+  "fee_minor",
   "route_id",
   "position",
   "created_at",
@@ -291,7 +316,44 @@ function planSwap<T extends { id: string; position: number }>(list: T[], id: str
 /** plugin-sql 對 INTEGER 回 number；EXISTS 回 0/1 */
 const truthy = (v: unknown): boolean => v === 1 || v === true || v === "1";
 
+const normEntry = (r: EntryRow): EntryRow => (r.item === null || r.item === undefined ? { ...r, item: "" } : r);
+const normRepeat = (r: RepeatRow): RepeatRow => (r.item === null || r.item === undefined ? { ...r, item: "" } : r);
+const normTemplate = (r: TemplateRow): TemplateRow => (r.item === null || r.item === undefined ? { ...r, item: "" } : r);
+
 export class SqliteTicketRepository implements TicketRepository {
+  private itemBackfilled = false;
+  private itemBackfillPromise: Promise<void> | null = null;
+
+  /** 同步 pull 後重置 3A 存量無損搬移守門 */
+  resetItemBackfill(): void {
+    this.itemBackfilled = false;
+    this.itemBackfillPromise = null;
+  }
+
+  /**
+   * 3A 存量無損搬移（多機同步 LWW 安全）：純本機 SQL 將尚未搬移的 `item IS NULL` 舊版列補寫 `item = note, note = ''`，
+   * **不寫 sync_outbox、不改 updated_at**。冪等懶執行。
+   */
+  private async ensureItemBackfill(db: Database): Promise<void> {
+    if (this.itemBackfilled) return;
+    if (!this.itemBackfillPromise) {
+      this.itemBackfillPromise = (async () => {
+        const [eHit, rHit, tHit] = await Promise.all([
+          db.select<{ x: number }[]>(`SELECT 1 AS x FROM tk_entries WHERE item IS NULL LIMIT 1`),
+          db.select<{ x: number }[]>(`SELECT 1 AS x FROM tk_repeats WHERE item IS NULL LIMIT 1`),
+          db.select<{ x: number }[]>(`SELECT 1 AS x FROM tk_templates WHERE item IS NULL LIMIT 1`),
+        ]);
+        if (eHit.length) await db.execute(`UPDATE tk_entries SET item = note, note = '' WHERE item IS NULL`);
+        if (rHit.length) await db.execute(`UPDATE tk_repeats SET item = note, note = '' WHERE item IS NULL`);
+        if (tHit.length) await db.execute(`UPDATE tk_templates SET item = note, note = '' WHERE item IS NULL`);
+        this.itemBackfilled = true;
+      })().finally(() => {
+        this.itemBackfillPromise = null;
+      });
+    }
+    await this.itemBackfillPromise;
+  }
+
   /* ───────── 內部 ───────── */
 
   private async commit(db: Database, b: WriteBatch): Promise<void> {
@@ -318,7 +380,7 @@ export class SqliteTicketRepository implements TicketRepository {
   /** 含墓碑 */
   private async entryRow(db: Database, id: string): Promise<EntryRow | null> {
     const rows = await db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE id = $1`, [id]);
-    return rows[0] ?? null;
+    return rows[0] ? normEntry(rows[0]) : null;
   }
 
   private async accountOrThrow(db: Database, id: string): Promise<AccountRow> {
@@ -342,11 +404,15 @@ export class SqliteTicketRepository implements TicketRepository {
     return (rows[0]?.m ?? -1) + 1;
   }
 
-  /** §3.5-3 的單帳戶版 */
+  /** §3.5-3 的單帳戶版（含手續費） */
   private async balanceOf(db: Database, accountId: string): Promise<number> {
     const rows = await db.select<{ balance: number | null }[]>(
       `SELECT
-         COALESCE((SELECT SUM(CASE WHEN e.kind IN ('expense','transfer') THEN -e.account_minor ELSE e.account_minor END)
+         COALESCE((SELECT SUM(CASE
+           WHEN e.kind IN ('expense','transfer') THEN -(e.account_minor + COALESCE(e.fee_minor, 0))
+           WHEN e.kind = 'income' THEN (e.account_minor - COALESCE(e.fee_minor, 0))
+           ELSE e.account_minor
+         END)
                    FROM tk_entries e WHERE e.account_id = $1 AND e.deleted_at IS NULL), 0)
        + COALESCE((SELECT SUM(e.to_amount_minor)
                    FROM tk_entries e WHERE e.to_account_id = $1 AND e.kind = 'transfer' AND e.deleted_at IS NULL), 0) AS balance`,
@@ -436,7 +502,11 @@ export class SqliteTicketRepository implements TicketRepository {
     const db = await getDb();
     const rows = await db.select<{ id: string; balance: number | null }[]>(
       `SELECT a.id AS id,
-         COALESCE((SELECT SUM(CASE WHEN e.kind IN ('expense','transfer') THEN -e.account_minor ELSE e.account_minor END)
+         COALESCE((SELECT SUM(CASE
+           WHEN e.kind IN ('expense','transfer') THEN -(e.account_minor + COALESCE(e.fee_minor, 0))
+           WHEN e.kind = 'income' THEN (e.account_minor - COALESCE(e.fee_minor, 0))
+           ELSE e.account_minor
+         END)
                    FROM tk_entries e WHERE e.account_id = a.id AND e.deleted_at IS NULL), 0)
        + COALESCE((SELECT SUM(e.to_amount_minor)
                    FROM tk_entries e WHERE e.to_account_id = a.id AND e.kind = 'transfer' AND e.deleted_at IS NULL), 0) AS balance
@@ -449,13 +519,15 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async listEntries(fromDay: string, toDayExcl: string, accountId: string | null): Promise<EntryRow[]> {
     const db = await getDb();
+    await this.ensureItemBackfill(db);
     const acc = accountId === null ? "" : ` AND (account_id = $3 OR to_account_id = $3)`;
     const args: unknown[] = accountId === null ? [fromDay, toDayExcl] : [fromDay, toDayExcl, accountId];
-    return db.select<EntryRow[]>(
+    const rows = await db.select<EntryRow[]>(
       `SELECT * FROM tk_entries WHERE ${ALIVE} AND occurred_on >= $1 AND occurred_on < $2${acc}
        ORDER BY occurred_on DESC, occurred_at DESC, created_at DESC, id DESC`,
       args,
     );
+    return rows.map(normEntry);
   }
 
   /* ── 第②階段「看帳」的讀（②契約 §3.2；純讀，不寫 op） ── */
@@ -467,6 +539,7 @@ export class SqliteTicketRepository implements TicketRepository {
    */
   async queryEntries(q: EntryQuery): Promise<EntryRow[]> {
     const db = await getDb();
+    await this.ensureItemBackfill(db);
     const args: unknown[] = [];
     const arg = (v: unknown): string => {
       args.push(v);
@@ -484,21 +557,21 @@ export class SqliteTicketRepository implements TicketRepository {
     if (q.kinds.length > 0) where.push(`kind IN (${q.kinds.map(arg).join(", ")})`);
     if (q.routeId === "none") where.push(`route_id IS NULL`);
     else if (q.routeId !== null) where.push(`route_id = ${arg(q.routeId)}`);
-    const rows = await db.select<EntryRow[]>(
+    const rows = (await db.select<EntryRow[]>(
       `SELECT * FROM tk_entries WHERE ${where.join(" AND ")}
        ORDER BY occurred_on DESC, occurred_at DESC, created_at DESC, id DESC`,
       args,
-    );
+    )).map(normEntry);
     return q.categoryIds.length > IN_LIMIT ? rows.filter((e) => matchesQuery(e, q)) : rows;
   }
 
-  /** 路線花費（0-11）：直掛該路線的 expense `main_minor` 淨額；期間內與全部。SQL 聚合，沒有帳＝ 0／0 */
+  /** 路線花費（0-11）：直掛該路線的 expense `main_minor + fee_main_minor` 淨額；期間內與全部。SQL 聚合，沒有帳＝ 0／0 */
   async routeSpend(routeId: string, from: string, toExcl: string): Promise<{ inRange: number; allTime: number }> {
     const db = await getDb();
     const rows = await db.select<{ in_range: number | null; all_time: number | null }[]>(
       `SELECT
-         COALESCE(SUM(CASE WHEN occurred_on >= $2 AND occurred_on < $3 THEN main_minor END), 0) AS in_range,
-         COALESCE(SUM(main_minor), 0) AS all_time
+         COALESCE(SUM(CASE WHEN occurred_on >= $2 AND occurred_on < $3 THEN (main_minor + COALESCE(fee_main_minor, 0)) END), 0) AS in_range,
+         COALESCE(SUM(main_minor + COALESCE(fee_main_minor, 0)), 0) AS all_time
        FROM tk_entries
        WHERE ${ALIVE} AND kind = 'expense' AND route_id = $1`,
       [routeId, from, toExcl],
@@ -508,8 +581,9 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async getEntry(id: string): Promise<EntryRow | null> {
     const db = await getDb();
+    await this.ensureItemBackfill(db);
     const rows = await db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE id = $1 AND ${ALIVE}`, [id]);
-    return rows[0] ?? null;
+    return rows[0] ? normEntry(rows[0]) : null;
   }
 
   async hasAnyEntry(): Promise<boolean> {
@@ -577,6 +651,7 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async createEntry(input: NewEntryInput): Promise<EntryRow> {
     const db = await getDb();
+    await this.ensureItemBackfill(db);
     const row = buildEntryRow(input, await this.ctx(db), { id: uuid(), nowIso: nowUtcIso() });
     const b = newWriteBatch();
     pushInsert(b, "tk_entries", row, "DO NOTHING");
@@ -586,6 +661,7 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async updateEntry(id: string, patch: EntryPatch): Promise<EntryRow> {
     const db = await getDb();
+    await this.ensureItemBackfill(db);
     const row = await this.entryRow(db, id);
     if (!row || row.deleted_at !== null) throw new RangeError("這一筆已經刪除了");
     const res = applyEntryPatch(row, patch, await this.ctx(db), nowUtcIso());
@@ -594,6 +670,133 @@ export class SqliteTicketRepository implements TicketRepository {
     pushUpdate(b, "tk_entries", id, res.cols, ` AND ${ALIVE}`);
     await this.commit(db, b);
     return res.row;
+  }
+
+  async createInstallmentEntries(input: NewEntryInput, periods: number): Promise<EntryRow[]> {
+    if (input.kind !== "expense") throw new RangeError("只有支出可以分期");
+    const db = await getDb();
+    await this.ensureItemBackfill(db);
+    const ctx = await this.ctx(db);
+    const groupId = input.installmentGroupId ?? uuid();
+    const slices = planInstallmentSlices({
+      totalAmountMinor: input.amountMinor,
+      periods,
+      firstOccurredOn: input.occurredOn,
+      feeMinor: input.feeMinor ?? null,
+    });
+    const nowIso = nowUtcIso();
+    const b = newWriteBatch();
+    const rows: EntryRow[] = [];
+    const { override: _omitOverride, ...baseInput } = input;
+    void _omitOverride;
+    for (const slice of slices) {
+      const id = ticketId("inst:" + groupId + ":" + slice.index);
+      const row = buildEntryRow(
+        {
+          ...baseInput,
+          amountMinor: slice.amountMinor,
+          feeMinor: slice.feeMinor,
+          occurredOn: slice.occurredOn,
+          occurredAt: shiftOccurredAt(input.occurredAt, input.occurredOn, slice.occurredOn),
+          installmentGroupId: groupId,
+          installmentIndex: slice.index,
+          installmentTotal: slice.total,
+        },
+        ctx,
+        { id, nowIso },
+      );
+      pushInsert(b, "tk_entries", row, "DO NOTHING");
+      rows.push(row);
+    }
+    await this.commit(db, b);
+    return rows;
+  }
+
+  async listInstallmentGroup(groupId: string): Promise<EntryRow[]> {
+    const db = await getDb();
+    await this.ensureItemBackfill(db);
+    const rows = await db.select<EntryRow[]>(
+      `SELECT * FROM tk_entries WHERE ${ALIVE} AND installment_group_id = $1
+       ORDER BY COALESCE(installment_index, 0) ASC, occurred_on ASC, created_at ASC, id ASC`,
+      [groupId],
+    );
+    return rows.map(normEntry);
+  }
+
+  async softDeleteInstallmentGroup(groupId: string, fromIndex?: number): Promise<string[]> {
+    const db = await getDb();
+    await this.ensureItemBackfill(db);
+    const rows = (
+      fromIndex !== undefined
+        ? await db.select<EntryRow[]>(
+            `SELECT * FROM tk_entries WHERE ${ALIVE} AND installment_group_id = $1 AND COALESCE(installment_index, 0) >= $2`,
+            [groupId, fromIndex],
+          )
+        : await db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE ${ALIVE} AND installment_group_id = $1`, [groupId])
+    ).map(normEntry);
+    if (!rows.length) return [];
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    for (const row of rows) {
+      b.stmts.push({ sql: `UPDATE tk_entries SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, row.id] });
+      addOp(b, "tk_entries", row.id, "delete", { deleted_at: now, updated_at: now });
+      await this.touchSkipped(db, b, row, true, now);
+    }
+    await this.commit(db, b);
+    return rows.map((r) => r.id);
+  }
+
+  async restoreEntries(ids: readonly string[]): Promise<void> {
+    const unique = Array.from(new Set(ids));
+    if (!unique.length) return;
+    const db = await getDb();
+    await this.ensureItemBackfill(db);
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    for (const part of chunks(unique, IN_LIMIT)) {
+      const ph = part.map((_, i) => `$${i + 1}`).join(", ");
+      const rows = (
+        await db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE deleted_at IS NOT NULL AND id IN (${ph})`, part as unknown[])
+      ).map(normEntry);
+      for (const row of rows) {
+        pushUpdate(b, "tk_entries", row.id, { deleted_at: null, updated_at: now });
+        await this.touchSkipped(db, b, row, false, now);
+      }
+    }
+    await this.commit(db, b);
+  }
+
+  async batchUpdateEntryTexts(updates: readonly { id: string; item: string; note: string }[]): Promise<number> {
+    if (!updates.length) return 0;
+    const db = await getDb();
+    await this.ensureItemBackfill(db);
+    const existing = new Map<string, EntryRow>();
+    for (const part of chunks(Array.from(new Set(updates.map((u) => u.id))), IN_LIMIT)) {
+      const ph = part.map((_, i) => `$${i + 1}`).join(", ");
+      const rows = await db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE ${ALIVE} AND id IN (${ph})`, part as unknown[]);
+      for (const r of rows) existing.set(r.id, normEntry(r));
+    }
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    let changed = 0;
+    for (const u of updates) {
+      const cur = existing.get(u.id);
+      if (!cur) continue;
+      const cols: Record<string, unknown> = {};
+      if (u.item !== cur.item) cols.item = u.item;
+      if (u.note !== cur.note) cols.note = u.note;
+      if (!Object.keys(cols).length) continue;
+      cols.updated_at = now;
+      pushUpdate(b, "tk_entries", u.id, cols, ` AND ${ALIVE}`);
+      existing.set(u.id, { ...cur, item: u.item, note: u.note, updated_at: now });
+      changed++;
+    }
+    await this.commit(db, b);
+    return changed;
+  }
+
+  async listAllAliveEntries(): Promise<EntryRow[]> {
+    return this.queryEntries({ from: null, toExcl: null, accountId: null, categoryIds: [], kinds: [], routeId: null });
   }
 
   async softDeleteEntry(id: string): Promise<void> {
@@ -646,6 +849,7 @@ export class SqliteTicketRepository implements TicketRepository {
     const ctx = await this.ctx(db);
     if (!ctx.curByCode[input.currency]) throw new RangeError(`沒有這個幣別：${input.currency}`);
     const nowIso = nowUtcIso();
+    const isCard = input.group === "card";
     const row: AccountRow = {
       id: uuid(),
       name,
@@ -653,6 +857,9 @@ export class SqliteTicketRepository implements TicketRepository {
       currency: input.currency,
       position: await this.nextAccountPosition(db, input.group),
       archived_at: null,
+      statement_day: isCard ? clampCardDay(input.statementDay) : null,
+      payment_due_day: isCard ? clampCardDay(input.paymentDueDay) : null,
+      auto_pay_account_id: isCard && input.autoPayAccountId ? input.autoPayAccountId : null,
       device_id: null,
       created_at: nowIso,
       updated_at: nowIso,
@@ -662,6 +869,7 @@ export class SqliteTicketRepository implements TicketRepository {
     const b = newWriteBatch();
     pushInsert(b, "tk_accounts", row);
     if (input.openingMinor !== null && input.openingMinor !== 0) {
+      await this.ensureItemBackfill(db);
       // 期初餘額：同一批、帳戶之後（外鍵父先子後）
       const opening = adjustRow({
         account: row,
@@ -697,9 +905,28 @@ export class SqliteTicketRepository implements TicketRepository {
       if (truthy(used[0]?.x)) throw new RangeError("這個帳戶已經有帳，幣別不能改");
       cols.currency = patch.currency;
     }
+    const nextGroup = patch.group ?? a.group_key;
     if (patch.group !== undefined && patch.group !== a.group_key) {
       cols.group_key = patch.group;
       cols.position = await this.nextAccountPosition(db, patch.group);
+    }
+    if (nextGroup === "card") {
+      if (patch.statementDay !== undefined) {
+        const v = clampCardDay(patch.statementDay);
+        if (v !== a.statement_day) cols.statement_day = v;
+      }
+      if (patch.paymentDueDay !== undefined) {
+        const v = clampCardDay(patch.paymentDueDay);
+        if (v !== a.payment_due_day) cols.payment_due_day = v;
+      }
+      if (patch.autoPayAccountId !== undefined) {
+        const v = patch.autoPayAccountId && patch.autoPayAccountId !== id ? patch.autoPayAccountId : null;
+        if (v !== a.auto_pay_account_id) cols.auto_pay_account_id = v;
+      }
+    } else {
+      if (a.statement_day !== null) cols.statement_day = null;
+      if (a.payment_due_day !== null) cols.payment_due_day = null;
+      if (a.auto_pay_account_id !== null) cols.auto_pay_account_id = null;
     }
     if (!Object.keys(cols).length) return;
     cols.updated_at = nowUtcIso();
@@ -965,8 +1192,10 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async setMainCurrency(codeInput: string): Promise<void> {
     const db = await getDb();
-    const [currencies, entries, budgets, wishes] = await Promise.all([
+    await this.ensureItemBackfill(db);
+    const [currencies, accounts, entries, budgets, wishes] = await Promise.all([
       db.select<CurrencyRow[]>(`SELECT * FROM tk_currencies WHERE ${ALIVE}`),
+      db.select<AccountRow[]>(`SELECT * FROM tk_accounts WHERE ${ALIVE}`),
       db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE ${ALIVE}`),
       db.select<BudgetRow[]>(`SELECT * FROM tk_budgets WHERE ${ALIVE}`),
       db.select<WishRow[]>(`SELECT * FROM tk_wishes WHERE ${ALIVE} AND amount_minor IS NOT NULL`),
@@ -975,14 +1204,19 @@ export class SqliteTicketRepository implements TicketRepository {
     const plan = planSetMainCurrency({
       targetCode: codeInput,
       currencies,
-      entries,
+      accounts,
+      entries: entries.map(normEntry),
       budgets,
       wishes,
       nowIso,
     });
     const b = newWriteBatch();
     for (const c of plan.currencies) pushUpdate(b, "tk_currencies", c.id, c.cols);
-    for (const e of plan.entries) pushUpdate(b, "tk_entries", e.id, { main_minor: e.main_minor, updated_at: e.updated_at });
+    for (const e of plan.entries) {
+      const cols: Record<string, unknown> = { main_minor: e.main_minor, updated_at: e.updated_at };
+      if (e.fee_main_minor !== undefined) cols.fee_main_minor = e.fee_main_minor;
+      pushUpdate(b, "tk_entries", e.id, cols);
+    }
     for (const bd of plan.budgets) pushUpdate(b, "tk_budgets", bd.id, { amount_minor: bd.amount_minor, updated_at: bd.updated_at });
     for (const w of plan.wishes) pushUpdate(b, "tk_wishes", w.id, { amount_minor: w.amount_minor, updated_at: w.updated_at });
     await this.commit(db, b);
@@ -1056,20 +1290,24 @@ export class SqliteTicketRepository implements TicketRepository {
   /** 未刪的規則（含暫停）：進行中在前、依 next_on（沒有下一班在最後）、created_at、id（＝ ticketPlan.repeatOrder） */
   async listRepeats(): Promise<RepeatRow[]> {
     const db = await getDb();
-    return db.select<RepeatRow[]>(
+    await this.ensureItemBackfill(db);
+    const rows = await db.select<RepeatRow[]>(
       `SELECT * FROM tk_repeats WHERE ${ALIVE}
        ORDER BY (paused_at IS NOT NULL), COALESCE(next_on, '9999-99-99'), created_at, id`,
     );
+    return rows.map(normRepeat);
   }
 
   private async repeatOrThrow(db: Database, id: string): Promise<RepeatRow> {
+    await this.ensureItemBackfill(db);
     const rows = await db.select<RepeatRow[]>(`SELECT * FROM tk_repeats WHERE id = $1 AND ${ALIVE}`, [id]);
     if (!rows[0]) throw new RangeError(REPEAT_GONE);
-    return rows[0];
+    return normRepeat(rows[0]);
   }
 
   async createRepeat(input: NewRepeatInput): Promise<RepeatRow> {
     const db = await getDb();
+    await this.ensureItemBackfill(db);
     const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM tk_repeats WHERE ${ALIVE}`);
     const row = buildRepeatRow(input, await this.ctx(db), { id: uuid(), position: (max[0]?.m ?? -1) + 1, nowIso: nowUtcIso() });
     const b = newWriteBatch();
@@ -1215,7 +1453,8 @@ export class SqliteTicketRepository implements TicketRepository {
     dayStartHour: number,
   ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[]; rows: MaterializedRow[] }> {
     const db = await getDb();
-    const repeats = await db.select<RepeatRow[]>(`SELECT * FROM tk_repeats WHERE ${ALIVE} ORDER BY position, created_at, id`);
+    await this.ensureItemBackfill(db);
+    const repeats = (await db.select<RepeatRow[]>(`SELECT * FROM tk_repeats WHERE ${ALIVE} ORDER BY position, created_at, id`)).map(normRepeat);
     if (!repeats.length) return { inserted: 0, reconciled: 0, blocked: [], rows: [] };
 
     // (b) 候選 id：reconcile 的日子＋每條進行中規則要掃的班次
@@ -1283,19 +1522,21 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async listNoteUses(): Promise<NoteUse[]> {
     const db = await getDb();
-    // 精算（adjust）的備註是系統寫的「餘額調整」「期初餘額」，不是主人打的字，不列
+    await this.ensureItemBackfill(db);
+    // 精算（adjust）的品項是系統寫的「餘額調整」「期初餘額」，不是主人打的字，不列；隨筆備註完全不進記憶詞庫
     // 照時間排（同一天後記的在後）：lastCategoryForNote 靠順序分同一天的先後，兩份 repository 要一致
     return db.select<NoteUse[]>(
-      `SELECT note, occurred_on, kind, category_id FROM tk_entries WHERE ${ALIVE} AND kind <> 'adjust' AND TRIM(note) <> '' ORDER BY occurred_on, occurred_at, id`,
+      `SELECT item AS note, item, occurred_on, kind, category_id FROM tk_entries WHERE ${ALIVE} AND kind <> 'adjust' AND TRIM(COALESCE(item, '')) <> '' ORDER BY occurred_on, occurred_at, id`,
     );
   }
 
   async getEntries(ids: readonly string[]): Promise<EntryRow[]> {
     const db = await getDb();
+    await this.ensureItemBackfill(db);
     const out: EntryRow[] = [];
     for (const part of chunks(Array.from(new Set(ids)), IN_LIMIT)) {
       const ph = part.map((_, i) => `$${i + 1}`).join(", ");
-      for (const r of await db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE ${ALIVE} AND id IN (${ph})`, part as unknown[])) out.push(r);
+      for (const r of await db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE ${ALIVE} AND id IN (${ph})`, part as unknown[])) out.push(normEntry(r));
     }
     return out;
   }
@@ -1479,13 +1720,16 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async listTemplates(): Promise<TemplateRow[]> {
     const db = await getDb();
-    return db.select<TemplateRow[]>(`SELECT * FROM tk_templates WHERE ${ALIVE} ORDER BY position, created_at, id`);
+    await this.ensureItemBackfill(db);
+    const rows = await db.select<TemplateRow[]>(`SELECT * FROM tk_templates WHERE ${ALIVE} ORDER BY position, created_at, id`);
+    return rows.map(normTemplate);
   }
 
   private async templateOrThrow(db: Database, id: string): Promise<TemplateRow> {
+    await this.ensureItemBackfill(db);
     const rows = await db.select<TemplateRow[]>(`SELECT * FROM tk_templates WHERE id = $1 AND ${ALIVE}`, [id]);
     if (!rows[0]) throw new RangeError(TEMPLATE_GONE);
-    return rows[0];
+    return normTemplate(rows[0]);
   }
 
   /** 外鍵指的帳戶／分類要在（含封存；同 buildEntryRow「已刪就擋」） */
@@ -1497,6 +1741,7 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async createTemplate(input: NewTemplateInput): Promise<TemplateRow> {
     const db = await getDb();
+    await this.ensureItemBackfill(db);
     await this.checkTemplateRefs(db, input);
     const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM tk_templates WHERE ${ALIVE}`);
     const row = buildTemplateRow(input, { id: uuid(), position: (max[0]?.m ?? -1) + 1, nowIso: nowUtcIso() });

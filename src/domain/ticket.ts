@@ -129,6 +129,9 @@ export interface AccountRow extends TkSyncCols {
   currency: string;
   position: number;
   archived_at: string | null;
+  statement_day: number | null;
+  payment_due_day: number | null;
+  auto_pay_account_id: string | null;
 }
 export interface CategoryRow extends TkSyncCols {
   id: string;
@@ -151,7 +154,13 @@ export interface EntryRow extends TkSyncCols {
   main_minor: number;
   account_minor: number;
   to_amount_minor: number | null;
+  item: string;
   note: string;
+  fee_minor: number | null;
+  fee_main_minor: number | null;
+  installment_group_id: string | null;
+  installment_index: number | null;
+  installment_total: number | null;
   route_id: string | null;
   /** 第③階段（③契約 0-3）：哪條定期規則記的（或被「設成定期」連上的）；不設外鍵、不進 entryDiffCols */
   repeat_id: string | null;
@@ -183,7 +192,9 @@ export interface RepeatRow extends TkSyncCols {
   category_id: string | null;
   amount_minor: number; // 原幣
   currency: string;
+  item: string;
   note: string;
+  fee_minor: number | null;
   route_id: string | null;
   rule: string; // FixedRepeatRule 的 JSON
   hhmm: string;
@@ -264,7 +275,9 @@ export interface TemplateRow extends TkSyncCols {
   account_id: string | null;
   to_account_id: string | null;
   category_id: string | null;
+  item: string;
   note: string;
+  fee_minor: number | null;
   route_id: string | null;
   position: number;
 }
@@ -320,7 +333,12 @@ export interface NewEntryInput {
   categoryId: string | null;
   occurredOn: string;
   occurredAt: string;
+  item?: string; // 預設 ""，絕不寫 null 進新帳
   note: string;
+  feeMinor?: number | null;
+  installmentGroupId?: string | null;
+  installmentIndex?: number | null;
+  installmentTotal?: number | null;
   routeId: string | null;
   override?: AmountOverride;
 }
@@ -340,7 +358,10 @@ export interface EntryDraft {
   categoryId: string | null;
   dayKey: string; // YYYY-MM-DD（本地）
   time: string; // HH:MM（本地）
+  item: string;
   note: string;
+  feeText: string;
+  installmentPeriods: number | null; // null 或 1＝不分期；2..60＝分期期數
   routeId: string | null;
   mainOverrideText: string | null; // 手改「≈ NT$」那一欄；null＝自動
   toAmountText: string | null; // 不同幣別轉帳的「轉入金額」；null＝自動
@@ -635,6 +656,15 @@ function convAmounts(
   return { main: mainMinor, account: accountMinor };
 }
 
+/** 正規化手續費：null/undefined/0 → null；負數丟 RangeError("手續費不能是負數") */
+export function normalizeFeeMinor(feeMinor: number | null | undefined): number | null {
+  if (feeMinor === null || feeMinor === undefined) return null;
+  if (!Number.isInteger(feeMinor)) throw new RangeError("手續費請填整數");
+  if (feeMinor < 0) throw new RangeError("手續費不能是負數");
+  if (feeMinor > MAX_MINOR) throw new RangeError("金額太大了");
+  return feeMinor === 0 ? null : feeMinor;
+}
+
 export function deriveAmounts(a: {
   kind: EntryKind;
   amountMinor: number;
@@ -643,7 +673,8 @@ export function deriveAmounts(a: {
   toAccount: AccountRow | null;
   curByCode: Readonly<Record<string, CurLike>>;
   override?: AmountOverride;
-}): { main_minor: number; account_minor: number; to_amount_minor: number | null } {
+  feeMinor?: number | null;
+}): { main_minor: number; account_minor: number; to_amount_minor: number | null; fee_minor: number | null; fee_main_minor: number | null } {
   if (a.kind === "transfer" && a.currency !== a.account.currency) throw new RangeError("轉帳幣別會跟著轉出帳戶");
   const { main, account } = convAmounts(a.amountMinor, a.currency, a.account.currency, a.curByCode, a.override);
   let toAmount: number | null = null;
@@ -656,7 +687,14 @@ export function deriveAmounts(a: {
       toAmount = a.override?.toAmountMinor ?? convertMinor(a.amountMinor, acc, toAcc);
     }
   }
-  return { main_minor: main, account_minor: account, to_amount_minor: toAmount };
+  const feeMinor = normalizeFeeMinor(a.feeMinor);
+  let feeMainMinor: number | null = null;
+  if (feeMinor !== null) {
+    const accCur = curOrThrow(a.curByCode, a.account.currency);
+    const mainCur = mainOf(a.curByCode);
+    feeMainMinor = accCur.is_main === 1 ? feeMinor : convertMinor(feeMinor, accCur, mainCur);
+  }
+  return { main_minor: main, account_minor: account, to_amount_minor: toAmount, fee_minor: feeMinor, fee_main_minor: feeMainMinor };
 }
 
 function uncatIdOf(kind: CategoryKind): string {
@@ -675,7 +713,12 @@ interface Merged {
   categoryId: string | null;
   occurredOn: string;
   occurredAt: string;
+  item: string;
   note: string;
+  feeMinor: number | null;
+  installmentGroupId: string | null;
+  installmentIndex: number | null;
+  installmentTotal: number | null;
   routeId: string | null;
 }
 
@@ -685,6 +728,7 @@ function validate(m: Merged, ctx: EntryCtx): { account: AccountRow; toAccount: A
   if (m.amountMinor === 0) throw new RangeError("金額不能是 0");
   if (Math.abs(m.amountMinor) > MAX_MINOR) throw new RangeError("金額太大了");
   if (m.amountMinor < 0 && (m.kind === "income" || m.kind === "transfer")) throw new RangeError("收入和轉帳金額要大於 0");
+  normalizeFeeMinor(m.feeMinor);
   if (!m.accountId) throw new RangeError("選一個帳戶");
   const account = ctx.accById[m.accountId];
   if (!account || account.deleted_at !== null) throw new RangeError("這個帳戶已經刪除了");
@@ -719,7 +763,12 @@ export function buildEntryRow(input: NewEntryInput, ctx: EntryCtx, meta: { id: s
     categoryId: input.kind === "transfer" ? null : input.categoryId,
     occurredOn: input.occurredOn,
     occurredAt: input.occurredAt,
+    item: input.item ?? "",
     note: input.note,
+    feeMinor: normalizeFeeMinor(input.feeMinor),
+    installmentGroupId: input.installmentGroupId ?? null,
+    installmentIndex: input.installmentIndex ?? null,
+    installmentTotal: input.installmentTotal ?? null,
     routeId: input.routeId,
   };
   const v = validate(m, ctx);
@@ -731,6 +780,7 @@ export function buildEntryRow(input: NewEntryInput, ctx: EntryCtx, meta: { id: s
     toAccount: v.toAccount,
     curByCode: ctx.curByCode,
     override: input.override,
+    feeMinor: m.feeMinor,
   });
   return {
     id: meta.id,
@@ -745,7 +795,13 @@ export function buildEntryRow(input: NewEntryInput, ctx: EntryCtx, meta: { id: s
     main_minor: amt.main_minor,
     account_minor: amt.account_minor,
     to_amount_minor: amt.to_amount_minor,
+    item: m.item,
     note: m.note,
+    fee_minor: amt.fee_minor,
+    fee_main_minor: amt.fee_main_minor,
+    installment_group_id: m.installmentGroupId,
+    installment_index: m.installmentIndex,
+    installment_total: m.installmentTotal,
     route_id: m.routeId,
     repeat_id: null,
     import_id: null,
@@ -772,7 +828,13 @@ const ENTRY_DATA_COLS = [
   "main_minor",
   "account_minor",
   "to_amount_minor",
+  "item",
   "note",
+  "fee_minor",
+  "fee_main_minor",
+  "installment_group_id",
+  "installment_index",
+  "installment_total",
   "route_id",
 ] as const;
 
@@ -819,7 +881,12 @@ export function applyEntryPatch(
     categoryId,
     occurredOn: patch.occurredOn ?? row.occurred_on,
     occurredAt: patch.occurredAt ?? row.occurred_at,
+    item: patch.item !== undefined ? patch.item : (row.item ?? ""),
     note: patch.note ?? row.note,
+    feeMinor: patch.feeMinor !== undefined ? normalizeFeeMinor(patch.feeMinor) : normalizeFeeMinor(row.fee_minor),
+    installmentGroupId: patch.installmentGroupId !== undefined ? patch.installmentGroupId : row.installment_group_id,
+    installmentIndex: patch.installmentIndex !== undefined ? patch.installmentIndex : row.installment_index,
+    installmentTotal: patch.installmentTotal !== undefined ? patch.installmentTotal : row.installment_total,
     routeId: patch.routeId !== undefined ? patch.routeId : row.route_id,
   };
   const v = validate(m, ctx);
@@ -830,10 +897,13 @@ export function applyEntryPatch(
     patch.toAccountId !== undefined ||
     patch.kind !== undefined ||
     patch.override !== undefined ||
+    patch.feeMinor !== undefined ||
     m.currency !== row.currency; // 幣別真的換了就一定重算，不准只改 currency 欄
   let mainMinor = row.main_minor;
   let accountMinor = row.account_minor;
   let toAmountMinor = row.to_amount_minor;
+  let feeMinor = row.fee_minor ?? null;
+  let feeMainMinor = row.fee_main_minor ?? null;
   if (recompute) {
     const amt = deriveAmounts({
       kind: m.kind,
@@ -843,10 +913,13 @@ export function applyEntryPatch(
       toAccount: v.toAccount,
       curByCode: ctx.curByCode,
       override: patch.override,
+      feeMinor: m.feeMinor,
     });
     mainMinor = amt.main_minor;
     accountMinor = amt.account_minor;
     toAmountMinor = amt.to_amount_minor;
+    feeMinor = amt.fee_minor;
+    feeMainMinor = amt.fee_main_minor;
   }
   const next: EntryRow = {
     ...row,
@@ -861,7 +934,13 @@ export function applyEntryPatch(
     main_minor: mainMinor,
     account_minor: accountMinor,
     to_amount_minor: toAmountMinor,
+    item: m.item,
     note: m.note,
+    fee_minor: feeMinor,
+    fee_main_minor: feeMainMinor,
+    installment_group_id: m.installmentGroupId,
+    installment_index: m.installmentIndex,
+    installment_total: m.installmentTotal,
     route_id: m.routeId,
   };
   const cols: Record<string, unknown> = {};
@@ -888,6 +967,13 @@ export function draftToInput(d: EntryDraft, ctx: EntryCtx, dayStartHour: number)
     const toAcc = ctx.accById[d.toAccountId];
     if (toAcc) override.toAmountMinor = parseAmount(d.toAmountText, curOrThrow(ctx.curByCode, toAcc.currency), { allowNegative: false });
   }
+  let feeMinor: number | null = null;
+  if (d.feeText && d.feeText.trim() !== "") {
+    const feeCur = curOrThrow(ctx.curByCode, account.currency);
+    const parsedFee = parseAmount(d.feeText, feeCur, { allowNegative: true, allowZero: true });
+    if (parsedFee < 0) throw new RangeError("手續費不能是負數");
+    feeMinor = parsedFee === 0 ? null : parsedFee;
+  }
   const input: NewEntryInput = {
     kind: d.kind,
     amountMinor,
@@ -897,7 +983,9 @@ export function draftToInput(d: EntryDraft, ctx: EntryCtx, dayStartHour: number)
     categoryId: d.kind === "transfer" ? null : d.categoryId,
     occurredOn: d.dayKey,
     occurredAt,
+    item: d.item ?? "",
     note: d.note,
+    feeMinor,
     routeId: d.routeId,
   };
   if (override.mainMinor !== undefined || override.toAmountMinor !== undefined) input.override = override;
@@ -931,7 +1019,13 @@ export function adjustRow(a: {
     main_minor: acc.is_main === 1 ? a.amountMinor : convertMinor(a.amountMinor, acc, main),
     account_minor: a.amountMinor,
     to_amount_minor: null,
-    note: a.note,
+    item: a.note,
+    note: "",
+    fee_minor: null,
+    fee_main_minor: null,
+    installment_group_id: null,
+    installment_index: null,
+    installment_total: null,
     route_id: null,
     repeat_id: null,
     import_id: null,
@@ -966,12 +1060,12 @@ export function divideRate(numRate: string, denRate: string): string {
 
 export interface MainCurrencyPlan {
   currencies: { id: string; cols: { is_main?: number; rate_to_main?: string; updated_at: string } }[];
-  entries: { id: string; main_minor: number; updated_at: string }[];
+  entries: { id: string; main_minor: number; fee_main_minor?: number | null; updated_at: string }[];
   budgets: { id: string; amount_minor: number; updated_at: string }[];
   wishes: { id: string; amount_minor: number; updated_at: string }[];
 }
 
-/** 切換主幣別（v1.33 G4）：反算各幣別 rate_to_main，並重算歷史帳目 main_minor 與主幣別計價之預算／願望金額 */
+/** 切換主幣別（v1.33 G4）：反算各幣別 rate_to_main，並重算歷史帳目 main_minor／fee_main_minor 與主幣別計價之預算／願望金額 */
 export function planSetMainCurrency(input: {
   targetCode: string;
   currencies: readonly CurrencyRow[];
@@ -979,6 +1073,7 @@ export function planSetMainCurrency(input: {
   budgets: readonly BudgetRow[];
   wishes: readonly WishRow[];
   nowIso: string;
+  accounts?: readonly AccountRow[];
 }): MainCurrencyPlan {
   const code = currencyCode(input.targetCode);
   const aliveCurs = input.currencies.filter((c) => c.deleted_at === null);
@@ -992,6 +1087,9 @@ export function planSetMainCurrency(input: {
   if (target.is_main === 1 && target.rate_to_main === "1" && mainCount === 1) {
     return { currencies: [], entries: [], budgets: [], wishes: [] };
   }
+
+  const accById: Record<string, AccountRow> = {};
+  if (input.accounts) for (const a of input.accounts) accById[a.id] = a;
 
   const curUpdates: MainCurrencyPlan["currencies"] = [];
   for (const c of aliveCurs) {
@@ -1023,8 +1121,27 @@ export function planSetMainCurrency(input: {
         const srcCur = curByCode[e.currency];
         nextMain = srcCur ? convertMinor(e.amount_minor, srcCur, target) : convertMinor(e.main_minor, oldMain, target);
       }
-      if (nextMain !== e.main_minor) {
-        entryUpdates.push({ id: e.id, main_minor: nextMain, updated_at: input.nowIso });
+      let nextFeeMain: number | null | undefined;
+      if (e.fee_minor && e.fee_minor > 0) {
+        const feeCurCode = accById[e.account_id]?.currency;
+        if (feeCurCode === target.code) {
+          nextFeeMain = e.fee_minor;
+        } else if (feeCurCode && curByCode[feeCurCode]) {
+          nextFeeMain = convertMinor(e.fee_minor, curByCode[feeCurCode], target);
+        } else if (e.fee_main_minor != null) {
+          nextFeeMain = convertMinor(e.fee_main_minor, oldMain, target);
+        } else if (curByCode[e.currency]) {
+          nextFeeMain = convertMinor(e.fee_minor, curByCode[e.currency], target);
+        } else {
+          nextFeeMain = convertMinor(e.fee_minor, oldMain, target);
+        }
+      }
+      const mainChanged = nextMain !== e.main_minor;
+      const feeChanged = nextFeeMain !== undefined && nextFeeMain !== (e.fee_main_minor ?? null);
+      if (mainChanged || feeChanged) {
+        const upd: MainCurrencyPlan["entries"][number] = { id: e.id, main_minor: nextMain, updated_at: input.nowIso };
+        if (feeChanged) upd.fee_main_minor = nextFeeMain;
+        entryUpdates.push(upd);
       }
     }
 
@@ -1133,12 +1250,25 @@ export function rowAmount(
   }
 }
 
-/** 只算未刪的；Plan v3 §二公式（＝§3.5-3 SQL） */
+/** 單筆帳算進「主幣別支出合計」的金額：支出含手續費、轉帳／收入只算手續費、校正為 0 */
+export function entryExpenseMain(e: Pick<EntryRow, "kind" | "main_minor" | "fee_main_minor">): number {
+  if (e.kind === "expense") return e.main_minor + (e.fee_main_minor ?? 0);
+  if (e.kind === "transfer" || e.kind === "income") return e.fee_main_minor ?? 0;
+  return 0;
+}
+
+/** 只算未刪的；Plan v3 §二公式（＝§3.5-3 SQL，含手續費） */
 export function balancesOf(entries: readonly EntryRow[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const e of entries) {
     if (e.deleted_at !== null) continue;
-    const d = e.kind === "expense" || e.kind === "transfer" ? -e.account_minor : e.account_minor;
+    const fee = e.fee_minor ?? 0;
+    const d =
+      e.kind === "expense" || e.kind === "transfer"
+        ? -(e.account_minor + fee)
+        : e.kind === "income"
+          ? e.account_minor - fee
+          : e.account_minor;
     out[e.account_id] = (out[e.account_id] ?? 0) + d;
     if (e.kind === "transfer" && e.to_account_id) out[e.to_account_id] = (out[e.to_account_id] ?? 0) + (e.to_amount_minor ?? 0);
   }
@@ -1185,8 +1315,8 @@ export function groupByDay(entries: readonly EntryRow[], filterAccountId: string
       out.push(g);
     }
     g.entries.push(e);
-    if (e.kind === "expense") g.expense += e.main_minor;
-    else if (e.kind === "income") g.income += e.main_minor;
+    g.expense += entryExpenseMain(e);
+    if (e.kind === "income") g.income += e.main_minor;
   }
   return out;
 }
@@ -1218,7 +1348,7 @@ export function monthSum(
   for (const e of entries) {
     if (e.deleted_at !== null || monthOf(e.occurred_on, startDay) !== month) continue;
     if (e.kind === "income") income += e.main_minor;
-    else if (e.kind === "expense") expense += e.main_minor;
+    expense += entryExpenseMain(e);
   }
   return { income, expense };
 }
@@ -1338,6 +1468,25 @@ export function atOf(dayKey: string, hhmm: string, dayStartHour: number): string
   if (h > 23 || mi > 59) throw new RangeError("時刻看不懂");
   const [y, m, d] = splitDay(dayKey);
   return new Date(y, m - 1, h < dayStartHour ? d + 1 : d, h, mi).toISOString();
+}
+
+/** 將 occurred_at 依帳務日差（toDay - fromDay）平移整數天數，保留本地牆鐘時刻與日界線跨日偏移 */
+export function shiftOccurredAt(occurredAtIso: string, fromDay: string, toDay: string): string {
+  if (fromDay === toDay) return occurredAtIso;
+  const [y1, m1, d1] = splitDay(fromDay);
+  const [y2, m2, d2] = splitDay(toDay);
+  const diffDays = Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000);
+  if (diffDays === 0) return occurredAtIso;
+  const dt = new Date(occurredAtIso);
+  return new Date(
+    dt.getFullYear(),
+    dt.getMonth(),
+    dt.getDate() + diffDays,
+    dt.getHours(),
+    dt.getMinutes(),
+    dt.getSeconds(),
+    dt.getMilliseconds(),
+  ).toISOString();
 }
 
 /* ───────────────────────── §4.5 分類與帳戶 ───────────────────────── */
@@ -1737,12 +1886,13 @@ export interface QuickEntry {
   accountId: string;
   categoryId: string;
   categoryMatched: boolean;
+  item: string;
   note: string;
 }
 
 const QUICK_AMOUNT_RE = /^\+?[\d,]+(\.\d+)?$/;
 
-/** `<金額> [分類] [備註…] [@帳戶]`；不合 throw RangeError */
+/** `<金額> [分類] [品項／來源…] [@帳戶]`；不合 throw RangeError */
 export function parseQuickEntry(body: string, ctx: QuickCtx): QuickEntry {
   const tokens = normalizeInput(body)
     .split(/\s+/)
@@ -1774,9 +1924,9 @@ export function parseQuickEntry(body: string, ctx: QuickCtx): QuickEntry {
   const cats = Object.keys(ctx.catById).map((k) => ctx.catById[k]);
   const hit = rest.length ? matchCategories(rest[0], cats, kind)[0] : undefined;
   if (hit) {
-    return { kind, amountMinor, currency: account.currency, accountId: account.id, categoryId: hit.id, categoryMatched: true, note: rest.slice(1).join(" ") };
+    return { kind, amountMinor, currency: account.currency, accountId: account.id, categoryId: hit.id, categoryMatched: true, item: rest.slice(1).join(" "), note: "" };
   }
-  return { kind, amountMinor, currency: account.currency, accountId: account.id, categoryId: uncatIdOf(kind), categoryMatched: false, note: rest.join(" ") };
+  return { kind, amountMinor, currency: account.currency, accountId: account.id, categoryId: uncatIdOf(kind), categoryMatched: false, item: rest.join(" "), note: "" };
 }
 
 /** TK_TEXT.saved 的組字（含「（分類待補）」）——字面與 store 的 `TK_TEXT.saved`／`pendingCat` 相同 */
@@ -1785,7 +1935,8 @@ export function quickToast(q: QuickEntry, ctx: QuickCtx): string {
   const decimals = cur ? cur.decimals : 2;
   const amount = quickAmountText(q.kind, q.amountMinor, decimals) + (cur && cur.is_main === 1 ? "" : ` ${q.currency}`);
   const cat = ctx.catById[q.categoryId];
-  const label = q.categoryMatched && cat ? bareName(cat.name) : q.note ? Array.from(q.note).slice(0, 12).join("") : UNCAT_NAME;
+  const desc = q.item || q.note;
+  const label = q.categoryMatched && cat ? bareName(cat.name) : desc ? Array.from(desc).slice(0, 12).join("") : UNCAT_NAME;
   const acc = ctx.accById[q.accountId];
   return `已記 ${amount} ${label} · ${acc ? acc.name : ""}${q.categoryMatched ? "" : "（分類待補）"}`;
 }

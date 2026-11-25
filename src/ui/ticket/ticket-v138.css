@@ -1,0 +1,634 @@
+/* ─────────────────────────────────────────────────────
+ * ticket-v138.css — 售票口 v1.38 雙端共用樣式（3A 品項分流／3B 信用卡帳單週期與刷卡分期）。
+ * 嚴守視覺規範 v2.3：
+ *   - 零裸色碼（全走 theme.css 語意層 Token 與 color-mix）
+ *   - 朱紅印章色僅限 済／領収，本檔一律不用
+ *   - 五級圓角制度：控件與小標 --radius-ctl (2px)、卡片 --radius-card (4px/3px)、書籤籤 --radius-badge (6px)
+ *   - 雙端共用：[data-shell="mobile"] 與窄螢幕自動切換為單欄與 ≥44px 觸控高度
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 一、跨元件共用語意小件（供桌機與手機售票口元件共用） ═══ */
+
+/* 細框小標：分期 i/n、分流原因、帳單週期狀態 */
+.tk-v38-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-paper-used) 65%, transparent);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  letter-spacing: .06em;
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tk-v38-badge.is-accent {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+}
+.tk-v38-badge.is-warn {
+  border-color: color-mix(in srgb, var(--late) 48%, transparent);
+  background: var(--danger-bg);
+  color: var(--late);
+}
+.tk-v38-badge.is-muted {
+  border-style: dashed;
+  color: var(--color-ink-faint);
+}
+
+/* 手續費微調小標 */
+.tk-v38-fee-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 0 5px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  letter-spacing: .02em;
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 雙欄品項／隨筆與手續費微調群組 */
+.tk-v38-dual-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+  align-items: end;
+}
+.tk-v38-dual-fields .tk-v38-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.tk-v38-dual-fields .tk-v38-field > span {
+  font-size: var(--fs-micro);
+  letter-spacing: .24em;
+  color: var(--color-ink-faint);
+}
+
+/* 信用卡帳單摘要帶（桌機側欄／帳戶卡／手機帳戶頁共用） */
+.tk-v38-card-cycle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-used) 60%, transparent);
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+.tk-v38-card-cycle.is-overdue {
+  border-color: color-mix(in srgb, var(--late) 52%, transparent);
+  background: color-mix(in srgb, var(--late) 6%, var(--color-paper-used));
+}
+.tk-v38-card-cycle.is-due {
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+}
+.tk-v38-card-cycle .hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.tk-v38-card-cycle .title {
+  font-family: var(--font-display);
+  font-size: var(--fs-ui);
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: var(--color-ink);
+}
+.tk-v38-card-cycle .nums {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--sp-2);
+  padding-top: var(--sp-1);
+  border-top: 1px dashed var(--color-line);
+}
+.tk-v38-card-cycle .num {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tk-v38-card-cycle .num span {
+  font-size: var(--fs-micro);
+  letter-spacing: .18em;
+  color: var(--color-ink-faint);
+}
+.tk-v38-card-cycle .num b {
+  font-family: var(--font-display);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+.tk-v38-card-cycle.is-overdue .num.is-due b {
+  color: var(--late);
+}
+.tk-v38-card-cycle .meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: .04em;
+}
+.tk-v38-card-cycle .acts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+/* 刷卡分期進度卡（大票側板／手機詳情頁共用） */
+.tk-v38-inst-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-used) 55%, transparent);
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+.tk-v38-inst-box .hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.tk-v38-inst-box .hd strong {
+  font-family: var(--font-display);
+  font-size: var(--fs-ui);
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+.tk-v38-inst-box .bar {
+  position: relative;
+  height: 6px;
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 8%, transparent);
+  overflow: hidden;
+}
+.tk-v38-inst-box .bar > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-ctl);
+  background: var(--stamp-ink);
+  transition: width var(--dur) var(--ease);
+}
+.tk-v38-inst-box .meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+}
+.tk-v38-inst-box .meta b {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.tk-v38-inst-box .acts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding-top: var(--sp-1);
+  border-top: 1px dashed var(--color-line);
+}
+
+/* ═══ 二、管帳面板：舊帳隨筆分流小幫手入口卡 ═══ */
+.tk-v38-mgr-split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-used) 55%, transparent);
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.tk-v38-mgr-split:hover {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--sel-bg);
+}
+.tk-v38-mgr-split:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.tk-v38-mgr-split-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tk-v38-mgr-split-txt b {
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--color-ink);
+}
+.tk-v38-mgr-split-txt small {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  letter-spacing: .03em;
+  color: var(--color-ink-faint);
+}
+.tk-v38-mgr-split-go {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  color: var(--sel-fg);
+  white-space: nowrap;
+}
+
+/* ═══ 三、舊帳隨筆分流小幫手本體（LegacySplitModal） ═══ */
+.tk-v38-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  color: var(--color-ink);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+.tk-v38-split-lead {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  letter-spacing: .03em;
+  color: var(--color-ink-soft);
+}
+.tk-v38-split-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  border-top: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+}
+.tk-v38-split-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px var(--sp-2) 2px 2px;
+  min-height: var(--ctl-h-sm);
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-ui);
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.tk-v38-split-all:hover {
+  background: var(--hover-bg);
+}
+.tk-v38-split-all:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.tk-v38-split-cnt {
+  font-size: var(--fs-sm);
+  letter-spacing: .06em;
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+}
+.tk-v38-split-cnt b {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-ink);
+}
+
+/* 自訂手帳方角勾選框 */
+.tk-v38-ck {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  box-sizing: border-box;
+  border: 1.4px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.tk-v38-ck.is-on {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.tk-v38-ck.is-on::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border: 1.6px solid var(--color-on-ink);
+  border-top: 0;
+  border-right: 0;
+  transform: translateY(-1px) rotate(-45deg);
+}
+[data-theme="dark"] .tk-v38-ck.is-on::after {
+  border-color: var(--color-book);
+}
+.tk-v38-ck.is-partial {
+  border-color: var(--accent);
+  background: var(--sel-bg);
+}
+.tk-v38-ck.is-partial::after {
+  content: "";
+  width: 8px;
+  height: 1.6px;
+  background: var(--accent);
+}
+
+/* 候選清單 */
+.tk-v38-split-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.tk-v38-split-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-used) 55%, transparent);
+  transition: border-color var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+}
+.tk-v38-split-row.is-on {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--color-line));
+}
+.tk-v38-split-row.is-off {
+  border-style: dashed;
+}
+.tk-v38-split-row.is-off .tk-v38-split-inputs {
+  opacity: .56;
+}
+.tk-v38-split-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.tk-v38-split-tog {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tk-v38-split-tog:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-ctl);
+}
+.tk-v38-split-day {
+  flex: none;
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  letter-spacing: .04em;
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+}
+.tk-v38-split-orig {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--color-ink-soft);
+}
+.tk-v38-split-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: var(--sp-2) var(--sp-3);
+  padding-left: 24px;
+}
+.tk-v38-split-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tk-v38-split-field > span {
+  font-size: var(--fs-micro);
+  letter-spacing: .24em;
+  color: var(--color-ink-faint);
+}
+.tk-v38-split-in {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-size: var(--fs-ui);
+}
+
+/* 載入、錯誤與空狀態 */
+.tk-v38-split-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-4);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-card);
+  text-align: center;
+  color: var(--color-ink-faint);
+  font-size: var(--fs-sm);
+  letter-spacing: .06em;
+}
+.tk-v38-split-state strong {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  letter-spacing: .12em;
+  color: var(--color-ink-soft);
+}
+.tk-v38-split-state.is-err {
+  border-color: color-mix(in srgb, var(--late) 45%, transparent);
+  color: var(--late);
+}
+
+/* ═══ 四、新增帳戶表單：信用卡帳單週期選填區 ═══ */
+.tk-v38-card-fields {
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3) var(--sp-1);
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-used) 45%, transparent);
+}
+.tk-v38-card-fields-hd {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-micro);
+  letter-spacing: .24em;
+  color: var(--color-gold-ink);
+}
+[data-theme="dark"] .tk-v38-card-fields-hd {
+  color: var(--color-gold);
+}
+.tk-v38-card-fields .ns-tk-dfield {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+.tk-v38-card-fields .ns-tk-dfield .lbl {
+  letter-spacing: .14em;
+}
+.tk-v38-card-fields .ns-tk-dfield:last-child {
+  border-bottom: 0;
+}
+
+/* ═══ 五、常用票種管理：展開檢視列（品項／隨筆／手續費） ═══ */
+.tk-v38-tpl-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--color-ink-soft);
+}
+.tk-v38-tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+}
+.tk-v38-tpl-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.tk-v38-tpl-item.is-wide {
+  grid-column: 1 / -1;
+}
+.tk-v38-tpl-item dt {
+  flex: none;
+  font-size: var(--fs-micro);
+  letter-spacing: .2em;
+  color: var(--color-ink-faint);
+}
+.tk-v38-tpl-item dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+.tk-v38-tpl-item dd.is-empty {
+  color: var(--color-ink-faint);
+}
+.tk-v38-tpl-item dd.is-num {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tk-v38-tpl-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding-top: var(--sp-1);
+  border-top: 1px dashed var(--color-line);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+}
+
+/* ═══ 六、手機與窄螢幕響應規則 ═══ */
+[data-shell="mobile"] .tk-v38-dual-fields,
+[data-shell="mobile"] .tk-v38-split-inputs,
+[data-shell="mobile"] .tk-v38-tpl-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+[data-shell="mobile"] .tk-v38-split-inputs {
+  padding-left: 0;
+}
+[data-shell="mobile"] .tk-v38-split-all,
+[data-shell="mobile"] .tk-v38-mgr-split {
+  min-height: var(--ctl-h);
+}
+[data-shell="mobile"] .tk-v38-split-tog {
+  min-height: 36px;
+}
+[data-shell="mobile"] .tk-v38-ck {
+  width: 20px;
+  height: 20px;
+}
+[data-shell="mobile"] .tk-v38-ck.is-on::after {
+  width: 9px;
+  height: 5px;
+}
+[data-shell="mobile"] .tk-v38-split-in {
+  min-height: 38px;
+}
+[data-shell="mobile"] .tk-v38-card-fields .ns-tk-dfield {
+  grid-template-columns: 102px minmax(0, 1fr);
+}
+
+@media (max-width: 540px) {
+  .tk-v38-dual-fields,
+  .tk-v38-split-inputs,
+  .tk-v38-tpl-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tk-v38-split-inputs {
+    padding-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tk-v38-inst-box .bar > i,
+  .tk-v38-mgr-split,
+  .tk-v38-split-all,
+  .tk-v38-ck,
+  .tk-v38-split-row {
+    transition: none;
+  }
+}

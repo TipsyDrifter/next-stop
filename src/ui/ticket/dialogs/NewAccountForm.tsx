@@ -10,27 +10,63 @@ import { Select } from "../../common/Select";
  *   按鈕在 <form> 外面時「建立」靠 `form={formId}` 送出。
  * 桌機外觀在 ticket.css §F、手機觸控尺寸在 ticket-mobile.css。
  */
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
-import { ACCOUNT_GROUPS, mainCurrencyOf, type AccountGroup } from "../../../domain/ticket";
+import {
+  ACCOUNT_GROUPS,
+  isLiability,
+  mainCurrencyOf,
+  orderAccounts,
+  type AccountGroup,
+} from "../../../domain/ticket";
+import { MAX_CARD_DAY, MIN_CARD_DAY, clampCardDay } from "../../../domain/ticketCardCycle";
+import { acctLabel } from "../TicketLedger";
 import { useImeGuard } from "./dialogBits";
 import { DialogFoot } from "./DialogFoot";
+import "../ticket-v138.css";
+
+const CARD_DAYS = Array.from({ length: MAX_CARD_DAY - MIN_CARD_DAY + 1 }, (_, i) => MIN_CARD_DAY + i);
 
 export function NewAccountForm({ onDone }: { onDone(): void }) {
   const currencies = useTicketStore((s) => s.currencies);
+  const accounts = useTicketStore((s) => s.accounts);
   const createAccount = useTicketStore((s) => s.createAccount);
   const [name, setName] = useState("");
   const [group, setGroup] = useState<AccountGroup>("cash");
   const [currency, setCurrency] = useState(() => mainCurrencyOf(currencies));
   const [opening, setOpening] = useState("");
+  const [statementDay, setStatementDay] = useState("");
+  const [paymentDueDay, setPaymentDueDay] = useState("");
+  const [autoPayAccountId, setAutoPayAccountId] = useState("");
   const [busy, setBusy] = useState(false);
   const formId = useId();
+
+  const isCard = group === "card";
+  const autoPayAccounts = useMemo(
+    () => orderAccounts(accounts.filter((a) => a.deleted_at === null && a.archived_at === null && !isLiability(a.group_key))),
+    [accounts],
+  );
 
   const submit = async () => {
     if (busy || !name.trim()) return;
     setBusy(true);
     try {
-      if (await createAccount({ name, group, currency, openingText: opening })) onDone();
+      const parsedStatement = isCard && statementDay ? clampCardDay(parseInt(statementDay, 10)) : null;
+      const parsedDue = isCard && paymentDueDay ? clampCardDay(parseInt(paymentDueDay, 10)) : null;
+      const parsedAutoPay = isCard && autoPayAccountId ? autoPayAccountId : null;
+      if (
+        await createAccount({
+          name,
+          group,
+          currency,
+          openingText: opening,
+          statementDay: parsedStatement,
+          paymentDueDay: parsedDue,
+          autoPayAccountId: parsedAutoPay,
+        })
+      ) {
+        onDone();
+      }
     } finally {
       setBusy(false);
     }
@@ -97,6 +133,60 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
         />
       </label>
       <p className="ns-tk-dhint">填寫後會自動記一筆「精算」（期初餘額）；負債請填負數。</p>
+      {isCard && (
+        <section className="tk-v38-card-fields" aria-label="信用卡帳單週期設定">
+          <p className="tk-v38-card-fields-hd">信用卡帳單週期（選填）</p>
+          <label className="ns-tk-dfield">
+            <span className="lbl">每月結帳日</span>
+            <Select
+              className="ns-tk-dselect"
+              aria-label="每月結帳日"
+              value={statementDay}
+              onChange={(v) => setStatementDay(v)}
+            >
+              <option value="">不指定</option>
+              {CARD_DAYS.map((d) => (
+                <option key={d} value={String(d)}>
+                  每月 {d} 日
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="ns-tk-dfield">
+            <span className="lbl">每月繳款日</span>
+            <Select
+              className="ns-tk-dselect"
+              aria-label="每月繳款截止日"
+              value={paymentDueDay}
+              onChange={(v) => setPaymentDueDay(v)}
+            >
+              <option value="">不指定</option>
+              {CARD_DAYS.map((d) => (
+                <option key={d} value={String(d)}>
+                  每月 {d} 日
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="ns-tk-dfield">
+            <span className="lbl">預設扣款帳戶</span>
+            <Select
+              className="ns-tk-dselect"
+              aria-label="預設扣款帳戶"
+              value={autoPayAccountId}
+              onChange={(v) => setAutoPayAccountId(v)}
+            >
+              <option value="">不指定</option>
+              {autoPayAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {acctLabel(a, accounts)}
+                  {a.currency !== currency ? ` (${a.currency})` : ""}
+                </option>
+              ))}
+            </Select>
+          </label>
+        </section>
+      )}
       <DialogFoot>
         <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
           取消

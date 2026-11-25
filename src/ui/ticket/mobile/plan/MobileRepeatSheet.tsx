@@ -15,7 +15,17 @@ import { type ReactNode } from "react";
 import { isTicketAmountMasked, useTicketStore } from "../../../../store/ticketStore";
 import { useUiStore } from "../../../../store/uiStore";
 import { todayKey } from "../../../../lib/date";
-import { UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, UNCAT_NAME, categoryPath, type AccountRow, type CategoryRow } from "../../../../domain/ticket";
+import {
+  UNCAT_EXPENSE_ID,
+  UNCAT_INCOME_ID,
+  UNCAT_NAME,
+  categoryPath,
+  currencySymbol,
+  maskedMoneyText,
+  moneyText,
+  type AccountRow,
+  type CategoryRow,
+} from "../../../../domain/ticket";
 import { canSkipNext, nextOnText, parseFixedRule, pendingSkips, repeatRuleText, repeatStatus, type RepeatRow } from "../../../../domain/ticketPlan";
 import { shortDay } from "../../../../domain/ticketView";
 import { IconPlus } from "../mobileBits";
@@ -111,7 +121,17 @@ function Row({
   const skipped = pendingSkips(r, today);
   const lastSkipped = skipped.length ? skipped[skipped.length - 1] : null;
   const skippable = !isBlocked && canSkipNext(r) && r.next_on !== null;
-  const note = repeatUncat(r) ? null : repeatNoteShown(r, catById); // 未分類的上行已經印備註了
+  const itemText = (r.item ?? "").trim();
+  const hasItem = itemText !== "";
+  const note = !hasItem && repeatUncat(r) ? null : repeatNoteShown(r, catById); // 未分類且沒填品項時上行已印備註
+  const feeCurCode = accById[r.account_id]?.currency ?? r.currency;
+  const feeDec = curByCode[feeCurCode]?.decimals ?? 2;
+  const feeText =
+    r.fee_minor && r.fee_minor > 0
+      ? masked
+        ? maskedMoneyText(feeCurCode)
+        : `${currencySymbol(feeCurCode)} ${moneyText(r.fee_minor, feeDec)}`
+      : null;
 
   const cls = "ns-tk-mrm-row" + (paused ? " is-paused" : "") + (isBlocked ? " is-blocked" : "") + (status === "ended" ? " is-ended" : "");
   return (
@@ -123,13 +143,20 @@ function Row({
               {amt}
               {foreign && <span className="cur">{r.currency}</span>}
             </b>
-            <span className="what">{whatOf(r, accById, catById)}</span>
+            <span className="what">{hasItem ? itemText : whatOf(r, accById, catById)}</span>
             <span className="nx">{nx}</span>
           </span>
           <span className="l2">
             {why && <span className="warn">⚠ {why}</span>}
             {desc}
+            {hasItem && !repeatUncat(r) && (
+              <>
+                {" · "}
+                {whatOf(r, accById, catById)}
+              </>
+            )}
             {r.kind !== "transfer" && !why && ` · ${acctLabel(accById[r.account_id], accounts)}`}
+            {feeText && ` · 含手續費 ${feeText}`}
             {note && ` · ${note}`}
           </span>
         </button>

@@ -1173,3 +1173,34 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 .ns-tk-pin-key.is-aux { font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 400; color: var(--color-ink-soft); }
 .ns-tk-unmask-body { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0 var(--sp-2); }
 /* ==== end v1.33 3B ==== */
+
+/* ==== v1.38 3A／3B 桌機帳簿品項副標・手續費小牌・分期徽章・定期帳品項與手續費 ==== */
+.ns-tk-row.has-fee { padding-block: 5px; }
+.ns-tk-subcat {
+  flex: none; max-width: 34%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-soft);
+}
+.ns-tk-subcat .gt { margin: 0 .25em; color: var(--color-ink-faint); }
+.ns-tk-subcat .arr { margin: 0 .3em; color: var(--color-ink-faint); font-family: var(--font-latin); }
+.ns-tk-inst {
+  flex: none; align-self: center; display: inline-block; padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent); border-radius: var(--radius-ctl);
+  background: var(--sel-bg);
+  font-size: var(--fs-micro); line-height: 15px; letter-spacing: .06em; color: var(--accent); white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ns-tk-amt { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 1px; }
+.ns-tk-amt-top { display: inline-flex; align-items: baseline; }
+.ns-tk-amt-fee {
+  font-family: var(--font-body); font-size: var(--fs-micro); line-height: 1.2; letter-spacing: .04em;
+  color: var(--color-ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.ns-tk-rm-row .subwhat {
+  flex: none; max-width: 36%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-xs); color: var(--color-ink-faint);
+}
+.ns-tk-rm-row .subwhat .gt, .ns-tk-rm-row .subwhat .arr { margin: 0 .25em; }
+.ns-tk-rm-row .l2 .fee { color: var(--color-ink-soft); font-variant-numeric: tabular-nums; }
+.ns-tk-refee { display: flex; align-items: baseline; gap: 6px; }
+.ns-tk-refee small { font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .08em; color: var(--color-ink-faint); white-space: nowrap; }
+/* ==== end v1.38 3A／3B ==== */

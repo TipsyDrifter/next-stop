@@ -16,6 +16,7 @@ import {
   type TicketManageTab,
 } from "../../../store/ticketStore";
 import { Tabs } from "../../common/Tabs";
+import { IconChevron } from "../../common/icons";
 import { CategoryManager } from "./CategoryManager";
 import { AccountOrder } from "./AccountOrder";
 import { CurrencyTable } from "./CurrencyTable";
@@ -24,6 +25,7 @@ import { BudgetEditor } from "../plan/BudgetEditor";
 import { RepeatManager } from "../plan/RepeatManager";
 import { MobileBudgetSheet } from "../mobile/plan/MobileBudgetSheet";
 import { MobileRepeatSheet } from "../mobile/plan/MobileRepeatSheet";
+import "../ticket-v138.css";
 
 function tabOfDialog(dialog: TicketDialog | null): TicketManageTab {
   if (!dialog) return "categories";
@@ -67,6 +69,20 @@ export function TicketManagePanel({ shell, onDone }: TicketManagePanelProps) {
           getPanelId={panelId}
         />
       </div>
+      <button
+        type="button"
+        className="tk-v38-mgr-split"
+        onClick={() => openDialog({ kind: "legacySplit" })}
+      >
+        <span className="tk-v38-mgr-split-txt">
+          <b>舊帳隨筆分流小幫手</b>
+          <small>整理升級前的長句舊帳，讓品項補完更乾淨</small>
+        </span>
+        <span className="tk-v38-mgr-split-go" aria-hidden="true">
+          前往整理
+          <IconChevron size={13} />
+        </span>
+      </button>
       <div role="tabpanel" id={panelId(tab)} aria-label={current.label} className="ns-tk-mgr-tabpanel">
         {tab === "categories" && <CategoryManager onDone={onDone} />}
         {tab === "accountOrder" && <AccountOrder onDone={onDone} />}

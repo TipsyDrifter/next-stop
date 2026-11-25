@@ -9,7 +9,7 @@
  * 鍵盤：名稱欄 Enter＝存（組字中不算）、Esc＝取消（不漏給大票，免得連側板一起收）；浮層裡任何地方按 Esc 都收。
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useTagStore } from "../../../store/tagStore";
 import type { EntryRow } from "../../../domain/ticket";
@@ -17,12 +17,14 @@ import { TK_TAG_ENTRY, tagNamesOf } from "../../../domain/ticketTags";
 import { defaultTemplateName, entryWhat } from "./templateText";
 import { useImeGuard } from "./dialogBits";
 import "../ticket-4.css";
+import "../ticket-v138.css";
 
 export function SaveTemplateForm({ entry, onDone, autoFocus = true }: { entry: EntryRow; onDone(): void; autoFocus?: boolean }) {
   const accounts = useTicketStore((s) => s.accounts);
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const masked = useTicketStore(isTicketAmountMasked);
   const routes = useNodeStore((s) => s.routes);
   const index = useTagStore((s) => s.index);
   const [name, setName] = useState(() => defaultTemplateName(entry, catById));
@@ -49,7 +51,7 @@ export function SaveTemplateForm({ entry, onDone, autoFocus = true }: { entry: E
     e.stopPropagation();
     void save();
   });
-  const what = entryWhat(entry, { accounts, accById, catById, curByCode, routes }, tagNamesOf(index, TK_TAG_ENTRY, entry.id));
+  const what = entryWhat(entry, { accounts, accById, catById, curByCode, routes }, tagNamesOf(index, TK_TAG_ENTRY, entry.id), masked);
 
   return (
     <div className="ns-tk-savemark-body" onCompositionStart={ime.onCompositionStart} onCompositionEnd={ime.onCompositionEnd}>

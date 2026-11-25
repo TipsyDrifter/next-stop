@@ -463,9 +463,10 @@ describe("CSV・售票口", () => {
       { id: "U2", code: "JPY", decimals: 0, is_main: 0, deleted_at: null },
     ],
     tk_accounts: [
-      { id: "A1", name: "錢包", group_key: "cash", currency: "TWD", position: 0, archived_at: null, deleted_at: null },
-      { id: "A2", name: "玉山帳戶", group_key: "bank", currency: "TWD", position: 0, archived_at: null, deleted_at: null },
-      { id: "A3", name: "日圓現金", group_key: "cash", currency: "JPY", position: 1, archived_at: "2026-10-01T00:00:00.000Z", deleted_at: null },
+      { id: "A1", name: "錢包", group_key: "cash", currency: "TWD", position: 0, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null, deleted_at: null },
+      { id: "A2", name: "玉山帳戶", group_key: "bank", currency: "TWD", position: 0, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null, deleted_at: null },
+      { id: "A3", name: "日圓現金", group_key: "cash", currency: "JPY", position: 1, archived_at: "2026-10-01T00:00:00.000Z", statement_day: null, payment_due_day: null, auto_pay_account_id: null, deleted_at: null },
+      { id: "A4", name: "星辰卡", group_key: "card", currency: "TWD", position: 0, archived_at: null, statement_day: 20, payment_due_day: 5, auto_pay_account_id: "A2", deleted_at: null },
     ],
     tk_categories: [
       { id: "CE", kind: "expense", name: "🍱 飲食", parent_id: null, position: 0, archived_at: null, deleted_at: null },
@@ -473,24 +474,24 @@ describe("CSV・售票口", () => {
       { id: "CI", kind: "income", name: "薪水", parent_id: null, position: 0, archived_at: null, deleted_at: null },
     ],
     tk_entries: [
-      { id: "E1", kind: "expense", occurred_on: "2026-11-03", occurred_at: local(2026, 11, 3, 12, 30), account_id: "A1", to_account_id: null, category_id: "CE1", amount_minor: 12050, currency: "TWD", note: "=便當", route_id: "R1", deleted_at: null },
-      { id: "E2", kind: "expense", occurred_on: "2026-11-03", occurred_at: local(2026, 11, 3, 13, 0), account_id: "A1", to_account_id: null, category_id: "CE1", amount_minor: -5000, currency: "TWD", note: "退款", route_id: null, deleted_at: null },
-      { id: "E3", kind: "transfer", occurred_on: "2026-11-02", occurred_at: local(2026, 11, 2, 9, 0), account_id: "A2", to_account_id: "A1", category_id: null, amount_minor: 300000, currency: "TWD", note: "", route_id: null, deleted_at: null },
-      { id: "E4", kind: "expense", occurred_on: "2026-11-04", occurred_at: local(2026, 11, 4, 9, 0), account_id: "A3", to_account_id: null, category_id: "CE", amount_minor: 1200, currency: "JPY", note: "", route_id: null, deleted_at: null },
-      { id: "E5", kind: "expense", occurred_on: "2026-11-04", occurred_at: local(2026, 11, 4, 10, 0), account_id: "A1", to_account_id: null, category_id: "CE", amount_minor: 99, currency: "TWD", note: "已刪", route_id: null, deleted_at: "2026-11-04T00:00:00.000Z" },
+      { id: "E1", kind: "expense", occurred_on: "2026-11-03", occurred_at: local(2026, 11, 3, 12, 30), account_id: "A1", to_account_id: null, category_id: "CE1", amount_minor: 12050, currency: "TWD", item: "池上便當", note: "=便當", fee_minor: null, installment_group_id: null, installment_index: null, installment_total: null, route_id: "R1", deleted_at: null },
+      { id: "E2", kind: "expense", occurred_on: "2026-11-03", occurred_at: local(2026, 11, 3, 13, 0), account_id: "A1", to_account_id: null, category_id: "CE1", amount_minor: -5000, currency: "TWD", item: "", note: "退款", fee_minor: null, installment_group_id: null, installment_index: null, installment_total: null, route_id: null, deleted_at: null },
+      { id: "E3", kind: "transfer", occurred_on: "2026-11-02", occurred_at: local(2026, 11, 2, 9, 0), account_id: "A2", to_account_id: "A1", category_id: null, amount_minor: 300000, currency: "TWD", item: "", note: "", fee_minor: 1500, installment_group_id: null, installment_index: null, installment_total: null, route_id: null, deleted_at: null },
+      { id: "E4", kind: "expense", occurred_on: "2026-11-04", occurred_at: local(2026, 11, 4, 9, 0), account_id: "A3", to_account_id: null, category_id: "CE", amount_minor: 1200, currency: "JPY", item: "", note: "", fee_minor: null, installment_group_id: "IG1", installment_index: 2, installment_total: 6, route_id: null, deleted_at: null },
+      { id: "E5", kind: "expense", occurred_on: "2026-11-04", occurred_at: local(2026, 11, 4, 10, 0), account_id: "A1", to_account_id: null, category_id: "CE", amount_minor: 99, currency: "TWD", item: "", note: "已刪", fee_minor: null, installment_group_id: null, installment_index: null, installment_total: null, route_id: null, deleted_at: "2026-11-04T00:00:00.000Z" },
       // 跨幣別轉帳（問題 14）：轉出 TWD（小數兩位）、轉入 JPY（小數 0 位）
-      { id: "E6", kind: "transfer", occurred_on: "2026-11-05", occurred_at: local(2026, 11, 5, 9, 0), account_id: "A1", to_account_id: "A3", category_id: null, amount_minor: 100000, to_amount_minor: 4800, currency: "TWD", note: "換匯", route_id: null, deleted_at: null },
+      { id: "E6", kind: "transfer", occurred_on: "2026-11-05", occurred_at: local(2026, 11, 5, 9, 0), account_id: "A1", to_account_id: "A3", category_id: null, amount_minor: 100000, to_amount_minor: 4800, currency: "TWD", item: "", note: "換匯", fee_minor: null, installment_group_id: null, installment_index: null, installment_total: null, route_id: null, deleted_at: null },
     ],
     tk_budgets: [
       { id: "BU1", kind: "total", category_id: null, month: null, amount_minor: 3000000, position: 0, deleted_at: null },
       { id: "BU2", kind: "category", category_id: "CE", month: "2026-11", amount_minor: 800000, position: 1, deleted_at: null },
     ],
     tk_repeats: [
-      { id: "RP1", kind: "expense", account_id: "A2", to_account_id: null, category_id: "CE", amount_minor: 1500000, currency: "TWD", note: "房租", route_id: null, rule: JSON.stringify({ v: 1, mode: "fixed", freq: "monthly", interval: 1, byweekday: null, bymonthday: [5], start: "2026-01-05", until: null, count: null }), hhmm: "09:00", next_on: "2026-12-05", paused_at: null, position: 0, deleted_at: null },
+      { id: "RP1", kind: "expense", account_id: "A2", to_account_id: null, category_id: "CE", amount_minor: 1500000, currency: "TWD", item: "房租", note: "月初轉帳", fee_minor: 1500, route_id: null, rule: JSON.stringify({ v: 1, mode: "fixed", freq: "monthly", interval: 1, byweekday: null, bymonthday: [5], start: "2026-01-05", until: null, count: null }), hhmm: "09:00", next_on: "2026-12-05", paused_at: null, position: 0, deleted_at: null },
     ],
     wr_kinds: [{ id: "WK1", name: "買", action: "entry", position: 0, deleted_at: null }],
     tk_wishes: [{ id: "WS1", name: "降噪耳機", amount_minor: 800000, note: "", category_id: null, position: 0, entry_id: null, bought_at: null, kind_id: "WK1", target_kind: null, target_id: null, deleted_at: null }],
-    tk_templates: [{ id: "TP1", name: "午餐", kind: "expense", amount_minor: 15000, currency: null, account_id: "A1", to_account_id: null, category_id: "CE1", note: "", route_id: null, position: 0, deleted_at: null }],
+    tk_templates: [{ id: "TP1", name: "午餐", kind: "expense", amount_minor: 15000, currency: null, account_id: "A1", to_account_id: null, category_id: "CE1", item: "日常便當", note: "", fee_minor: 500, route_id: null, position: 0, deleted_at: null }],
     tags: [{ id: "G1", name: "難度/高", name_key: "難度/高", deleted_at: null }],
     taggings: [{ id: "g8", entity_type: "ticket:entry", entity_id: "E1", tag_id: "G1", deleted_at: null }],
   };
@@ -500,12 +501,12 @@ describe("CSV・售票口", () => {
 
   test("帳目.csv：id 換名稱、金額依幣別小數位、轉帳有轉入帳戶、已刪不在、依日期排", () => {
     assert.deepEqual(linesOf(text), [
-      "日期,類型,金額,幣別,帳戶,轉入帳戶,轉入金額,分類,上層分類,備註,荷札,路線",
-      "2026-11-02,轉帳,3000,TWD,玉山帳戶,錢包,,,,,,",
-      "2026-11-03,支出,120.5,TWD,錢包,,,午餐,🍱 飲食,'=便當,難度/高,健身",
-      "2026-11-03,支出,-50,TWD,錢包,,,午餐,🍱 飲食,退款,,",
-      "2026-11-04,支出,1200,JPY,日圓現金,,,🍱 飲食,,,,",
-      "2026-11-05,轉帳,1000,TWD,錢包,日圓現金,4800,,,換匯,,",
+      "日期,類型,金額,幣別,手續費,帳戶,轉入帳戶,轉入金額,分類,上層分類,品項／來源,隨筆備註,分期,荷札,路線",
+      "2026-11-02,轉帳,3000,TWD,15,玉山帳戶,錢包,,,,,,,,",
+      "2026-11-03,支出,120.5,TWD,,錢包,,,午餐,🍱 飲食,池上便當,'=便當,,難度/高,健身",
+      "2026-11-03,支出,-50,TWD,,錢包,,,午餐,🍱 飲食,,退款,,,",
+      "2026-11-04,支出,1200,JPY,,日圓現金,,,🍱 飲食,,,,2/6,,",
+      "2026-11-05,轉帳,1000,TWD,,錢包,日圓現金,4800,,,,換匯,,,",
     ]);
   });
 
@@ -515,7 +516,13 @@ describe("CSV・售票口", () => {
   });
 
   test("帳戶、分類、定期帳、預算、願望、常用票種", () => {
-    assert.deepEqual(linesOf(textOf(files, "帳戶.csv")), ["名稱,群組,幣別,已封存", "錢包,現金,TWD,否", "日圓現金,現金,JPY,是", "玉山帳戶,帳戶,TWD,否"]);
+    assert.deepEqual(linesOf(textOf(files, "帳戶.csv")), [
+      "名稱,群組,幣別,結帳日,繳款截止日,扣款帳戶,已封存",
+      "錢包,現金,TWD,,,,否",
+      "日圓現金,現金,JPY,,,,是",
+      "玉山帳戶,帳戶,TWD,,,,否",
+      "星辰卡,信用卡,TWD,20,5,玉山帳戶,否",
+    ]);
     assert.deepEqual(linesOf(textOf(files, "分類.csv")), [
       "種類,分類,上層分類,已封存",
       "支出,🍱 飲食,,否",
@@ -523,8 +530,8 @@ describe("CSV・售票口", () => {
       "收入,薪水,,否",
     ]);
     assert.deepEqual(linesOf(textOf(files, "定期帳.csv")), [
-      "類型,金額,幣別,帳戶,轉入帳戶,分類,上層分類,備註,重複,時刻,下一班,已暫停,路線",
-      "支出,15000,TWD,玉山帳戶,,🍱 飲食,,房租,每月 5 號,09:00,2026-12-05,否,",
+      "類型,金額,幣別,手續費,帳戶,轉入帳戶,分類,上層分類,品項／來源,隨筆備註,重複,時刻,下一班,已暫停,路線",
+      "支出,15000,TWD,15,玉山帳戶,,🍱 飲食,,房租,月初轉帳,每月 5 號,09:00,2026-12-05,否,",
     ]);
     assert.deepEqual(linesOf(textOf(files, "預算.csv")), [
       "種類,分類,上層分類,月份,金額",
@@ -533,8 +540,8 @@ describe("CSV・售票口", () => {
     ]);
     assert.deepEqual(linesOf(textOf(files, "願望.csv")), ["名稱,種類,預估金額,分類,備註,實現時刻", "降噪耳機,買,8000,,,"]);
     assert.deepEqual(linesOf(textOf(files, "常用票種.csv")), [
-      "名稱,類型,金額,幣別,帳戶,轉入帳戶,分類,上層分類,備註,路線",
-      "午餐,支出,150,TWD,錢包,,午餐,🍱 飲食,,",
+      "名稱,類型,金額,幣別,手續費,帳戶,轉入帳戶,分類,上層分類,品項／來源,隨筆備註,路線",
+      "午餐,支出,150,TWD,5,錢包,,午餐,🍱 飲食,日常便當,,",
     ]);
   });
 });
@@ -552,7 +559,7 @@ describe("整份與 zip", () => {
     assert.ok(paths.includes("任務/車票.csv") && paths.includes("筆記/筆記.csv") && paths.includes("時刻表/時間塊.csv") && paths.includes("售票口/帳目.csv"));
     assert.ok(paths.every((p) => /^(任務|筆記|時刻表|售票口)\/[^/]+\.csv$/.test(p)), paths.join("、"));
     // 空表也有檔，且只有欄名那一列
-    assert.deepEqual(linesOf(textOf(files, "售票口/帳目.csv")), ["日期,類型,金額,幣別,帳戶,轉入帳戶,轉入金額,分類,上層分類,備註,荷札,路線"]);
+    assert.deepEqual(linesOf(textOf(files, "售票口/帳目.csv")), ["日期,類型,金額,幣別,手續費,帳戶,轉入帳戶,轉入金額,分類,上層分類,品項／來源,隨筆備註,分期,荷札,路線"]);
   });
 
   test("buildExportPayload：JSON 是一個檔、CSV 是 zip；回報各表列數", () => {

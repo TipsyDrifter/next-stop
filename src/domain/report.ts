@@ -100,6 +100,7 @@ export interface ReportExpenseFact {
   minor: number;
   category: string;
   id?: string;
+  item?: string;
   note?: string;
   routeId?: string | null;
   tagKeys?: readonly string[];
@@ -326,6 +327,7 @@ export interface ReportDayTimeDetail {
 export interface ReportDayExpenseItem {
   id: string;
   category: string;
+  item?: string;
   note: string;
   minor: number;
   routeId: string | null;
@@ -806,6 +808,7 @@ export function buildOperationReport(f: ReportFacts, now: number): OperationRepo
         const item: ReportDayExpenseItem = {
           id: e.id ?? `${e.day}-${idx}`,
           category: e.category,
+          item: e.item ?? "",
           note: e.note ?? "",
           minor: e.minor,
           routeId: e.routeId && f.routes[e.routeId] ? e.routeId : null,
@@ -1242,6 +1245,7 @@ function buildDayDetailFromRaw(input: {
       entries.push({
         id: e.id ?? `${e.day}-${idx}`,
         category: e.category,
+        item: e.item ?? "",
         note: e.note ?? "",
         minor: e.minor,
         routeId: e.routeId && routes[e.routeId] ? e.routeId : null,

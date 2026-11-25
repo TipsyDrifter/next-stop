@@ -284,18 +284,46 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
             <CategoryCombo kind={d.kind} categoryId={d.categoryId} onPick={(id) => set({ categoryId: id })} manage={false} />
           </Field>
         )}
-        <Field label="備註">
+        <Field label="品項">
           <span className="ns-tk-recallwrap" onCompositionStart={ime.onCompositionStart} onCompositionEnd={ime.onCompositionEnd}>
             <RecallInput
               className="ns-tk-textin"
-              placeholder="備註"
-              ariaLabel="備註"
-              value={d.note}
+              placeholder="店家、品項或來源…"
+              ariaLabel="品項／來源"
+              value={d.item}
               items={noteRecall}
               onNeedItems={() => void store().loadNoteRecall()}
-              onChange={(note) => set({ note })}
+              onChange={(item) => set({ item })}
               onKeyDown={ime.onKeyDown}
             />
+          </span>
+        </Field>
+        <Field label="隨筆">
+          <input
+            type="text"
+            className="ns-tk-textin"
+            placeholder="隨筆或感想（不進補完）…"
+            aria-label="隨筆備註"
+            autoComplete="off"
+            value={d.note}
+            onChange={(e) => set({ note: e.target.value })}
+            {...ime}
+          />
+        </Field>
+        <Field label="手續費">
+          <span className="ns-tk-refee">
+            <input
+              type="text"
+              inputMode="decimal"
+              className="ns-tk-textin"
+              placeholder="選填"
+              aria-label="手續費"
+              autoComplete="off"
+              value={d.feeText}
+              onChange={(e) => set({ feeText: e.target.value })}
+              {...ime}
+            />
+            <small>{acc?.currency ?? d.currency}</small>
           </span>
         </Field>
         <Field label="路線">

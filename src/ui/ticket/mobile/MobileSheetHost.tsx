@@ -9,6 +9,7 @@ import { useBackLayer } from "../../mobile/backStack";
 import { MSheet, type MSheetHeight } from "../../common/MSheet";
 import { NewAccountForm } from "../dialogs/NewAccountForm";
 import { TicketManagePanel } from "../dialogs/TicketManagePanel";
+import { LegacySplitBody } from "../dialogs/LegacySplitModal";
 import { MobileRepeatForm } from "./plan/MobileRepeatForm";
 import { MobileSaveTemplateSheet } from "./MobileTemplateSheet";
 
@@ -23,6 +24,7 @@ const TITLE: Record<TicketDialog["kind"], string> = {
   repeat: "定期帳",
   templates: "管帳",
   saveTemplate: "存成常用",
+  legacySplit: "舊帳隨筆分流小幫手",
 };
 
 const HEIGHT: Record<Exclude<TicketDialog["kind"], "repeat">, MSheetHeight> = {
@@ -35,6 +37,7 @@ const HEIGHT: Record<Exclude<TicketDialog["kind"], "repeat">, MSheetHeight> = {
   repeats: "full",
   templates: "full",
   saveTemplate: "auto",
+  legacySplit: "full",
 };
 
 export function MobileSheetHost() {
@@ -80,6 +83,8 @@ export function MobileSheetHost() {
     >
       {isManage ? (
         <TicketManagePanel shell="mobile" onDone={closeDialog} />
+      ) : dialog.kind === "legacySplit" ? (
+        <LegacySplitBody onClose={closeDialog} />
       ) : (
         <NewAccountForm onDone={closeAccountDialog} />
       )}

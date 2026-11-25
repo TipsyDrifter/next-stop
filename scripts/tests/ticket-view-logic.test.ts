@@ -75,6 +75,7 @@ const {
   NO_ROUTE_KEY,
   RESULT_PAGE,
   UNSPLIT_KEY,
+  accountCards,
   asideText,
   breakdown,
   calendarCells,
@@ -127,7 +128,7 @@ function cur(code: string, decimals: number, rate: string, isMain = false): Curr
   return { id: ticketId("currency:" + code), code, name: code, decimals, rate_to_main: rate, is_main: isMain ? 1 : 0, position: 0, ...SYNC };
 }
 function acc(id: string, name: string, group: string, position: number, currency = "TWD", extra: Partial<AccountRow> = {}): AccountRow {
-  return { id, name, group_key: group, currency, position, archived_at: null, ...SYNC, ...extra };
+  return { id, name, group_key: group, currency, position, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null, ...SYNC, ...extra };
 }
 function cat(id: string, kind: CategoryKind, name: string, parent: string | null, position: number, extra: Partial<CategoryRow> = {}): CategoryRow {
   return { id, kind, name, parent_id: parent, position, archived_at: null, ...SYNC, ...extra };
@@ -205,8 +206,15 @@ function E(p: Partial<EntryRow> & { occurred_on: string }): EntryRow {
     main_minor: main,
     account_minor: amount,
     to_amount_minor: null,
+    item: "",
     note: "",
+    fee_minor: null,
+    fee_main_minor: null,
+    installment_group_id: null,
+    installment_index: null,
+    installment_total: null,
     route_id: null,
+    repeat_id: null,
     import_id: null,
     import_source: null,
     import_utime: null,
@@ -1081,7 +1089,7 @@ function makeSqliteDb() {
   raw.exec("PRAGMA foreign_keys = OFF");
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0007_ticket_ledger.sql"), "utf8"));
   // 壬 0019：ensureStarterRows 會種 wr_kinds，schema 要跟上（0016 是它的前置）
-  for (const mf of ["0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8"));
+  for (const mf of ["0016_ticket_wish", "0019_waitroom_kind", "0010_ticket_plan", "0027_ticket_v138"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8"));
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   return {
     async select(sql: string, args?: unknown[]) {
@@ -1163,5 +1171,24 @@ describe("G. 搜尋結果排序", () => {
     assert.equal(flatDayText("2026-01-04", false), "1/4（日）");
     assert.equal(flatDayText("2025-12-31", true), "2025/12/31（三）");
     assert.deepEqual(ENTRY_SORTS.map((k) => ENTRY_SORT_TEXT[k]), ["日期・新到舊", "日期・舊到新", "金額・大到小", "金額・小到大"]);
+  });
+
+  test("v1.38：matchesKeyword 同時比對 item 與 note；手續費納入統計與路線花費與帳戶卡片餘額", () => {
+    const e1 = E({ occurred_on: "2026-10-10", item: "一蘭拉麵", note: "加麵", amount_minor: 30000, main_minor: 30000, account_minor: 30000, fee_minor: 150, fee_main_minor: 150, route_id: "r1" });
+    const e2 = E({ occurred_on: "2026-10-11", kind: "transfer", item: "ATM 提領", note: "領錢", amount_minor: 100000, main_minor: 100000, account_minor: 100000, fee_minor: 500, fee_main_minor: 500, to_account_id: "a-bank" });
+    assert.equal(matchesKeyword(e1, keywordTokens("拉麵"), CTX), true);
+    assert.equal(matchesKeyword(e1, keywordTokens("加麵"), CTX), true);
+    assert.equal(matchesKeyword(e1, keywordTokens("拉麵 加麵"), CTX), true);
+    const ov = statsOverview([e1, e2], periodRange({ span: "month", key: "2026-10" }));
+    assert.equal(ov.expense, 30650);
+    const bd = breakdown([e1, e2], periodRange({ span: "month", key: "2026-10" }), "category", "expense", CTX);
+    assert.equal(bd.total, 30150);
+    assert.equal(routeSpendOf([e1, e2], "r1", periodRange({ span: "month", key: "2026-10" })).allTime, 30150);
+    const eNov = E({ occurred_on: "2026-11-02", amount_minor: 1000, main_minor: 1000, account_minor: 1000, fee_minor: 100, fee_main_minor: 100 });
+    const cards = accountCards(ACCOUNTS, { "a-cash": -(30150 + 100500 + 1100) }, [e1, e2, eNov], "2026-10");
+    const cashCard = cards["a-cash"];
+    assert.equal(cashCard.month.own.expense, 30150);
+    assert.equal(cashCard.month.own.transferOut, 100500);
+    assert.equal(cashCard.trend.at(-1)!.balance, -(30150 + 100500));
   });
 });

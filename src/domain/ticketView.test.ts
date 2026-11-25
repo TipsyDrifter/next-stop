@@ -62,8 +62,8 @@ const twd: CurrencyRow = {
   position: 0,
 };
 
-const accCash: AccountRow = { ...SYNC, id: "acc_cash", name: "現金", group_key: "cash", currency: "TWD", position: 0, archived_at: null };
-const accCard: AccountRow = { ...SYNC, id: "acc_card", name: "信用卡", group_key: "card", currency: "TWD", position: 1, archived_at: null };
+const accCash: AccountRow = { ...SYNC, id: "acc_cash", name: "現金", group_key: "cash", currency: "TWD", position: 0, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null };
+const accCard: AccountRow = { ...SYNC, id: "acc_card", name: "信用卡", group_key: "card", currency: "TWD", position: 1, archived_at: null, statement_day: null, payment_due_day: null, auto_pay_account_id: null };
 
 const catFood: CategoryRow = { ...SYNC, id: "cat_food", kind: "expense", name: "外食", parent_id: null, position: 0, archived_at: null };
 const catRamen: CategoryRow = { ...SYNC, id: "cat_ramen", kind: "expense", name: "拉麵", parent_id: "cat_food", position: 0, archived_at: null };
@@ -86,7 +86,13 @@ function makeEntry(overrides: Partial<EntryRow> & { id: string; occurred_on: str
     main_minor,
     account_minor: main_minor,
     to_amount_minor: null,
+    item: "",
     note: "",
+    fee_minor: null,
+    fee_main_minor: null,
+    installment_group_id: null,
+    installment_index: null,
+    installment_total: null,
     route_id: null,
     repeat_id: null,
     import_id: null,

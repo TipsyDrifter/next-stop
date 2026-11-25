@@ -50,6 +50,7 @@ import {
   planMoveTo,
   planMoveUnder,
   planSetMainCurrency,
+  shiftOccurredAt,
   ticketId,
   type AccountRow,
   type CategoryKind,
@@ -62,6 +63,8 @@ import {
   type UsageSince,
 } from "../domain/ticket";
 import { matchesQuery, newestFirst, routeSpendOf, type EntryQuery } from "../domain/ticketView";
+import { planInstallmentSlices } from "../domain/ticketInstallment";
+import { clampCardDay, creditCardCycleOf } from "../domain/ticketCardCycle";
 import {
   applyRepeatPatch,
   assertBudgetScope,
@@ -183,7 +186,8 @@ const DEMO_EXPENSE: { name: string; children: string[] }[] = [
   { name: "其他", children: [] },
 ];
 
-const DEMO_NOTES = ["", "", "", "便當", "全家", "學餐", "7-11", "和同學", "", "早上那班"];
+const DEMO_ITEMS = ["", "", "", "便當", "全家", "學餐", "7-11", "麥味登", "", "早班車票"];
+const DEMO_CASUAL_NOTES = ["", "", "", "跟同學一起吃", "", "加蛋", ""];
 
 /** 第②階段：示範支出掛的三條路線（固定假 id；alignRoutes 依主線 mock 側欄順序換成真 id：J 日文、E1 全端開發、L2 體能） */
 export const MOCK_ROUTE_IDS = ["mock-route-1", "mock-route-2", "mock-route-3"] as const;
@@ -259,7 +263,19 @@ export class MemoryTicketRepository implements TicketRepository {
       const id = uuid();
       accId[a.key] = id;
       const position = (posByGroup[a.group] = (posByGroup[a.group] ?? -1) + 1);
-      this.acc.set(id, { id, name: a.name, group_key: a.group, currency: "TWD", position, archived_at: null, ...stamp });
+      const isCard = a.group === "card";
+      this.acc.set(id, {
+        id,
+        name: a.name,
+        group_key: a.group,
+        currency: "TWD",
+        position,
+        archived_at: null,
+        statement_day: isCard ? 20 : null,
+        payment_due_day: isCard ? 5 : null,
+        auto_pay_account_id: isCard ? accId.bank ?? null : null,
+        ...stamp,
+      });
     }
 
     // 分類
@@ -301,6 +317,8 @@ export class MemoryTicketRepository implements TicketRepository {
       const dayKey = addDays(today, -back);
       const count = Math.floor(rnd() * 5);
       for (let k = 0; k < count; k++) {
+        const item = DEMO_ITEMS[Math.floor(rnd() * DEMO_ITEMS.length)];
+        const note = item ? DEMO_CASUAL_NOTES[Math.floor(rnd() * DEMO_CASUAL_NOTES.length)] : "";
         add({
           kind: "expense",
           amountMinor: minorFromDecimal(String(30 + Math.floor(rnd() * 470)), 2, "strict"),
@@ -310,7 +328,8 @@ export class MemoryTicketRepository implements TicketRepository {
           categoryId: leafIds[Math.floor(rnd() * leafIds.length)],
           occurredOn: dayKey,
           occurredAt: at(dayKey, 8 + Math.floor(rnd() * 14)),
-          note: DEMO_NOTES[Math.floor(rnd() * DEMO_NOTES.length)],
+          item,
+          note,
           routeId: pickRoute(),
         });
       }
@@ -318,31 +337,31 @@ export class MemoryTicketRepository implements TicketRepository {
         const [y, m, d] = dayKey.split("-").map((s) => parseInt(s, 10));
         add({
           kind: "expense", amountMinor: 18000, currency: "TWD", accountId: accId.cash, toAccountId: null, categoryId: leafIds[30],
-          occurredOn: dayKey, occurredAt: new Date(y, m - 1, d, 13, 5).toISOString(), note: "舊路線的帳", routeId: MOCK_ROUTE_GONE,
+          occurredOn: dayKey, occurredAt: new Date(y, m - 1, d, 13, 5).toISOString(), item: "舊路線的帳", note: "", routeId: MOCK_ROUTE_GONE,
         });
       }
       if (back % 7 === 3) {
         add({
           kind: "income", amountMinor: minorFromDecimal(String(5000 + Math.floor(rnd() * 60) * 50), 2, "strict"), currency: "TWD", accountId: accId.bank,
-          toAccountId: null, categoryId: incomeIds[back % 2], occurredOn: dayKey, occurredAt: at(dayKey, 9), note: "", routeId: null,
+          toAccountId: null, categoryId: incomeIds[back % 2], occurredOn: dayKey, occurredAt: at(dayKey, 9), item: "收入入帳", note: "", routeId: null,
         });
       }
       if (back % 15 === 4) {
         add({
           kind: "transfer", amountMinor: 1200000, currency: "TWD", accountId: accId.bank, toAccountId: [accId.cash, accId.student, accId.cash, accId.easy][Math.floor(back / 15) % 4],
-          categoryId: null, occurredOn: dayKey, occurredAt: at(dayKey, 10), note: "儲值", routeId: null,
+          categoryId: null, occurredOn: dayKey, occurredAt: at(dayKey, 10), item: "儲值", note: "", routeId: null,
         });
       }
       if (back === 5) {
         add({
           kind: "expense", amountMinor: -35000, currency: "TWD", accountId: accId.cash, toAccountId: null, categoryId: leafIds[25],
-          occurredOn: dayKey, occurredAt: at(dayKey, 15), note: "退貨退款", routeId: null,
+          occurredOn: dayKey, occurredAt: at(dayKey, 15), item: "退貨退款", note: "", routeId: null,
         });
       }
       if (back === 9) {
         add({
           kind: "expense", amountMinor: 1000, currency: "USD", accountId: accId.bank, toAccountId: null, categoryId: leafIds[40],
-          occurredOn: dayKey, occurredAt: at(dayKey, 21), note: "App Store", routeId: null,
+          occurredOn: dayKey, occurredAt: at(dayKey, 21), item: "App Store", note: "雲端訂閱", routeId: null,
         });
       }
       if (back === 20) {
@@ -354,13 +373,100 @@ export class MemoryTicketRepository implements TicketRepository {
       }
     }
 
+    // v1.38 示範資料：帶手續費轉帳、3 期刷卡分期、本期信用卡待繳消費、2 筆長句舊帳候選
+    const feeDay = addDays(today, -4);
+    add({
+      kind: "transfer",
+      amountMinor: 500000,
+      currency: "TWD",
+      accountId: accId.bank,
+      toAccountId: accId.easy,
+      categoryId: null,
+      occurredOn: feeDay,
+      occurredAt: at(feeDay, 11),
+      item: "跨行轉帳",
+      note: "房租匯款",
+      feeMinor: 1500,
+      routeId: null,
+    });
+    const cardAcc = this.acc.get(accId.card) as AccountRow;
+    const cardCycle = creditCardCycleOf(cardAcc, [], today);
+    const billedDay = cardCycle ? addDays(cardCycle.lastStatementOn, -5) : addDays(today, -10);
+    add({
+      kind: "expense",
+      amountMinor: 245000,
+      currency: "TWD",
+      accountId: accId.card,
+      toAccountId: null,
+      categoryId: leafIds[18] ?? leafIds[0],
+      occurredOn: billedDay,
+      occurredAt: at(billedDay, 19),
+      item: "誠品書店",
+      note: "本月帳單一般消費",
+      routeId: null,
+    });
+    const instGroupId = uuid();
+    const instSlices = planInstallmentSlices({ totalAmountMinor: 360000, periods: 3, firstOccurredOn: billedDay, feeMinor: null });
+    for (const sl of instSlices) {
+      const row = buildEntryRow(
+        {
+          kind: "expense",
+          amountMinor: sl.amountMinor,
+          currency: "TWD",
+          accountId: accId.card,
+          toAccountId: null,
+          categoryId: leafIds[21] ?? leafIds[0],
+          occurredOn: sl.occurredOn,
+          occurredAt: at(sl.occurredOn, 20),
+          item: "無線降噪耳機",
+          note: "生日禮物 3 期零利率",
+          feeMinor: sl.feeMinor,
+          installmentGroupId: instGroupId,
+          installmentIndex: sl.index,
+          installmentTotal: sl.total,
+          routeId: null,
+        },
+        ctx,
+        { id: ticketId("inst:" + instGroupId + ":" + sl.index), nowIso: at(billedDay, 20) },
+      );
+      this.ent.set(row.id, row);
+    }
+    const leg1 = addDays(today, -6);
+    add({
+      kind: "expense",
+      amountMinor: 14500,
+      currency: "TWD",
+      accountId: accId.cash,
+      toAccountId: null,
+      categoryId: leafIds[0],
+      occurredOn: leg1,
+      occurredAt: at(leg1, 9),
+      item: "麥味登（跟室友吃早午餐聊專題）",
+      note: "",
+      routeId: null,
+    });
+    const leg2 = addDays(today, -3);
+    add({
+      kind: "expense",
+      amountMinor: 7500,
+      currency: "TWD",
+      accountId: accId.easy,
+      toAccountId: null,
+      categoryId: leafIds[5] ?? leafIds[0],
+      occurredOn: leg2,
+      occurredAt: at(leg2, 14),
+      item: "7-11 - 拿鐵加茶葉蛋順便領包裹",
+      note: "",
+      routeId: null,
+    });
+
     this.seedDeep(leafIds[1], nowIso);
     this.seedAids(accId, leafIds, nowIso);
     if (mode === "plan") this.seedPlan(today, accId, incomeIds, leafIds, nowIso);
   }
 
   /**
-   * 售票口④ 第二輪（D-票-78）示範第三層：「🍜 食物 › 午餐」底下加「便當」「學餐」，備註是這兩個字的午餐帳搬過去
+   * 售票口④ 第二輪（D-票-78）示範第三層：「🍜 食物 › 午餐」底下加「便當」「學餐」，品項是這兩個字的午餐帳搬過去
    * （不動 rnd 序列；其餘午餐留在午餐本身＝統計「未細分」）。只在有示範帳時種。
    */
   private seedDeep(lunchId: string | undefined, nowIso: string): void {
@@ -372,7 +478,10 @@ export class MemoryTicketRepository implements TicketRepository {
       ids[name] = id;
       this.cat.set(id, { id, kind: "expense", name, parent_id: lunchId, position: i, archived_at: null, ...stamp });
     });
-    for (const e of this.ent.values()) if (e.category_id === lunchId && ids[e.note]) e.category_id = ids[e.note];
+    for (const e of this.ent.values()) {
+      const key = e.item || e.note;
+      if (e.category_id === lunchId && ids[key]) e.category_id = ids[key];
+    }
   }
 
   /**
@@ -393,14 +502,14 @@ export class MemoryTicketRepository implements TicketRepository {
       wish(4, "金瓜石・黃金博物館", null, null, "想看坑道，順路九份", WR_KIND_SEEDS[2].id),
       wish(5, "《銀河鐵道之夜》", null, null, "", WR_KIND_SEEDS[3].id),
     ];
-    if (bought) rows.push({ ...wish(3, bought.note || "行動電源", bought.amount_minor, bought.category_id), entry_id: bought.id, bought_at: bought.created_at });
+    if (bought) rows.push({ ...wish(3, bought.item || bought.note || "行動電源", bought.amount_minor, bought.category_id), entry_id: bought.id, bought_at: bought.created_at });
     for (const w of rows) this.wis.set(w.id, w);
     const tpl = (i: number, input: NewTemplateInput): TemplateRow => buildTemplateRow(input, { id: uuid(), position: i, nowIso: at(10 + i) });
     const base = { currency: "TWD", toAccountId: null, routeId: null };
     for (const t of [
-      tpl(0, { ...base, name: "午餐", kind: "expense", amountMinor: 12000, accountId: accId.student, categoryId: leafIds[1] ?? null, note: "學餐" }),
-      tpl(1, { ...base, name: "捷運", kind: "expense", amountMinor: 3000, accountId: accId.easy, categoryId: leafIds[9] ?? null, note: "" }),
-      tpl(2, { ...base, name: "儲值", kind: "transfer", amountMinor: 50000, accountId: accId.bank, toAccountId: accId.easy, categoryId: null, note: "儲值" }),
+      tpl(0, { ...base, name: "午餐", kind: "expense", amountMinor: 12000, accountId: accId.student, categoryId: leafIds[1] ?? null, item: "學餐", note: "" }),
+      tpl(1, { ...base, name: "捷運", kind: "expense", amountMinor: 3000, accountId: accId.easy, categoryId: leafIds[9] ?? null, item: "捷運", note: "" }),
+      tpl(2, { ...base, name: "儲值", kind: "transfer", amountMinor: 50000, accountId: accId.bank, toAccountId: accId.easy, categoryId: null, item: "儲值", note: "" }),
     ]) {
       this.tpl.set(t.id, t);
     }
@@ -427,7 +536,10 @@ export class MemoryTicketRepository implements TicketRepository {
 
     // 一個已刪的帳戶（⚠ 那條規則指著它）
     const goneAcc = uuid();
-    this.acc.set(goneAcc, { id: goneAcc, name: "舊悠遊卡", group_key: "debit", currency: "TWD", position: 9, archived_at: null, ...stamp, deleted_at: nowIso });
+    this.acc.set(goneAcc, {
+      id: goneAcc, name: "舊悠遊卡", group_key: "debit", currency: "TWD", position: 9, archived_at: null,
+      statement_day: null, payment_due_day: null, auto_pay_account_id: null, ...stamp, deleted_at: nowIso,
+    });
 
     const ctx = this.ctx();
     const mk = (id: string, position: number, input: NewRepeatInput, patch: Partial<RepeatRow> = {}): RepeatRow => {
@@ -717,6 +829,104 @@ export class MemoryTicketRepository implements TicketRepository {
     this.touchSkipped(row, false, now);
   }
 
+  async createInstallmentEntries(input: NewEntryInput, periods: number): Promise<EntryRow[]> {
+    if (input.kind !== "expense") throw new RangeError("只有支出可以分期");
+    this.ensureDemo();
+    const ctx = this.ctx();
+    const groupId = input.installmentGroupId ?? uuid();
+    const slices = planInstallmentSlices({
+      totalAmountMinor: input.amountMinor,
+      periods,
+      firstOccurredOn: input.occurredOn,
+      feeMinor: input.feeMinor ?? null,
+    });
+    const nowIso = nowUtcIso();
+    const rows: EntryRow[] = [];
+    const { override: _omitOverride, ...baseInput } = input;
+    void _omitOverride;
+    for (const slice of slices) {
+      const id = ticketId("inst:" + groupId + ":" + slice.index);
+      const row = buildEntryRow(
+        {
+          ...baseInput,
+          amountMinor: slice.amountMinor,
+          feeMinor: slice.feeMinor,
+          occurredOn: slice.occurredOn,
+          occurredAt: shiftOccurredAt(input.occurredAt, input.occurredOn, slice.occurredOn),
+          installmentGroupId: groupId,
+          installmentIndex: slice.index,
+          installmentTotal: slice.total,
+        },
+        ctx,
+        { id, nowIso },
+      );
+      if (!this.ent.has(row.id)) this.ent.set(row.id, row);
+      rows.push(clone(row));
+    }
+    return rows;
+  }
+
+  async listInstallmentGroup(groupId: string): Promise<EntryRow[]> {
+    this.ensureDemo();
+    return Array.from(this.ent.values())
+      .filter((e) => isAlive(e) && e.installment_group_id === groupId)
+      .sort(
+        (a, b) =>
+          (a.installment_index ?? 0) - (b.installment_index ?? 0) ||
+          cmp(a.occurred_on, b.occurred_on) ||
+          cmp(a.created_at, b.created_at) ||
+          cmp(a.id, b.id),
+      )
+      .map(clone);
+  }
+
+  async softDeleteInstallmentGroup(groupId: string, fromIndex?: number): Promise<string[]> {
+    this.ensureDemo();
+    const now = nowUtcIso();
+    const deleted: string[] = [];
+    for (const row of this.ent.values()) {
+      if (!isAlive(row) || row.installment_group_id !== groupId) continue;
+      if (fromIndex !== undefined && (row.installment_index ?? 0) < fromIndex) continue;
+      row.deleted_at = now;
+      row.updated_at = now;
+      this.touchSkipped(row, true, now);
+      deleted.push(row.id);
+    }
+    return deleted;
+  }
+
+  async restoreEntries(ids: readonly string[]): Promise<void> {
+    this.ensureDemo();
+    const now = nowUtcIso();
+    for (const id of new Set(ids)) {
+      const row = this.ent.get(id);
+      if (!row || isAlive(row)) continue;
+      row.deleted_at = null;
+      row.updated_at = now;
+      this.touchSkipped(row, false, now);
+    }
+  }
+
+  async batchUpdateEntryTexts(updates: readonly { id: string; item: string; note: string }[]): Promise<number> {
+    this.ensureDemo();
+    const now = nowUtcIso();
+    let changed = 0;
+    for (const u of updates) {
+      const row = this.ent.get(u.id);
+      if (!row || !isAlive(row)) continue;
+      if (u.item === row.item && u.note === row.note) continue;
+      row.item = u.item;
+      row.note = u.note;
+      row.updated_at = now;
+      changed++;
+    }
+    return changed;
+  }
+
+  async listAllAliveEntries(): Promise<EntryRow[]> {
+    return this.queryEntries({ from: null, toExcl: null, accountId: null, categoryIds: [], kinds: [], routeId: null });
+  }
+
   /** 那筆 repeat_id 非空且規則還在 ⇒ skipped_days 加／減那一班（**班次日**，shiftDayOf；對不上就不碰；值沒變就不動；評審 R13／R14）。減的時候規則是 tombstone 也要減（同 SQLite 版） */
   private touchSkipped(row: EntryRow, add: boolean, now: string): void {
     if (!row.repeat_id) return;
@@ -741,9 +951,22 @@ export class MemoryTicketRepository implements TicketRepository {
     const nowIso = nowUtcIso();
     let position = -1;
     for (const a of this.acc.values()) if (isAlive(a) && a.group_key === input.group) position = Math.max(position, a.position);
+    const isCard = input.group === "card";
     const row: AccountRow = {
-      id: uuid(), name, group_key: input.group, currency: input.currency, position: position + 1, archived_at: null,
-      device_id: null, created_at: nowIso, updated_at: nowIso, synced_at: null, deleted_at: null,
+      id: uuid(),
+      name,
+      group_key: input.group,
+      currency: input.currency,
+      position: position + 1,
+      archived_at: null,
+      statement_day: isCard ? clampCardDay(input.statementDay) : null,
+      payment_due_day: isCard ? clampCardDay(input.paymentDueDay) : null,
+      auto_pay_account_id: isCard && input.autoPayAccountId ? input.autoPayAccountId : null,
+      device_id: null,
+      created_at: nowIso,
+      updated_at: nowIso,
+      synced_at: null,
+      deleted_at: null,
     };
     let opening: EntryRow | null = null;
     if (input.openingMinor !== null && input.openingMinor !== 0) {
@@ -761,10 +984,14 @@ export class MemoryTicketRepository implements TicketRepository {
     this.ensureDemo();
     const a = this.accountOrThrow(id);
     const next = clone(a);
+    let dirty = false;
     if (patch.name !== undefined) {
       const name = patch.name.trim();
       if (!name) throw new RangeError("帳戶名稱不能是空的");
-      next.name = name;
+      if (name !== a.name) {
+        next.name = name;
+        dirty = true;
+      }
     }
     if (patch.currency !== undefined && patch.currency !== a.currency) {
       if (!this.ctx().curByCode[patch.currency]) throw new RangeError(`沒有這個幣別：${patch.currency}`);
@@ -772,14 +999,52 @@ export class MemoryTicketRepository implements TicketRepository {
         if (isAlive(e) && (e.account_id === id || e.to_account_id === id)) throw new RangeError("這個帳戶已經有帳，幣別不能改");
       }
       next.currency = patch.currency;
+      dirty = true;
     }
     if (patch.group !== undefined && patch.group !== a.group_key) {
       let position = -1;
       for (const x of this.acc.values()) if (isAlive(x) && x.group_key === patch.group) position = Math.max(position, x.position);
       next.group_key = patch.group;
       next.position = position + 1;
+      dirty = true;
     }
-    if (next.name === a.name && next.currency === a.currency && next.group_key === a.group_key) return;
+    if (next.group_key === "card") {
+      if (patch.statementDay !== undefined) {
+        const v = clampCardDay(patch.statementDay);
+        if (v !== a.statement_day) {
+          next.statement_day = v;
+          dirty = true;
+        }
+      }
+      if (patch.paymentDueDay !== undefined) {
+        const v = clampCardDay(patch.paymentDueDay);
+        if (v !== a.payment_due_day) {
+          next.payment_due_day = v;
+          dirty = true;
+        }
+      }
+      if (patch.autoPayAccountId !== undefined) {
+        const v = patch.autoPayAccountId && patch.autoPayAccountId !== id ? patch.autoPayAccountId : null;
+        if (v !== a.auto_pay_account_id) {
+          next.auto_pay_account_id = v;
+          dirty = true;
+        }
+      }
+    } else {
+      if (a.statement_day !== null) {
+        next.statement_day = null;
+        dirty = true;
+      }
+      if (a.payment_due_day !== null) {
+        next.payment_due_day = null;
+        dirty = true;
+      }
+      if (a.auto_pay_account_id !== null) {
+        next.auto_pay_account_id = null;
+        dirty = true;
+      }
+    }
+    if (!dirty) return;
     next.updated_at = nowUtcIso();
     this.acc.set(id, next);
   }
@@ -1018,6 +1283,7 @@ export class MemoryTicketRepository implements TicketRepository {
     const plan = planSetMainCurrency({
       targetCode: codeInput,
       currencies: Array.from(this.cur.values()),
+      accounts: Array.from(this.acc.values()),
       entries: Array.from(this.ent.values()),
       budgets: Array.from(this.bud.values()),
       wishes: Array.from(this.wis.values()),
@@ -1034,6 +1300,7 @@ export class MemoryTicketRepository implements TicketRepository {
       const e = this.ent.get(u.id);
       if (!e) continue;
       e.main_minor = u.main_minor;
+      if (u.fee_main_minor !== undefined) e.fee_main_minor = u.fee_main_minor;
       e.updated_at = u.updated_at;
     }
     for (const u of plan.budgets) {
@@ -1255,12 +1522,12 @@ export class MemoryTicketRepository implements TicketRepository {
     this.ensureDemo();
     const rows: EntryRow[] = [];
     for (const e of this.ent.values()) {
-      if (!isAlive(e) || e.kind === "adjust" || e.note.trim() === "") continue; // 精算的備註是系統寫的，不列（同 SQLite）
+      if (!isAlive(e) || e.kind === "adjust" || e.item.trim() === "") continue; // 精算的品項是系統寫的，不列（同 SQLite）
       rows.push(e);
     }
     // 照時間排（同 SQLite 的 ORDER BY occurred_on, occurred_at, id）
     rows.sort((a, b) => cmp(a.occurred_on, b.occurred_on) || cmp(a.occurred_at, b.occurred_at) || cmp(a.id, b.id));
-    return rows.map((e) => ({ note: e.note, occurred_on: e.occurred_on, kind: e.kind, category_id: e.category_id }));
+    return rows.map((e) => ({ note: e.item, item: e.item, occurred_on: e.occurred_on, kind: e.kind, category_id: e.category_id }));
   }
 
   async getEntries(ids: readonly string[]): Promise<EntryRow[]> {

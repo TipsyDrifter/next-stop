@@ -182,3 +182,156 @@
   font-family: var(--font-body); font-size: var(--fs-xs);
 }
 .ns-tk-calc-key.is-eq:hover { opacity: 0.9; }
+
+/* ═══ 九、v1.38 3A／3B 桌機手續費・刷卡分期・信用卡帳單週期 ═══ */
+
+/* 大票手續費獨立選填列（金額區正下方，避開右上検印位） */
+.ns-tk-bt-fee { margin: 6px 0 0 calc(.9em + 6px); padding-right: 68px; }
+.ns-tk-bt-feerow { display: flex; align-items: center; gap: 6px; }
+.ns-tk-bt-feerow .lbl {
+  flex: none; font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); white-space: nowrap;
+}
+.ns-tk-feein, .ns-tk-panel .ns-tk-feein {
+  flex: 0 1 92px; width: 84px; min-width: 56px; padding: 1px 0 2px;
+  background: transparent; border: 0; border-bottom: 1px dashed var(--color-dash); border-radius: 0; outline: none;
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-sm); color: var(--color-ink);
+  font-variant-numeric: tabular-nums; transition: border-color var(--dur-fast);
+}
+.ns-tk-feein::placeholder, .ns-tk-panel .ns-tk-feein::placeholder {
+  font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); color: var(--color-ink-faint);
+}
+.ns-tk-feein:focus, .ns-tk-panel .ns-tk-feein:focus { border-bottom-style: solid; border-bottom-color: var(--accent); }
+.ns-tk-bt-feerow .cur {
+  font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .08em; color: var(--color-ink-faint); white-space: nowrap;
+}
+.ns-tk-feeclr {
+  width: 20px; height: 20px; flex: none; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; color: var(--color-ink-faint); cursor: pointer;
+}
+.ns-tk-feeclr:hover { background: var(--hover-bg); color: var(--color-ink); }
+.ns-tk-feeclr:focus-visible { outline: var(--focus-ring); }
+.ns-tk-feehint {
+  margin: 3px 0 0; font-size: var(--fs-xs); line-height: 1.4; letter-spacing: .04em;
+  color: var(--color-ink-soft); font-variant-numeric: tabular-nums;
+}
+.ns-tk-feehint.is-err { color: var(--danger); }
+
+/* 新支出刷卡分期設定列 */
+.ns-tk-fields .field.is-inst .lbl { padding-top: 4px; }
+.ns-tk-instset { display: grid; gap: 6px; min-width: 0; }
+.ns-tk-instchips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ns-tk-instchip {
+  height: 24px; padding: 0 7px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: transparent; font-family: var(--font-body); font-size: var(--fs-xs); letter-spacing: .04em;
+  color: var(--color-ink-soft); cursor: pointer; white-space: nowrap;
+  transition: border-color var(--dur-fast), background-color var(--dur-fast), color var(--dur-fast);
+}
+.ns-tk-instchip:hover { border-color: var(--color-dash); color: var(--color-ink); }
+.ns-tk-instchip.is-on { border-color: var(--accent); background: var(--sel-bg); color: var(--sel-fg); font-weight: 500; }
+.ns-tk-instchip:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tk-instcustom {
+  display: flex; align-items: baseline; gap: 6px; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-soft);
+}
+.ns-tk-instcustom input, .ns-tk-panel .ns-tk-instcustom input {
+  width: 44px; padding: 1px 2px; text-align: center; background: transparent;
+  border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none;
+  font-family: var(--font-latin); font-size: var(--fs-ui); color: var(--color-ink);
+  appearance: textfield; -moz-appearance: textfield;
+}
+.ns-tk-instcustom input::-webkit-inner-spin-button,
+.ns-tk-instcustom input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.ns-tk-instcustom input:focus, .ns-tk-panel .ns-tk-instcustom input:focus { border-bottom-color: var(--accent); }
+.ns-tk-insthint {
+  margin: 0; font-size: var(--fs-xs); line-height: 1.5; letter-spacing: .03em;
+  color: var(--color-ink-soft); font-variant-numeric: tabular-nums;
+}
+
+/* 既有分期帳進度卡（紙內柔和區隔，不疊第二層高陰影） */
+.ns-tk-instcard {
+  margin: 14px 0 12px; padding: 10px 12px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-used) 55%, transparent);
+  display: grid; gap: 7px;
+}
+.ns-tk-instcard-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ns-tk-instcard-hd .t { font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-faint); }
+.ns-tk-instcard-hd .idx {
+  font-family: var(--font-display); font-size: var(--fs-sm); font-weight: 600;
+  color: var(--color-ink); font-variant-numeric: tabular-nums;
+}
+.ns-tk-instbar { height: 4px; border-radius: var(--radius-pill); background: var(--color-line); overflow: hidden; }
+.ns-tk-instbar i {
+  display: block; height: 100%; border-radius: var(--radius-pill);
+  background: var(--stamp-ink); transition: width var(--dur) var(--ease);
+}
+.ns-tk-instmeta {
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+  font-size: var(--fs-xs); letter-spacing: .03em; color: var(--color-ink-soft); font-variant-numeric: tabular-nums;
+}
+.ns-tk-instmeta b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink); }
+.ns-tk-instmeta .due { color: var(--color-ink-faint); }
+.ns-tk-instloading { margin: 0; font-size: var(--fs-xs); color: var(--color-ink-faint); }
+
+/* 信用卡帳戶側板：帳單週期設定＋本期帳單總覽卡 */
+.ns-tk-acctcard .ns-tk-balance:has(+ .ns-tk-cc-sec) { margin-bottom: var(--sp-3); }
+.ns-tk-cc-sec { margin: 0 0 var(--sp-5); padding-top: 14px; border-top: 1px dashed var(--color-dash); }
+.ns-tk-cc-over { font-size: var(--fs-micro); letter-spacing: .34em; color: var(--color-ink-faint); }
+.ns-tk-fields.is-cc { margin-top: 8px; padding-top: 0; border-top: 0; gap: 6px; }
+.ns-tk-cc-bill {
+  margin-top: 12px; padding: 12px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-used) 55%, transparent);
+  display: grid; gap: 10px;
+}
+.ns-tk-cc-billhd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ns-tk-cc-billhd .t { font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-faint); }
+.ns-tk-cc-badge {
+  display: inline-block; padding: 1px 6px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  font-size: var(--fs-micro); letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap;
+}
+.ns-tk-cc-badge.is-paid {
+  border-color: color-mix(in srgb, var(--stamp-ink) 40%, transparent); color: var(--stamp-ink);
+}
+.ns-tk-cc-badge.is-late {
+  border-color: color-mix(in srgb, var(--late) 50%, transparent); color: var(--late); background: var(--danger-bg);
+}
+.ns-tk-cc-due { display: grid; gap: 2px; }
+.ns-tk-cc-due .k { font-size: var(--fs-xs); letter-spacing: .12em; color: var(--color-ink-faint); }
+.ns-tk-cc-due .v {
+  font-family: var(--font-display); font-size: 22px; font-weight: 700; line-height: 1.25;
+  color: var(--color-ink); font-variant-numeric: tabular-nums;
+}
+.ns-tk-cc-bill.is-paid .ns-tk-cc-due .v { font-size: var(--fs-body); font-weight: 600; color: var(--stamp-ink); }
+.ns-tk-cc-grid {
+  margin: 0; padding-top: 8px; border-top: 1px dashed var(--color-line);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 10px;
+}
+.ns-tk-cc-grid dt { font-size: var(--fs-micro); letter-spacing: .12em; color: var(--color-ink-faint); }
+.ns-tk-cc-grid dd {
+  margin: 1px 0 0; font-family: var(--font-display); font-size: var(--fs-sm); font-weight: 600;
+  color: var(--color-ink-soft); font-variant-numeric: tabular-nums;
+}
+.ns-tk-cc-acts { display: flex; justify-content: flex-end; padding-top: 2px; }
+.ns-tk-cc-paybtn { width: 100%; }
+
+/* 桌機帳戶頁：信用卡帳戶卡底部「帳單週期列」＋右側「繳卡費」快捷鈕 */
+.ns-tk-ac-cc {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 6px 12px;
+  margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--color-line);
+  font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+.ns-tk-ac-cc .cc-meta { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; min-width: 0; }
+.ns-tk-ac-cc .cc-sep { color: var(--color-ink-faint); }
+.ns-tk-ac-cc .cc-due { color: var(--color-ink-soft); }
+.ns-tk-ac-cc .cc-due b {
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-sm);
+  color: var(--color-ink); font-variant-numeric: tabular-nums;
+}
+.ns-tk-ac-cc .cc-late { margin-left: 6px; font-style: normal; font-size: var(--fs-micro); color: var(--late); letter-spacing: .06em; }
+.ns-tk-ac-cc .cc-paid { color: var(--stamp-ink); letter-spacing: .1em; }
+.ns-tk-ac-paybtn { flex: none; margin-left: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tk-instbar i, .ns-tk-instchip, .ns-tk-feein { transition: none; }
+}

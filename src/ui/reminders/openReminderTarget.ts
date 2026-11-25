@@ -12,10 +12,11 @@ import type { ReminderTarget } from "../../domain/reminders";
 import { periodOfKey, stationKeyOf } from "../../domain/weekAims";
 import { runAtomicNav } from "../../store/navHistoryStore";
 import { useNodeStore } from "../../store/nodeStore";
+import { useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { useWeekAimStore } from "../../store/weekAimStore";
 import { useMobileDetailStore } from "../mobile/detail/mobileDetailStore";
-import { goCalendar, goNode, goRoute, goToday } from "../report/reportJumps";
+import { goCalendar, goNode, goRoute, goToday, isLineOpen } from "../report/reportJumps";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 
 export async function openReminderTarget(t: ReminderTarget, shell: "desktop" | "mobile"): Promise<void> {
@@ -65,6 +66,22 @@ export async function openReminderTarget(t: ReminderTarget, shell: "desktop" | "
       case "ticketDay":
         lineReportJump("ticket", { day: t.day }, shell)?.();
         return;
+      case "ticketAccount": {
+        if (!isLineOpen("ticket", shell)) return;
+        if (shell === "desktop") ui.setPage("ticket");
+        else ui.setMobileTab("ticket");
+        try {
+          await useTicketStore.getState().init(shell);
+        } catch {
+          return;
+        }
+        const st = useTicketStore.getState();
+        if (st.view !== "accounts") await st.setView("accounts");
+        if (useTicketStore.getState().accById[t.accountId]) {
+          useTicketStore.getState().openAccount(t.accountId);
+        }
+        return;
+      }
       case "routine":
         lineReportJump("timetable", { day: t.day }, shell)?.();
         return;

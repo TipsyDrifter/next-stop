@@ -15,6 +15,7 @@ import type { NodeRow } from "../domain";
 import {
   REMINDER_HORIZON_DAYS,
   type AimWeekFact,
+  type CardDueFact,
   type DueFact,
   type LateFact,
   type ReminderFacts,
@@ -26,6 +27,7 @@ import {
 } from "../domain/reminders";
 import { projectFixed } from "../domain/repeat";
 import { moneyText } from "../domain/ticket";
+import { creditCardCycleOf, isCardDueForReminder } from "../domain/ticketCardCycle";
 import { parseFixedRule, parseSkipped } from "../domain/ticketPlan";
 import { dayRoutineOf, segName } from "../domain/timetableRoutine";
 import { weekEndOf, weekOnOf } from "../domain/weekAims";
@@ -157,6 +159,43 @@ export async function loadReminderFacts(o: LoadReminderOpts): Promise<ReminderFa
           return out;
         });
 
+  const cardDues: CardDueFact[] =
+    !s.ticketCardDueOn || !o.open.ticket
+      ? []
+      : await part("信用卡繳款", async () => {
+          const accounts = await ticketRepo.listAccounts();
+          const cards = accounts.filter(
+            (a) =>
+              a.deleted_at === null &&
+              a.archived_at === null &&
+              a.group_key === "card" &&
+              a.statement_day !== null &&
+              a.payment_due_day !== null,
+          );
+          if (!cards.length) return [];
+          const [entries, curs] = await Promise.all([
+            ticketRepo.listEntries(addDays(today, -95), addDays(today, 1), null),
+            ticketRepo.listCurrencies(),
+          ]);
+          const decimals = new Map(curs.map((c) => [c.code, c.decimals] as const));
+          const out: CardDueFact[] = [];
+          for (const card of cards) {
+            const sum = creditCardCycleOf(card, entries, today);
+            if (!sum || !sum.paymentDueOn || sum.daysUntilDue === null) continue;
+            if (!isCardDueForReminder(sum, s.ticketCardDueDays)) continue;
+            out.push({
+              accountId: card.id,
+              accountName: card.name,
+              currency: card.currency,
+              decimals: decimals.get(card.currency) ?? 2,
+              dueMinor: sum.dueMinor,
+              paymentDueOn: sum.paymentDueOn,
+              daysUntilDue: sum.daysUntilDue,
+            });
+          }
+          return out;
+        });
+
   const routines: RoutineFact[] =
     !s.routine || !o.open.timetable
       ? []
@@ -194,5 +233,5 @@ export async function loadReminderFacts(o: LoadReminderOpts): Promise<ReminderFa
     }
   }
 
-  return { today, dayStartHour: h, dues, lates, timed, aimWeeks, repeats, routines, stationSoon };
+  return { today, dayStartHour: h, dues, lates, timed, aimWeeks, repeats, routines, stationSoon, cardDues };
 }

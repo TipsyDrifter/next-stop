@@ -71,13 +71,19 @@ export interface NewAccountInput {
   name: string; // trim 後非空，否則 RangeError（§4.3）
   group: AccountGroup;
   currency: string; // 已存在的幣別 code
-  openingMinor: number | null; // 期初餘額；非 null 且非 0 ⇒ 同一批多一筆 adjust（備註「期初餘額」）
+  openingMinor: number | null; // 期初餘額；非 null 且非 0 ⇒ 同一批多一筆 adjust（品項「期初餘額」）
   occurredOn: string; // 期初那筆的日（store 給 todayKey）
+  statementDay?: number | null; // 信用卡結帳日 1..28（非 card 群組自動清為 null）
+  paymentDueDay?: number | null; // 信用卡繳款日 1..28（非 card 群組自動清為 null）
+  autoPayAccountId?: string | null; // 信用卡預設扣款帳戶 id（非 card 群組自動清為 null）
 }
 export interface AccountPatch {
   name?: string;
   group?: AccountGroup;
   currency?: string; // 有帳 ⇒ RangeError
+  statementDay?: number | null;
+  paymentDueDay?: number | null;
+  autoPayAccountId?: string | null;
 }
 export interface NewCategoryInput {
   kind: CategoryKind;
@@ -147,6 +153,22 @@ export interface TicketRepository {
   softDeleteEntry(id: string): Promise<void>;
   /** undo：deleted_at 改回 NULL（第③階段：同一批從 skipped_days 拿掉那一天） */
   restoreEntry(id: string): Promise<void>;
+
+  /* ── v1.38：3A 無損搬移與分流、3B 刷卡分期 ── */
+  /** 同步 pull 後重置 3A 存量無損搬移守門，讓下一筆讀取自動補搬新增的舊版列 */
+  resetItemBackfill?(): void;
+  /** 以單一 WriteBatch 建立 N 期分期帳，決定性 ID = ticketId("inst:" + groupId + ":" + index) */
+  createInstallmentEntries(input: NewEntryInput, periods: number): Promise<EntryRow[]>;
+  /** 依分期群組查詢全部未刪列（installment_index ASC, occurred_on ASC） */
+  listInstallmentGroup(groupId: string): Promise<EntryRow[]>;
+  /** 在單一 WriteBatch 軟刪整個分期群組（或 >= fromIndex 之期數），回傳被刪 ID 清單供復原 */
+  softDeleteInstallmentGroup(groupId: string, fromIndex?: number): Promise<string[]>;
+  /** 單一 WriteBatch 還原多筆軟刪帳目 */
+  restoreEntries(ids: readonly string[]): Promise<void>;
+  /** 舊帳隨筆分流小幫手：批次更新多筆帳目的 item 與 note，回傳實際異動筆數 */
+  batchUpdateEntryTexts(updates: readonly { id: string; item: string; note: string }[]): Promise<number>;
+  /** 取得全部未刪帳目（新到舊，無過濾條件） */
+  listAllAliveEntries(): Promise<EntryRow[]>;
   createAccount(input: NewAccountInput): Promise<AccountRow>;
   updateAccount(id: string, patch: AccountPatch): Promise<void>;
   setAccountArchived(id: string, archived: boolean): Promise<void>;

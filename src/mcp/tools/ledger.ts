@@ -24,6 +24,7 @@ import {
   categoryPath,
   currencyCode,
   defaultAccountId,
+  entryExpenseMain,
   flattenForest,
   isLiability,
   localTime,
@@ -116,6 +117,21 @@ function toMinor(v: unknown, cur: { code: string; decimals: number }, allowNegat
   try {
     return parseAmount(String(v), cur, { allowNegative });
   } catch (e) {
+    throw userErr(e, at);
+  }
+}
+
+/** 手續費（非負數，0 或 null 視為無手續費＝null） */
+function toFeeMinor(v: unknown, cur: { code: string; decimals: number }, at: string): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "number" && typeof v !== "string") throw new McpUserError(`${at} 要是非負數字，例如 15 或 0`);
+  if (typeof v === "number" && !Number.isFinite(v)) throw new McpUserError(`${at} 要是非負數字`);
+  try {
+    const n = parseAmount(String(v), cur, { allowNegative: true, allowZero: true });
+    if (n < 0) throw new McpUserError(`${at}：手續費不能是負數`);
+    return n === 0 ? null : n;
+  } catch (e) {
+    if (e instanceof McpUserError) throw e;
     throw userErr(e, at);
   }
 }
@@ -223,7 +239,18 @@ function entryView(e: EntryRow, m: Meta, routes: Readonly<Record<string, RouteRe
     out.category = e.category_id ? categoryLabel(catById[e.category_id] ?? null, catById) : "未分類";
   }
   if (e.currency !== mainCode(m)) out.mainAmount = num(e.main_minor, mainDec(m));
+  if (e.item) out.item = e.item;
   if (e.note) out.note = e.note;
+  if (e.fee_minor !== null && e.fee_minor > 0) {
+    const feeCur = accById[e.account_id]?.currency ?? e.currency;
+    out.fee = num(e.fee_minor, decOf(m, feeCur));
+  }
+  if (e.installment_index !== null && e.installment_total !== null) {
+    out.installment = `${e.installment_index}/${e.installment_total}`;
+  }
+  if (e.installment_group_id) {
+    out.installment_group_id = e.installment_group_id;
+  }
   if (e.route_id) {
     out.routeId = e.route_id;
     const r = routes[e.route_id];
@@ -250,7 +277,9 @@ const ENTRY_FIELDS: Record<string, JsonSchema> = {
   categoryId: { type: "string", description: "分類 id（find-ledger-categories）；省略＝未分類" },
   date: { ...S_DATE, description: "YYYY-MM-DD，不能晚於今天" },
   time: { type: "string", description: "HH:MM 營業日表記（日界線前的凌晨寫 25:30）" },
-  note: { type: "string", description: "備註" },
+  item: { type: "string", description: "品項／來源（店家、商品或收支事由，例「全家咖啡」、「台鐵車票」；與隨筆備註區分）" },
+  note: { type: "string", description: "隨筆備註（補充心得、情境或細節感想；品項／店家請填 item）" },
+  fee: { ...S_AMOUNT, description: "手續費（選填非負數，單位＝來源帳戶幣別；0 或省略＝無）" },
   routeId: { type: "string", description: "掛到哪條路線（project）" },
 };
 
@@ -273,6 +302,7 @@ const findAccounts: McpTool = {
     const includeArchived = bool(args, "includeArchived") ?? true;
     const [m, balances] = await Promise.all([loadMeta(ctx), ctx.deps.ticketRepo.balances()]);
     const totals = accountTotals(m.accounts, balances, m.ectx.curByCode);
+    const accNameById = new Map(m.accounts.map((x) => [x.id, x.name] as const));
     const list = m.accounts.filter((a) => includeArchived || a.archived_at === null);
     const accounts = list.map((a) => {
       const g = ACCOUNT_GROUPS.find((x) => x.key === a.group_key) ?? ACCOUNT_GROUPS[ACCOUNT_GROUPS.length - 1];
@@ -284,6 +314,15 @@ const findAccounts: McpTool = {
         balance: num(balances[a.id] ?? 0, decOf(m, a.currency)),
       };
       if (isLiability(a.group_key)) out.liability = true;
+      if (a.group_key === "card" && (a.statement_day !== null || a.payment_due_day !== null)) {
+        if (a.statement_day !== null) out.statement_day = a.statement_day;
+        if (a.payment_due_day !== null) out.payment_due_day = a.payment_due_day;
+        if (a.auto_pay_account_id !== null) {
+          out.auto_pay_account_id = a.auto_pay_account_id;
+          const autoName = accNameById.get(a.auto_pay_account_id);
+          if (autoName) out.auto_pay_account = autoName;
+        }
+      }
       if (a.archived_at !== null) out.archived = true;
       return out;
     });
@@ -347,7 +386,7 @@ const findEntries: McpTool = {
   name: "find-ledger-entries",
   title: "查帳",
   description:
-    "依日期區間（最多 92 天）、帳戶、分類、種類、關鍵字查帳，新到舊，最多 100 筆。省略日期＝到今天為止的 30 天。給一個分類會連它底下每一層一起查。關鍵字比備註、分類、帳戶名，純數字比金額。",
+    "依日期區間（最多 92 天）、帳戶、分類、種類、關鍵字查帳，新到舊，最多 100 筆。省略日期＝到今天為止的 30 天。給一個分類會連它底下每一層一起查。關鍵字同時比對品項／來源、隨筆備註、分類、帳戶名，純數字比金額。",
   inputSchema: {
     type: "object",
     properties: {
@@ -394,8 +433,8 @@ const findEntries: McpTool = {
     let expense = 0;
     let income = 0;
     for (const e of hits) {
-      if (e.kind === "expense") expense += e.main_minor;
-      else if (e.kind === "income") income += e.main_minor;
+      expense += entryExpenseMain(e);
+      if (e.kind === "income") income += e.main_minor;
     }
     const cut = hits.length > limit;
     return {
@@ -589,11 +628,11 @@ const addEntries: McpTool = {
       const accountId = str(it, "accountId", { where: w }) ?? defAcc;
       if (!accountId) throw new McpUserError("還沒有帳戶：請使用者先在 App 的售票口建一個帳戶");
       const acc = accountOrThrow(m, accountId, `${w}.accountId`, { allowArchived: false });
-      const given = str(it, "currency", { where: w });
+      const curGiven = str(it, "currency", { where: w });
       let currency = acc.currency;
-      if (given) {
+      if (curGiven) {
         try {
-          currency = currencyCode(given);
+          currency = currencyCode(curGiven);
         } catch (e) {
           throw userErr(e, `${w}.currency`);
         }
@@ -621,6 +660,9 @@ const addEntries: McpTool = {
       // 時刻省略＝現在的牆鐘（同 openNew 的 time: localTime(now)）；存回同 draftToInput：atOf(日, 牆鐘, 日界線)
       const occurredAt = atOf(day, clock ? wallClock(clock, ctx.dayStartHour, `${w}.time`) : localTime(nowIso), ctx.dayStartHour);
       const routeGiven = str(it, "routeId", { where: w });
+      const accCur = m.ectx.curByCode[acc.currency];
+      if (!accCur) throw new McpUserError(`${w}.accountId：沒有這個幣別 ${acc.currency}`);
+      const feeMinor = given(it.fee) ? toFeeMinor(it.fee, accCur, `${w}.fee`) : undefined;
       const input: NewEntryInput = {
         kind,
         amountMinor,
@@ -630,7 +672,9 @@ const addEntries: McpTool = {
         categoryId,
         occurredOn: day,
         occurredAt,
+        item: str(it, "item", { where: w }) ?? "",
         note: str(it, "note", { where: w }) ?? "",
+        ...(feeMinor !== undefined ? { feeMinor } : {}),
         routeId: routeGiven ? await routeOrThrow(ctx, routeGiven, `${w}.routeId`) : null,
       };
       // 折算覆寫（同 draftToInput 的 mainOverrideText／toAmountText；UI 只在外幣／跨幣別時才露出這兩格）
@@ -651,9 +695,8 @@ const addEntries: McpTool = {
     let expense = 0;
     let refunds = 0;
     for (const r of rows) {
-      if (r.kind !== "expense") continue;
-      if (r.main_minor < 0) refunds++;
-      else expense += r.main_minor;
+      if (r.kind === "expense" && r.main_minor < 0) refunds++;
+      else expense += entryExpenseMain(r);
     }
     // 支出填負數＝退款（App 的慣例）；說破，助理把「午餐 120」誤傳成 -120 時才看得出來（沙盒 F3）
     const refundNote = refunds ? `；其中 ${refunds} 筆是退款（支出填了負數——如果本意是花費，請用 update-ledger-entries 改成正數）` : "";
@@ -683,6 +726,7 @@ const updateEntries: McpTool = {
           properties: {
             id: { type: "string" },
             ...ENTRY_FIELDS,
+            fee: { type: ["number", "string", "null"], description: "手續費（來源帳戶幣別）；0 或 null＝清除" },
             categoryId: { type: ["string", "null"], description: "分類 id；null＝未分類" },
             routeId: { type: ["string", "null"], description: "路線 id；null＝拿掉" },
           },
@@ -758,8 +802,16 @@ const updateEntries: McpTool = {
           it.categoryId === null ? null : categoryOrThrow(m, str(it, "categoryId", { required: true, where: w }), kind, `${w}.categoryId`, row.category_id);
         if (catId !== row.category_id) p.categoryId = catId;
       }
+      const item = str(it, "item", { where: w });
+      if (item !== undefined && item !== (row.item ?? "")) p.item = item;
       const note = str(it, "note", { where: w });
       if (note !== undefined && note !== row.note) p.note = note;
+      if (it.fee !== undefined) {
+        const accCur = m.ectx.curByCode[acc.currency];
+        if (!accCur) throw new McpUserError(`${w}.accountId：沒有這個幣別 ${acc.currency}`);
+        const nextFee = toFeeMinor(it.fee, accCur, `${w}.fee`);
+        if (nextFee !== (row.fee_minor ?? null)) p.feeMinor = nextFee;
+      }
       if (it.routeId !== undefined) {
         const routeId = it.routeId === null ? null : await routeOrThrow(ctx, str(it, "routeId", { required: true, where: w }), `${w}.routeId`);
         if (routeId !== row.route_id) p.routeId = routeId;

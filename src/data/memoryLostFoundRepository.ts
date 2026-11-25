@@ -273,10 +273,10 @@ export class MemoryLostFoundRepository implements LostFoundRepository {
 
     this.put("tk_currencies", { ...base, id: "mock-twd", code: "TWD", decimals: 0, is_main: 1, deleted_at: null });
     this.put("tk_categories", { ...base, id: "mock-food", kind: "expense", name: "餐飲", parent_id: null, deleted_at: null });
-    this.put("tk_entries", { ...base, id: "mock-entry", kind: "expense", occurred_on: ago(2).slice(0, 10), occurred_at: ago(2), account_id: "mock-acc", category_id: "mock-food", amount_minor: 180, currency: "TWD", note: "午餐", deleted_at: ago(2) });
+    this.put("tk_entries", { ...base, id: "mock-entry", kind: "expense", occurred_on: ago(2).slice(0, 10), occurred_at: ago(2), account_id: "mock-acc", category_id: "mock-food", amount_minor: 180, currency: "TWD", item: "午餐", note: "", fee_minor: null, fee_main_minor: null, installment_group_id: null, installment_index: null, installment_total: null, deleted_at: ago(2) });
     this.put("tk_wishes", { ...base, id: "mock-wish", name: "新耳機", amount_minor: 3200, note: "", deleted_at: ago(10) });
-    this.put("tk_templates", { ...base, id: "mock-tpl", name: "午餐", kind: "expense", amount_minor: 150, currency: "TWD", note: "", deleted_at: ago(11) });
-    this.put("tk_repeats", { ...base, id: "mock-repeat", kind: "expense", account_id: "mock-acc", amount_minor: 390, currency: "TWD", note: "音樂訂閱", rule: "{}", deleted_at: ago(12) });
+    this.put("tk_templates", { ...base, id: "mock-tpl", name: "午餐", kind: "expense", amount_minor: 150, currency: "TWD", item: "午餐", note: "", fee_minor: null, deleted_at: ago(11) });
+    this.put("tk_repeats", { ...base, id: "mock-repeat", kind: "expense", account_id: "mock-acc", amount_minor: 390, currency: "TWD", item: "音樂訂閱", note: "", fee_minor: null, rule: "{}", deleted_at: ago(12) });
     const budgetCut = ago(13);
     this.put("tk_budgets", { ...base, id: "mock-budget", kind: "category", category_id: "mock-food", month: null, amount_minor: 6000, deleted_at: budgetCut });
     this.put("tk_budgets", { ...base, id: "mock-budget-11", kind: "category", category_id: "mock-food", month: "2026-11", amount_minor: 8000, deleted_at: budgetCut });

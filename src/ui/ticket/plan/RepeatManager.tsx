@@ -19,7 +19,17 @@
 import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
-import { UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, categoryLabel, type AccountRow, type CategoryRow, type CurrencyRow } from "../../../domain/ticket";
+import {
+  UNCAT_EXPENSE_ID,
+  UNCAT_INCOME_ID,
+  categoryLabel,
+  currencySymbol,
+  maskedMoneyText,
+  moneyText,
+  type AccountRow,
+  type CategoryRow,
+  type CurrencyRow,
+} from "../../../domain/ticket";
 import { shortDay } from "../../../domain/ticketView";
 import { canSkipNext, nextOnText, parseFixedRule, pendingSkips, repeatOrder, repeatRuleText, type RepeatRow } from "../../../domain/ticketPlan";
 import { acctLabel } from "../TicketLedger";
@@ -73,7 +83,12 @@ function RmRow({ r, ctx, warn, today }: { r: RepeatRow; ctx: Ctx; warn: string |
   const amt = repeatAmount(r, ctx.curByCode, masked);
   const acc = ctx.accById[r.account_id];
   const cls = "ns-tk-rm-row" + (paused ? " is-paused" : "") + (warn ? " is-blocked" : "") + (ended ? " is-ended" : "");
+  const itemText = (r.item ?? "").trim();
   const note = repeatNoteShown(r, ctx.catById);
+  const feeMinor = r.fee_minor ?? 0;
+  const feeCurCode = acc?.currency ?? r.currency;
+  const feeDec = ctx.curByCode[feeCurCode]?.decimals ?? 2;
+  const isUncatRep = r.kind !== "transfer" && (!r.category_id || r.category_id === UNCAT_EXPENSE_ID || r.category_id === UNCAT_INCOME_ID);
   const skipped = pendingSkips(r, today);
   const lastSkipped = skipped.length ? skipped[skipped.length - 1] : null;
   return (
@@ -84,10 +99,27 @@ function RmRow({ r, ctx, warn, today }: { r: RepeatRow; ctx: Ctx; warn: string |
             {amt.text}
             {amt.code && <span className="cur">{amt.code}</span>}
           </b>
-          <span className="what">
-            <What r={r} ctx={ctx} />
-          </span>
-          {note && <span className="note">{note}</span>}
+          {itemText ? (
+            <>
+              <span className="what" title={itemText}>
+                {itemText}
+              </span>
+              {(r.kind === "transfer" || !isUncatRep) && (
+                <span className="subwhat">
+                  <What r={r} ctx={ctx} />
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="what">
+              <What r={r} ctx={ctx} />
+            </span>
+          )}
+          {note && (
+            <span className="note" title={note}>
+              {note}
+            </span>
+          )}
         </span>
         <span className="l2">
           {warn && <span className="warn">⚠ {warn}</span>}
@@ -96,6 +128,14 @@ function RmRow({ r, ctx, warn, today }: { r: RepeatRow; ctx: Ctx; warn: string |
             <>
               <i>·</i>
               {acctLabel(acc, ctx.accounts)}
+            </>
+          )}
+          {feeMinor > 0 && (
+            <>
+              <i>·</i>
+              <span className="fee">
+                含手續費 {masked ? maskedMoneyText(feeCurCode) : `${currencySymbol(feeCurCode)} ${moneyText(feeMinor, feeDec)}`}
+              </span>
             </>
           )}
         </span>

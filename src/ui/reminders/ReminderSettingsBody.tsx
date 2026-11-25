@@ -9,6 +9,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import {
+  CARD_DUE_DAYS_OPTIONS,
   LATE_DAYS_OPTIONS,
   TIMED_BEFORE_OPTIONS,
   activeGentleReviews,
@@ -52,6 +53,7 @@ export function useReminderOnCount(): number {
     "stationSoon",
     "routine",
     "repeat",
+    "ticketCardDueOn",
     "sync",
     "backup",
   ];
@@ -451,6 +453,29 @@ export function ReminderSettingsBody({ shell }: { shell: Shell }) {
 
       <Group name="售票口">
         <Sw k="repeat" title="定期帳當天" when="當天早上" />
+        <Row
+          title={
+            <>
+              信用卡繳款：提前
+              <NumSelect
+                label="信用卡繳款提前幾天提醒"
+                value={settings.ticketCardDueDays}
+                options={CARD_DUE_DAYS_OPTIONS}
+                disabled={!settings.ticketCardDueOn}
+                format={String}
+                onChange={(ticketCardDueDays) => void update({ ticketCardDueDays })}
+              />
+              天
+            </>
+          }
+          when="有剩餘應繳時，早上提醒"
+        >
+          <Toggle
+            on={settings.ticketCardDueOn}
+            onFlip={() => void update({ ticketCardDueOn: !settings.ticketCardDueOn })}
+            label="信用卡繳款提醒"
+          />
+        </Row>
       </Group>
 
       <Group name="系統">
