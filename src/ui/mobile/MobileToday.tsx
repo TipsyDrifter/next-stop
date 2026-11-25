@@ -67,7 +67,7 @@ import { preloadLocalFlag, useLocalFlag } from "../common/useLocalFlag";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
-import { rangeRemainingDays } from "../../domain/dateRange";
+import { isMultiDayTicket, rangeRemainingDays } from "../../domain/dateRange";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow, totalEstimateMin } from "../../domain/scheduledTime";
 import { dayCountParts, lateCountText } from "../../domain/dayCount";
 import type { TodayRow } from "../../data";
@@ -287,7 +287,8 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const allSettled =
     (c.todayRows.length > 0 || c.lateRows.length > 0) &&
     left === 0 &&
-    c.lateRows.every((r) => r.occurrence !== null || r.status === "done" || r.status === "paused");
+    c.lateRows.every(isSettledRow) &&
+    (c.todayRows.some(isSettledRow) || c.lateRows.some(isSettledRow));
 
   /* ───────── 時刻（主線②）：分群、現在線、下一班 ───────── */
   const railOf = (r: TodayRow) => r.occurrence?.due_on ?? r.scheduled_on ?? c.dateKey;
@@ -310,6 +311,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
     <MobileTicket
       key={r.id}
       card={cardFromTodayRow(r, c.dateKey)}
+      isMultiDay={isMultiDayTicket(r)}
       route={c.routeOf(r)}
       today={c.dateKey}
       fresh={c.freshId === r.id}
@@ -492,9 +494,10 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
       {sheetRow && (
         <MobileTicketSheet
           card={cardFromTodayRow(sheetRow, c.dateKey)}
+          isMultiDay={isMultiDayTicket(sheetRow)}
           today={c.dateKey}
           onDefer={(d) => c.defer(sheetRow.id, d)}
-          onDeferRange={(s, e) => c.deferRange(sheetRow.id, s, e)}
+          onDeferRange={(s, e, multi) => c.deferRange(sheetRow.id, s, e, multi)}
           onSkip={(s) => c.skip(sheetRow.id, s)}
           onSetTime={(t, est) => c.setTime(sheetRow.id, t, est)}
           onSetRunTime={(t) => c.setRunTime(sheetRow.id, t)}

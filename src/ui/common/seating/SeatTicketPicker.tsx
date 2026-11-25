@@ -17,7 +17,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { NodeRow } from "../../../domain";
-import { formatDateRangeBadge, isRangeTicket } from "../../../domain/dateRange";
+import { formatDateRangeBadge, hasDateSpan, isMultiDayTicket } from "../../../domain/dateRange";
 import { nodeRepo } from "../../../data";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -124,8 +124,8 @@ function useSeatCandidates(slotId: string, query: string): CandidateItem[] {
       }
       seen.add(n.id);
       let hint = defaultHint;
-      if (isRangeTicket(n) && n.scheduled_on) {
-        hint = `期間 ${formatDateRangeBadge(n.scheduled_on, n.scheduled_end)}`;
+      if (hasDateSpan(n) && n.scheduled_on) {
+        hint = `${isMultiDayTicket(n) ? "多日" : "期間"} ${formatDateRangeBadge(n.scheduled_on, n.scheduled_end)}`;
       } else if (n.estimate_min && n.estimate_min > 0) {
         hint = `${defaultHint ? `${defaultHint} · ` : ""}${lengthText(n.estimate_min)}`;
       }

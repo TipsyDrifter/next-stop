@@ -159,7 +159,7 @@ async function guardToday(db: Database): Promise<string> {
 
 // repeat_rule 不在這裡：寫規則的唯一入口是 setRepeatRule（update 收到會改道，M3 ④）
 const PATCHABLE = new Set<string>([
-  "name", "description", "color", "code", "status", "scheduled_on", "scheduled_end", "is_placeholder", "due_on", "priority",
+  "name", "description", "color", "code", "status", "scheduled_on", "scheduled_end", "is_multi_day", "is_placeholder", "due_on", "priority",
   "estimate_min", "progress", "time_spent_min", "mood", "expected_on", "arrived_on",
   "carried_from", "route_id", "scheduled_time", "today_position", "station_id",
 ]);
@@ -678,16 +678,17 @@ export class SqliteNodeRepository implements NodeRepository {
 
     const stationId = kind === "line" || kind === "route" || kind === "station" ? null : (input.stationId ?? null);
     const { scheduledOn, scheduledEnd } = normalizeDateRange(input.scheduledOn, input.scheduledEnd);
+    const isMultiDay = scheduledEnd && input.isMultiDay ? 1 : null;
     const isPlaceholder = input.isPlaceholder ? 1 : null;
     b.stmts.push({
       sql: `INSERT INTO nodes
          (id, kind, parent_id, line_id, route_id, name, description, position, sort_key, station_id, color, code, scheduled_on,
-          scheduled_end, is_placeholder, due_on, priority, scheduled_time, estimate_min, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+          scheduled_end, is_multi_day, is_placeholder, due_on, priority, scheduled_time, estimate_min, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
       args: [
         id, kind, parent?.id ?? null, lineId, routeId, name,
         input.description ?? null, position, sortKey, stationId, input.color ?? null, input.code ?? null,
-        scheduledOn, scheduledEnd, isPlaceholder, input.dueOn ?? null, priority, input.scheduledTime ?? null, estimateMin, now, now,
+        scheduledOn, scheduledEnd, isMultiDay, isPlaceholder, input.dueOn ?? null, priority, input.scheduledTime ?? null, estimateMin, now, now,
       ],
     });
     const cols: Record<string, unknown> = {
@@ -706,6 +707,7 @@ export class SqliteNodeRepository implements NodeRepository {
     // 建票列一次設好的欄位：有值才進 op（沒給＝欄位預設，跟以前的 op 長相一樣）
     if (stationId) cols.station_id = stationId;
     if (scheduledEnd) cols.scheduled_end = scheduledEnd;
+    if (isMultiDay) cols.is_multi_day = isMultiDay;
     if (isPlaceholder) cols.is_placeholder = isPlaceholder;
     if (input.dueOn) cols.due_on = input.dueOn;
     if (input.priority) cols.priority = priority;
@@ -743,10 +745,10 @@ export class SqliteNodeRepository implements NodeRepository {
     // 路線標籤換了＝換了一份清單：排序鍵改成新清單的尾端
     const entries: [string, unknown][] = picked.map(([k, v]) => [
       k,
-      k === "is_placeholder" ? (v ? 1 : null) : v === undefined ? null : v,
+      k === "is_placeholder" || k === "is_multi_day" ? (v ? 1 : null) : v === undefined ? null : v,
     ]);
-    // 期間自由券正規化：有傳 scheduled_on 或 scheduled_end 時確保兩者維持合法閉區間或單日 null
-    const hasRangeField = entries.some(([k]) => k === "scheduled_on" || k === "scheduled_end");
+    // 跨日票正規化：有傳 scheduled_on／scheduled_end／is_multi_day 時確保維持合法閉區間或單日 null（單日一律清 is_multi_day）
+    const hasRangeField = entries.some(([k]) => k === "scheduled_on" || k === "scheduled_end" || k === "is_multi_day");
     const extraOpCols: Record<string, unknown> = {};
     if (hasRangeField) {
       const curForRange = await this.getNode(id);
@@ -756,7 +758,7 @@ export class SqliteNodeRepository implements NodeRepository {
         const startIn = entries.some(([k]) => k === "scheduled_on") ? (rawStart ?? null) : curForRange.scheduled_on;
         const endIn = entries.some(([k]) => k === "scheduled_end") ? (rawEnd ?? null) : curForRange.scheduled_end;
         const norm = normalizeDateRange(startIn, endIn);
-        const setEntry = (col: "scheduled_on" | "scheduled_end", val: string | null) => {
+        const setEntry = (col: "scheduled_on" | "scheduled_end" | "is_multi_day", val: string | number | null) => {
           const idx = entries.findIndex(([k]) => k === col);
           if (idx >= 0) entries[idx] = [col, val];
           else entries.push([col, val]);
@@ -764,6 +766,7 @@ export class SqliteNodeRepository implements NodeRepository {
         };
         setEntry("scheduled_on", norm.scheduledOn);
         setEntry("scheduled_end", norm.scheduledEnd);
+        if (!norm.scheduledEnd) setEntry("is_multi_day", null);
       }
     }
     /** 路線標籤換了＝換了一份清單（顯示群組）：排序鍵改成新清單的尾端（收件匣不排序＝清成 NULL） */
@@ -1340,10 +1343,13 @@ export class SqliteNodeRepository implements NodeRepository {
     // 票號不在這支 SQL 裡算：M3-2 改「當日全域發券序」後，號碼取決於本地日界與全集排序，
     // 統一交給 listSerials／buildSerialMap（大綱與今日視圖共用同一把尺）。
     const serials = await this.listSerials();
-    // 期間自由券（scheduled_end > scheduled_on）：涵蓋今日（scheduled_on <= today <= scheduled_end）者歸入 listRangeTickets 抽屜，
-    // 不進一般單日主清單、絕不判誤點；唯有 today > scheduled_end 且未結案才進誤點區。
-    const isActiveRangeSql =
-      `(r.scheduled_end IS NOT NULL AND r.scheduled_on IS NOT NULL AND r.scheduled_end > r.scheduled_on AND r.scheduled_on <= $1 AND r.scheduled_end >= $1)`;
+    // 雙軌分流（D-1.36-7）：
+    // - 期間自由券（scheduled_end > scheduled_on 且 is_multi_day != 1）：涵蓋今日者歸入 listRangeTickets 抽屜，不進主清單。
+    // - 多日乘車日（scheduled_end > scheduled_on 且 is_multi_day = 1）：涵蓋今日者直接列於主清單；唯有 today > scheduled_end 且未結案才進誤點區。
+    const isActiveFlexRangeSql =
+      `(r.scheduled_end IS NOT NULL AND r.scheduled_on IS NOT NULL AND r.scheduled_end > r.scheduled_on AND COALESCE(r.is_multi_day, 0) = 0 AND r.scheduled_on <= $1 AND r.scheduled_end >= $1)`;
+    const isFlexNotPastSql =
+      `(r.scheduled_end IS NOT NULL AND r.scheduled_on IS NOT NULL AND r.scheduled_end > r.scheduled_on AND COALESCE(r.is_multi_day, 0) = 0 AND r.scheduled_end >= $1)`;
     const raw = await db.select<(NodeRow & { child_total: number; child_done: number })[]>(
       `SELECT r.*,
               (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = r.id AND c.${ALIVE}) AS child_total,
@@ -1353,21 +1359,29 @@ export class SqliteNodeRepository implements NodeRepository {
          AND r.kind IN ('train','car','ticket')
          AND NOT ${inDepotSql("r")}
          AND (
-              (r.scheduled_on = $1 AND (r.scheduled_end IS NULL OR r.scheduled_end <= r.scheduled_on)
-               AND r.status != 'paused' AND NOT (r.repeat_rule IS NOT NULL AND r.status = 'done'))
+              (
+                (
+                  (r.scheduled_on = $1 AND (r.scheduled_end IS NULL OR r.scheduled_end <= r.scheduled_on))
+                  OR (r.scheduled_on IS NOT NULL AND r.scheduled_end IS NOT NULL AND r.scheduled_end > r.scheduled_on
+                      AND COALESCE(r.is_multi_day, 0) = 1
+                      AND r.scheduled_on <= $1 AND r.scheduled_end >= $1
+                      AND r.status != 'done')
+                )
+                AND r.status != 'paused' AND NOT (r.repeat_rule IS NOT NULL AND r.status = 'done')
+              )
            OR (r.scheduled_on IS NOT NULL AND COALESCE(NULLIF(r.scheduled_end, ''), r.scheduled_on) < $1 AND r.status NOT IN ('done', 'paused'))
            OR (r.status NOT IN ('done', 'paused') AND r.due_on IS NOT NULL AND r.due_on <= $1
                AND (r.scheduled_on IS NULL OR r.scheduled_on > $1)
-               AND NOT ${isActiveRangeSql})
+               AND NOT ${isActiveFlexRangeSql})
            OR (r.status = 'done' AND r.completed_at IS NOT NULL AND r.completed_at >= $2 AND r.completed_at < $3
-               AND NOT (r.scheduled_end IS NOT NULL AND r.scheduled_on IS NOT NULL AND r.scheduled_end > r.scheduled_on AND r.scheduled_end >= $1)
+               AND NOT ${isFlexNotPastSql}
                AND (
                     (r.scheduled_on IS NOT NULL AND r.scheduled_on <= $1)
                  OR (r.scheduled_on IS NULL AND r.due_on IS NOT NULL AND r.due_on <= $1)
                  OR (r.repeat_rule IS NOT NULL AND r.scheduled_on IS NULL)
                ))
            OR (r.status = 'paused' AND r.updated_at >= $2 AND r.updated_at < $3
-               AND NOT (r.scheduled_end IS NOT NULL AND r.scheduled_on IS NOT NULL AND r.scheduled_end > r.scheduled_on AND r.scheduled_end >= $1)
+               AND NOT ${isFlexNotPastSql}
                AND (
                     (r.scheduled_on IS NOT NULL AND r.scheduled_on <= $1)
                  OR (r.scheduled_on IS NULL AND r.due_on IS NOT NULL AND r.due_on <= $1)
@@ -1449,6 +1463,7 @@ export class SqliteNodeRepository implements NodeRepository {
          AND r.scheduled_on IS NOT NULL
          AND r.scheduled_end IS NOT NULL
          AND r.scheduled_end > r.scheduled_on
+         AND COALESCE(r.is_multi_day, 0) = 0
          AND r.scheduled_on <= $1
          AND r.scheduled_end >= $1
          AND r.status != 'paused'
@@ -1527,8 +1542,19 @@ export class SqliteNodeRepository implements NodeRepository {
     // 定期券的班次由規則排定（M3-5e「只改這次的日期」v1 不做）——擋在 repository 層，不只靠 UI 不給入口
     if (parseRule(node.repeat_rule)) throw new Error(REPEAT_RESCHEDULE_MSG);
     const { scheduledOn, scheduledEnd } = normalizeDateRange(nextDate, opts?.scheduledEnd);
+    const isMultiDay =
+      scheduledEnd === null
+        ? null
+        : opts?.isMultiDay !== undefined
+          ? (opts.isMultiDay ? 1 : null)
+          : (node.is_multi_day ? 1 : null);
     const prev = node.scheduled_on;
-    const leavesToday = scheduledOn === null || scheduledOn > todayDateKey;
+    const inToday =
+      scheduledOn !== null &&
+      (scheduledEnd === null
+        ? scheduledOn <= todayDateKey
+        : isMultiDay === 1 && scheduledOn <= todayDateKey && scheduledEnd >= todayDateKey);
+    const leavesToday = !inToday;
     // 繰越＝「手動把今天／過去的票挪到更晚的一天」（M3-1：過期票不自動順延；只有手動改期會長章）。
     const carried =
       scheduledOn !== null && scheduledEnd === null && prev !== null && prev < scheduledOn && prev <= todayDateKey
@@ -1536,7 +1562,7 @@ export class SqliteNodeRepository implements NodeRepository {
         : node.carried_from;
     const todayPosition = leavesToday ? null : node.today_position;
     const now = nowUtcIso();
-    // 磨光⑦（D-主-67）：日期欄親手選了今天以前 ⇒ 補記＝同一個交易裡直接済在那一天（期間自由券不走補記）
+    // 磨光⑦（D-主-67）：日期欄親手選了今天以前 ⇒ 補記＝同一個交易裡直接済在那一天（跨日票不走補記）
     let doneAt: string | null = null;
     if (opts?.backfill && scheduledOn !== null && scheduledEnd === null && scheduledOn < todayDateKey) {
       const open = await db.select<{ c: number }[]>(
@@ -1548,13 +1574,14 @@ export class SqliteNodeRepository implements NodeRepository {
     const b = newWriteBatch();
     if (doneAt) {
       b.stmts.push({
-        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = $2, carried_from = $3, today_position = $4, status = 'done', completed_at = $5, updated_at = $6 WHERE id = $7`,
-        args: [scheduledOn, scheduledEnd, node.carried_from, todayPosition, doneAt, now, id],
+        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = $2, is_multi_day = $3, carried_from = $4, today_position = $5, status = 'done', completed_at = $6, updated_at = $7 WHERE id = $8`,
+        args: [scheduledOn, scheduledEnd, isMultiDay, node.carried_from, todayPosition, doneAt, now, id],
       });
       // 補記不算繰越（往過去挪；評審 #3：誤點票 10/18 補記到 10/20 不該長「自 10/18 繰越」）
       addOp(b, "nodes", id, "upsert", {
         scheduled_on: scheduledOn,
         scheduled_end: scheduledEnd,
+        is_multi_day: isMultiDay,
         carried_from: node.carried_from,
         today_position: todayPosition,
         status: "done",
@@ -1564,13 +1591,14 @@ export class SqliteNodeRepository implements NodeRepository {
       this.writeLog(b, id, "", "done", doneAt, now); // 済的時刻＝那一天；列的寫入時刻照實是現在
     } else {
       b.stmts.push({
-        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = $2, carried_from = $3, today_position = $4, updated_at = $5 WHERE id = $6`,
-        args: [scheduledOn, scheduledEnd, carried, todayPosition, now, id],
+        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = $2, is_multi_day = $3, carried_from = $4, today_position = $5, updated_at = $6 WHERE id = $7`,
+        args: [scheduledOn, scheduledEnd, isMultiDay, carried, todayPosition, now, id],
       });
       // 沒有 repeat_rule 的節點，scheduled_on 是貨真價實的主人資料（推遲＝主人的決定）
       addOp(b, "nodes", id, "upsert", {
         scheduled_on: scheduledOn,
         scheduled_end: scheduledEnd,
+        is_multi_day: isMultiDay,
         carried_from: carried,
         today_position: todayPosition,
         updated_at: now,
@@ -1683,15 +1711,18 @@ export class SqliteNodeRepository implements NodeRepository {
     // 對面那台在舊規則下併發新設的未來覆寫這裡刪不到（它不在這台）——落在新規則非班次日的由讀取守門忽略（overrideKeepOf）。
     if (!rule) await this.dropOverrides(db, b, id);
     else if (!same) await this.dropOverrides(db, b, id, dateKey, occs.map((o) => o.due_on));
-    const clearRangeEnd = rule !== null && node.scheduled_end !== null;
+    const clearRangeEnd = rule !== null && (node.scheduled_end !== null || node.is_multi_day !== null);
     b.stmts.push({
       sql: clearRangeEnd
-        ? `UPDATE nodes SET repeat_rule = $1, scheduled_end = NULL, updated_at = $2 WHERE id = $3`
+        ? `UPDATE nodes SET repeat_rule = $1, scheduled_end = NULL, is_multi_day = NULL, updated_at = $2 WHERE id = $3`
         : `UPDATE nodes SET repeat_rule = $1, updated_at = $2 WHERE id = $3`,
       args: [serialized, now, id],
     });
     const cols: Record<string, unknown> = { repeat_rule: serialized, updated_at: now };
-    if (clearRangeEnd) cols.scheduled_end = null;
+    if (clearRangeEnd) {
+      cols.scheduled_end = null;
+      cols.is_multi_day = null;
+    }
     // 清規則＝票變回乘車券（D-④-5）：scheduled_on 從「引擎推導值」轉為主人資料，這一刻起要同步。
     // 值沒變，但對面那台從此不會再自己算它——所以得把現值帶過去一次（契約 §2.7 #23）。
     if (!rule) cols.scheduled_on = node.scheduled_on;
@@ -1875,10 +1906,10 @@ export class SqliteNodeRepository implements NodeRepository {
         const seated = await this.getNode(hit.seated_node_id);
         if (seated && seated.deleted_at === null && seated.scheduled_on === from) {
           b.stmts.push({
-            sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = NULL, updated_at = $2 WHERE id = $3`,
+            sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = NULL, is_multi_day = NULL, updated_at = $2 WHERE id = $3`,
             args: [to, now, seated.id],
           });
-          addOp(b, "nodes", seated.id, "upsert", { scheduled_on: to, scheduled_end: null, updated_at: now });
+          addOp(b, "nodes", seated.id, "upsert", { scheduled_on: to, scheduled_end: null, is_multi_day: null, updated_at: now });
         }
       }
     }
@@ -2545,19 +2576,19 @@ export class SqliteNodeRepository implements NodeRepository {
       this.stageReleaseOneOverride(b, prev, now);
     }
 
-    // 對齊入座車票日期至班次日（期間自由券自動收斂為單日）
-    if (dueOn !== "unscheduled" && (ticket.scheduled_on !== dueOn || ticket.scheduled_end !== null)) {
+    // 對齊入座車票日期至班次日（跨日票自動收斂為單日）
+    if (dueOn !== "unscheduled" && (ticket.scheduled_on !== dueOn || ticket.scheduled_end !== null || ticket.is_multi_day !== null)) {
       b.stmts.push({
-        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = NULL, updated_at = $2 WHERE id = $3`,
+        sql: `UPDATE nodes SET scheduled_on = $1, scheduled_end = NULL, is_multi_day = NULL, updated_at = $2 WHERE id = $3`,
         args: [dueOn, now, ticketId],
       });
-      addOp(b, "nodes", ticketId, "upsert", { scheduled_on: dueOn, scheduled_end: null, updated_at: now });
-    } else if (dueOn === "unscheduled" && (ticket.scheduled_on !== null || ticket.scheduled_end !== null)) {
+      addOp(b, "nodes", ticketId, "upsert", { scheduled_on: dueOn, scheduled_end: null, is_multi_day: null, updated_at: now });
+    } else if (dueOn === "unscheduled" && (ticket.scheduled_on !== null || ticket.scheduled_end !== null || ticket.is_multi_day !== null)) {
       b.stmts.push({
-        sql: `UPDATE nodes SET scheduled_on = NULL, scheduled_end = NULL, updated_at = $1 WHERE id = $2`,
+        sql: `UPDATE nodes SET scheduled_on = NULL, scheduled_end = NULL, is_multi_day = NULL, updated_at = $1 WHERE id = $2`,
         args: [now, ticketId],
       });
-      addOp(b, "nodes", ticketId, "upsert", { scheduled_on: null, scheduled_end: null, updated_at: now });
+      addOp(b, "nodes", ticketId, "upsert", { scheduled_on: null, scheduled_end: null, is_multi_day: null, updated_at: now });
     }
 
     const oid = await overrideId(slotNodeId, dueOn);

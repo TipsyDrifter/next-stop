@@ -110,7 +110,7 @@ import type { SettingsRepository } from "./settingsRepository";
 
 // repeat_rule 不在這裡：寫規則的唯一入口是 setRepeatRule（patch 收到會改道，M3 ④）
 const PATCHABLE = new Set<string>([
-  "name", "description", "color", "code", "status", "scheduled_on", "scheduled_end", "due_on", "priority",
+  "name", "description", "color", "code", "status", "scheduled_on", "scheduled_end", "is_multi_day", "due_on", "priority",
   "estimate_min", "progress", "time_spent_min", "mood", "expected_on", "arrived_on",
   "carried_from", "route_id", "scheduled_time", "today_position", "station_id", "is_placeholder",
 ]);
@@ -574,19 +574,29 @@ export class MemoryNodeRepository implements NodeRepository {
     this.ensureLeafTicketBackfill();
     const { start, end } = dayWindow(dateKey, dayStartHour);
     // 車庫與回顧 D-主-206 #4：收進車庫的路線（與掛它標籤的臨時票）不進今日（同 SQLite 版的 inDepotSql）
-    const isActiveRange = (n: NodeRow): boolean =>
+    // 雙軌分流（D-1.36-7）：期間自由券（!is_multi_day）涵蓋今日時歸入抽屜；多日乘車日（is_multi_day === 1）涵蓋今日時直接列於今日主清單。
+    const isActiveFlexRange = (n: NodeRow): boolean =>
       n.scheduled_on !== null &&
       n.scheduled_end !== null &&
       n.scheduled_end > n.scheduled_on &&
+      !n.is_multi_day &&
+      n.scheduled_on <= dateKey &&
+      n.scheduled_end >= dateKey;
+    const isActiveMultiDay = (n: NodeRow): boolean =>
+      n.scheduled_on !== null &&
+      n.scheduled_end !== null &&
+      n.scheduled_end > n.scheduled_on &&
+      n.is_multi_day === 1 &&
       n.scheduled_on <= dateKey &&
       n.scheduled_end >= dateKey;
 
     const hit = this.active().filter((n) => {
       if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") return false;
-      if (isActiveRange(n)) return false;
+      if (isActiveFlexRange(n)) return false;
       // 磨光⑦ 沙盒 F1：退役的定期券不走第一條（scheduled_on 是各台推算、退役後凍住的值；與 SQLite 版同）
-      if (n.scheduled_on === dateKey && n.status !== "paused" && !(n.repeat_rule !== null && n.status === "done")) return true;
-      if (n.scheduled_on !== null && n.scheduled_on < dateKey && n.status !== "done" && n.status !== "paused") return true;
+      if (n.scheduled_on === dateKey && !(n.scheduled_end && n.scheduled_end > n.scheduled_on) && n.status !== "paused" && !(n.repeat_rule !== null && n.status === "done")) return true;
+      if (isActiveMultiDay(n) && n.status !== "done" && n.status !== "paused") return true;
+      if (n.scheduled_on !== null && (n.scheduled_end && n.scheduled_end > n.scheduled_on ? n.scheduled_end : n.scheduled_on) < dateKey && n.status !== "done" && n.status !== "paused") return true;
       if (
         n.status !== "done" && n.status !== "paused" && n.due_on !== null && n.due_on <= dateKey &&
         (n.scheduled_on === null || n.scheduled_on > dateKey)
@@ -654,6 +664,7 @@ export class MemoryNodeRepository implements NodeRepository {
       .filter((n) => {
         if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") return false;
         if (!n.scheduled_on || !n.scheduled_end || n.scheduled_end <= n.scheduled_on) return false;
+        if (n.is_multi_day === 1) return false;
         if (n.scheduled_on > dateKey || n.scheduled_end < dateKey) return false;
         if (n.status === "paused") return false;
         if (n.status === "done" && !(n.completed_at !== null && n.completed_at >= start && n.completed_at < end)) {
@@ -697,19 +708,31 @@ export class MemoryNodeRepository implements NodeRepository {
     // 定期券的班次由規則排定（M3-5e）——與 SQLite 版同一句話、同一道門
     if (parseRule(node.repeat_rule)) throw new Error(REPEAT_RESCHEDULE_MSG);
     const { scheduledOn: normStart, scheduledEnd: normEnd } = normalizeDateRange(nextDate, opts?.scheduledEnd ?? null);
+    const normMultiDay =
+      normEnd === null
+        ? null
+        : opts?.isMultiDay !== undefined
+          ? (opts.isMultiDay ? 1 : null)
+          : (node.is_multi_day ? 1 : null);
     const prev = node.scheduled_on;
-    const leavesToday = normStart === null || normStart > todayDateKey;
+    const inToday =
+      normStart !== null &&
+      (normEnd === null
+        ? normStart <= todayDateKey
+        : normMultiDay === 1 && normStart <= todayDateKey && normEnd >= todayDateKey);
+    const leavesToday = !inToday;
     // 與 SQLite 版逐條對齊：從「今天或過去」挪到更晚的一天（含挪到今天）都算繰越
     const carried =
       normStart !== null && normEnd === null && prev !== null && prev < normStart && prev <= todayDateKey ? prev : node.carried_from;
     const now = this.now();
     // 磨光⑦（D-主-67）：與 SQLite 版同一條規則（日期欄親手選了今天以前 ⇒ 補記，直接済在那一天）
     const open = this.alive().filter((c) => c.parent_id === id && c.status !== "done").length;
-    const doneAt = opts?.backfill ? backfillAtOf(node, normStart, todayDateKey, opts.dayStartHour ?? 3, open) : null;
+    const doneAt = opts?.backfill && normEnd === null ? backfillAtOf(node, normStart, todayDateKey, opts.dayStartHour ?? 3, open) : null;
     this.mutate(id, (n) => ({
       ...n,
       scheduled_on: normStart,
       scheduled_end: normEnd,
+      is_multi_day: normMultiDay,
       carried_from: carried,
       today_position: leavesToday ? null : n.today_position,
       // 補記不算繰越（往過去挪；評審 #3）
@@ -805,7 +828,7 @@ export class MemoryNodeRepository implements NodeRepository {
       if (hit.seated_node_id) {
         const seated = this.nodes.get(hit.seated_node_id);
         if (seated && isAlive(seated) && seated.scheduled_on === from) {
-          this.mutate(seated.id, (n) => ({ ...n, scheduled_on: to, scheduled_end: null, updated_at: now }));
+          this.mutate(seated.id, (n) => ({ ...n, scheduled_on: to, scheduled_end: null, is_multi_day: null, updated_at: now }));
         }
       }
     }
@@ -1100,7 +1123,7 @@ export class MemoryNodeRepository implements NodeRepository {
     this.mutate(id, (n) => ({
       ...n,
       repeat_rule: finalRule ? serializeRule(finalRule) : null,
-      ...(rule ? { scheduled_end: null } : {}),
+      ...(rule ? { scheduled_end: null, is_multi_day: null } : {}),
       ...(revive ? { status: "todo" as const, completed_at: null } : {}),
       updated_at: now,
     }));
@@ -1374,6 +1397,7 @@ export class MemoryNodeRepository implements NodeRepository {
       status: "todo",
       scheduled_on: scheduledOn,
       scheduled_end: scheduledEnd,
+      is_multi_day: scheduledEnd && input.isMultiDay ? 1 : null,
       due_on: input.dueOn ?? null,
       priority: input.priority ?? "mid",
       estimate_min: input.estimateMin == null ? null : Math.max(0, Math.round(input.estimateMin)),
@@ -1414,7 +1438,8 @@ export class MemoryNodeRepository implements NodeRepository {
       if (PATCHABLE.has(k)) picked[k] = v === undefined ? null : v;
     }
     if ("is_placeholder" in picked) picked.is_placeholder = picked.is_placeholder ? 1 : null;
-    if ("scheduled_on" in picked || "scheduled_end" in picked) {
+    if ("is_multi_day" in picked) picked.is_multi_day = picked.is_multi_day ? 1 : null;
+    if ("scheduled_on" in picked || "scheduled_end" in picked || "is_multi_day" in picked) {
       const cur = this.nodes.get(id);
       if (cur) {
         const rawStart = "scheduled_on" in picked ? (picked.scheduled_on as string | null) : cur.scheduled_on;
@@ -1422,6 +1447,7 @@ export class MemoryNodeRepository implements NodeRepository {
         const { scheduledOn: ns, scheduledEnd: ne } = normalizeDateRange(rawStart, rawEnd);
         picked.scheduled_on = ns;
         picked.scheduled_end = ne;
+        if (!ne) picked.is_multi_day = null;
       }
     }
     if (!Object.keys(picked).length) return;
@@ -1676,10 +1702,10 @@ export class MemoryNodeRepository implements NodeRepository {
       if (r.node_id === slotNodeId && r.due_on === dueOn) continue;
       this.releaseOneOverride(r.id, now);
     }
-    if (dueOn !== "unscheduled" && (ticket.scheduled_on !== dueOn || ticket.scheduled_end !== null)) {
-      this.mutate(ticketId, (n) => ({ ...n, scheduled_on: dueOn, scheduled_end: null, updated_at: now }));
-    } else if (dueOn === "unscheduled" && (ticket.scheduled_on !== null || ticket.scheduled_end !== null)) {
-      this.mutate(ticketId, (n) => ({ ...n, scheduled_on: null, scheduled_end: null, updated_at: now }));
+    if (dueOn !== "unscheduled" && (ticket.scheduled_on !== dueOn || ticket.scheduled_end !== null || ticket.is_multi_day !== null)) {
+      this.mutate(ticketId, (n) => ({ ...n, scheduled_on: dueOn, scheduled_end: null, is_multi_day: null, updated_at: now }));
+    } else if (dueOn === "unscheduled" && (ticket.scheduled_on !== null || ticket.scheduled_end !== null || ticket.is_multi_day !== null)) {
+      this.mutate(ticketId, (n) => ({ ...n, scheduled_on: null, scheduled_end: null, is_multi_day: null, updated_at: now }));
     }
     const key = `${slotNodeId}|${dueOn}`;
     const hit = this.ovr.get(key);

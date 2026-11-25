@@ -240,3 +240,8 @@
 .cover .trunk-toggle.is-folded .trunk-caret {
   opacity: .88;
 }
+@media (prefers-reduced-motion: reduce) {
+  .cover {
+    transition: none;
+  }
+}

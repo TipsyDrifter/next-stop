@@ -88,6 +88,8 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     // 第四梯（討論 6 · D-FB-7）：期間自由券、預留席車票與逐班填空／待辦入座
     mig!(24, "0024_flexible_tickets", "flexible tickets: nodes.scheduled_end (inclusive range end) + nodes.is_placeholder (reserved seat flag)"),
     mig!(25, "0025_override_seating", "override seating: node_time_overrides.custom_title + node_time_overrides.seated_node_id"),
+    // 第八本第二梯（v1.37 · D-1.36-7）：多日乘車日旗標（區分多日乘車日 vs 期間自由券）
+    mig!(26, "0026_multi_day_schedule", "multi-day schedule: nodes.is_multi_day (1 = continuous multi-day scheduled ticket; NULL/0 = flexible range ticket)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -256,6 +258,12 @@ mod tests {
             25,
             "0025_override_seating",
             "5ae90b035b3f1b5dfb2b7298a53c183ab04a3750f89b8e5392fc46b3bcccdeef276d36552e7fa21dbc4cb5fd469899bb",
+        ),
+        // v1.37.0 發行（多日乘車日旗標，區分多日乘車日 vs 期間自由券）
+        (
+            26,
+            "0026_multi_day_schedule",
+            "2d5874e8c9314a89eaf4d554c34fcce7f319adc8bdfb6f81ce1e6b16599b3614cb8f1cf8b91679f97d5e889d45cda74f",
         ),
     ];
 

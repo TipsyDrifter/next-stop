@@ -42,7 +42,7 @@ import { REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
 import { isSettling, scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
-import { isDoneRow, isSettledRow, dayCountItem, showRescheduleToast, INBOX_TOAST, manualStepTarget } from "../today/useTodayController";
+import { isDoneRow, isSettledRow, dayCountItemOn, showRescheduleToast, INBOX_TOAST, manualStepTarget } from "../today/useTodayController";
 import { dayCount, lateCount, type LateCount } from "../../domain/dayCount";
 import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
@@ -79,8 +79,8 @@ export interface MobileTodayApi {
   complete(id: string): void;
   /** 改期；null＝清除乘車日（已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ 只改這一班，清除或講不出哪一班 ⇒ REPEAT_RESCHEDULE_MSG） */
   defer(id: string, target: string | null): void;
-  /** 4B：期間區間改期 */
-  deferRange(id: string, start: string | null, end: string | null): void;
+  /** 4B／2A-2：跨日區間改期（isMultiDay=true 表多日乘車日，false 表期間自由券） */
+  deferRange(id: string, start: string | null, end: string | null, isMultiDay?: boolean): void;
   /** 4B：期間自由券一鍵排今天 */
   pullToToday(row: TodayRow): void;
   /** 定期券：本班運休（true）／取消運休（false）——今日頁口徑：不帶 dueOn */
@@ -269,7 +269,11 @@ export function useMobileToday(): MobileTodayApi {
         void moveRunFlow(id, plan.from, plan.day);
         return;
       case "clear": {
-        const prev = { ...scheduleSnapshot(row), scheduled_end: row.scheduled_end ?? null };
+        const prev = {
+          ...scheduleSnapshot(row),
+          scheduled_end: row.scheduled_end ?? null,
+          is_multi_day: row.is_multi_day ?? null,
+        };
         void ns().reschedule(id, null);
         ui().showToast({
           message: INBOX_TOAST,
@@ -279,11 +283,15 @@ export function useMobileToday(): MobileTodayApi {
         return;
       }
       case "backfill":
-        void ns().updateNode(id, { scheduled_on: plan.day, scheduled_end: null }, { backfill: true });
+        void ns().updateNode(id, { scheduled_on: plan.day, scheduled_end: null, is_multi_day: null }, { backfill: true });
         return;
       case "reschedule": {
-        const prev = { ...scheduleSnapshot(row), scheduled_end: row.scheduled_end ?? null };
-        void ns().reschedule(id, plan.day, { scheduledEnd: null });
+        const prev = {
+          ...scheduleSnapshot(row),
+          scheduled_end: row.scheduled_end ?? null,
+          is_multi_day: row.is_multi_day ?? null,
+        };
+        void ns().reschedule(id, plan.day, { scheduledEnd: null, isMultiDay: false });
         if (plan.receipt || row.scheduled_end) {
           if (row.scheduled_end && plan.day === key) {
             ui().showToast({
@@ -301,7 +309,7 @@ export function useMobileToday(): MobileTodayApi {
   }, []);
 
   const deferRange = useCallback(
-    (id: string, start: string | null, end: string | null) => {
+    (id: string, start: string | null, end: string | null, isMultiDay = false) => {
       if (!start || !end || end <= start) {
         defer(id, start);
         return;
@@ -316,10 +324,16 @@ export function useMobileToday(): MobileTodayApi {
         toast(REPEAT_RESCHEDULE_MSG);
         return;
       }
-      const prev = { ...scheduleSnapshot(row), scheduled_end: row.scheduled_end ?? null };
-      void ns().reschedule(id, start, { scheduledEnd: end });
+      const prev = {
+        ...scheduleSnapshot(row),
+        scheduled_end: row.scheduled_end ?? null,
+        is_multi_day: row.is_multi_day ?? null,
+      };
+      void ns().reschedule(id, start, { scheduledEnd: end, isMultiDay: Boolean(isMultiDay) });
       ui().showToast({
-        message: `已排入期間 ${formatDateRangeBadge(start, end)}`,
+        message: isMultiDay
+          ? `已排入多日 ${formatDateRangeBadge(start, end)}`
+          : `已排入期間 ${formatDateRangeBadge(start, end)}`,
         actionLabel: "復原",
         onAction: () => void ns().updateNode(id, prev),
       });
@@ -331,6 +345,7 @@ export function useMobileToday(): MobileTodayApi {
     const key = ns().today.dateKey ?? todayKey(useUiStore.getState().dayStartHour);
     const prevOn = r.scheduled_on;
     const prevEnd = r.scheduled_end ?? null;
+    const prevMulti = r.is_multi_day ?? null;
     void ns()
       .pullRangeTicketToToday(r.id, key)
       .then((res) => {
@@ -338,7 +353,8 @@ export function useMobileToday(): MobileTodayApi {
           ui().showToast({
             message: "已排進今天",
             actionLabel: "復原",
-            onAction: () => void ns().updateNode(r.id, { scheduled_on: prevOn, scheduled_end: prevEnd }),
+            onAction: () =>
+              void ns().updateNode(r.id, { scheduled_on: prevOn, scheduled_end: prevEnd, is_multi_day: prevMulti }),
           });
         }
       });
@@ -477,8 +493,8 @@ export function useMobileToday(): MobileTodayApi {
     rangeTickets,
     empty: rows.length === 0 && rangeTickets.length === 0,
     routeOf,
-    // 磨光⑤ N11：與桌機今日同一把尺（domain/dayCount）
-    stats: dayCount(todayRows.map(dayCountItem)),
+    // 磨光⑤ N11 ＋ v1.37 2A-2：與桌機今日同一把尺（domain/dayCount，非最後一日多日票不計入未完成催辦數）
+    stats: dayCount(todayRows.map((r) => dayCountItemOn(r, dateKey))),
     late: lateCount(lateRows, dateKey),
     complete,
     defer,

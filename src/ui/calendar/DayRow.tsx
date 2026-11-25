@@ -29,7 +29,14 @@ import { useCallback, useRef, useState, type KeyboardEvent, type MouseEvent } fr
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import type { NodeRow } from "../../domain";
 import { parseRule } from "../../domain";
-import { formatDateRangeBadge, isRangeTicket } from "../../domain/dateRange";
+import {
+  formatDateRangeBadge,
+  formatMultiDayLabel,
+  hasDateSpan,
+  isFlexibleRangeTicket,
+  isMultiDayTicket,
+  multiDayProgress,
+} from "../../domain/dateRange";
 import type { DueEntry, ScheduleEntry } from "../../data";
 import { effectiveEstimateMin, isTimeOverridden } from "../../domain/scheduledTime";
 import { clockMinutes, isClockPast, nextDayNote, todayKey } from "../../lib/date";
@@ -241,8 +248,21 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
   const displayTitle = customTitle || name;
   const isPh = Boolean(row.node?.is_placeholder);
   const effEst = effectiveEstimateMin({ estimate_min: row.node?.estimate_min ?? null, seated_into: seatedInto });
+  const isMultiDay = Boolean(row.node && isMultiDayTicket(row.node));
+  const isFlexRange = Boolean(row.node && isFlexibleRangeTicket(row.node));
+  const multiDayBadge =
+    isMultiDay && row.node?.scheduled_on
+      ? (() => {
+          const base = formatDateRangeBadge(row.node.scheduled_on, row.node.scheduled_end);
+          const prog = multiDayProgress(row.node.scheduled_on, row.node.scheduled_end, row.entry.date);
+          return {
+            text: prog ? `${base} · ${prog.dayIndex}/${prog.totalDays}日` : base,
+            title: `多日乘車日 · ${formatMultiDayLabel(row.node.scheduled_on, row.node.scheduled_end, row.entry.date)}`,
+          };
+        })()
+      : null;
   const rangeBadge =
-    row.node && isRangeTicket(row.node) && row.node.scheduled_on
+    isFlexRange && row.node?.scheduled_on
       ? formatDateRangeBadge(row.node.scheduled_on, row.node.scheduled_end)
       : null;
   const disc = roundelStyle(row.route?.color);
@@ -535,6 +555,10 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
             <span className="ns-ph-tag" title="預留席">
               預留席
             </span>
+          ) : multiDayBadge ? (
+            <span className="ns-ph-tag is-multiday" title={multiDayBadge.title}>
+              {multiDayBadge.text}
+            </span>
           ) : rangeBadge ? (
             <span className="ns-ph-tag" title="期間自由券">
               {rangeBadge}
@@ -792,7 +816,7 @@ export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
           title={exec ? "點擊修改乘車日／區間" : "點擊排定乘車日／區間"}
         >
           {exec
-            ? `執行 ${node.scheduled_end ? formatDateRangeBadge(exec, node.scheduled_end) : mmdd(exec)}`
+            ? `執行 ${hasDateSpan(node) ? formatDateRangeBadge(exec, node.scheduled_end) : mmdd(exec)}`
             : "＋排乘車日"}
         </QuickExecChip>
       ) : exec ? (

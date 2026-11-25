@@ -37,7 +37,7 @@
  */
 import { useState, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
-import { formatDateRangeBadge } from "../../domain/dateRange";
+import { formatDateRangeBadge, formatMultiDayLabel } from "../../domain/dateRange";
 import { isClockPast, nextDayNote } from "../../lib/date";
 import { SealCarryOver, SealDone, SealLate, SealStopover, SealSuspended } from "../stamps";
 import type { TicketCardModel } from "../schedule/ticketCard";
@@ -91,6 +91,8 @@ export interface MobileTicketProps {
   hideFare?: boolean;
   /** 路線名後面多幾項（⑫ 篩選清單的路徑、現況） */
   metaExtra?: ReactNode[];
+  /** v1.37 2A-2：是否為「多日乘車日」票（true＝於今日主清單顯示「10/2–10/4 · 第 2/3 日」，不顯示「期間」） */
+  isMultiDay?: boolean;
   /** 4B：期間自由券抽屜附加動作（排今天／発車） */
   rangeActions?: {
     remDays: number;
@@ -140,6 +142,7 @@ export function MobileTicket({
   onPick,
   hideFare = false,
   metaExtra,
+  isMultiDay = false,
   rangeActions,
 }: MobileTicketProps) {
   const { done, suspended, paused, late, railDate, readOnly } = card;
@@ -169,7 +172,11 @@ export function MobileTicket({
       </span>,
     );
   } else if (hasRange && late !== "carry" && card.scheduledOn && card.scheduledEnd) {
-    meta.push(<span>期間 {formatDateRangeBadge(card.scheduledOn, card.scheduledEnd)}</span>);
+    if (isMultiDay) {
+      meta.push(<span className="m-tk-chip">{formatMultiDayLabel(card.scheduledOn, card.scheduledEnd, today)}</span>);
+    } else {
+      meta.push(<span>期間 {formatDateRangeBadge(card.scheduledOn, card.scheduledEnd)}</span>);
+    }
   }
   if (late === "carry" && railDate) {
     meta.push(

@@ -16,9 +16,10 @@ import type { NodeRow, Priority } from "../../../domain";
 import { applyDurationMin, applyEndClock, applyStartClock, deriveClockSpan } from "../../../domain/clockSpan";
 import { useSelectionStore } from "../../../store/selectionStore";
 import { useTagStore } from "../../../store/tagStore";
+import { useUiStore } from "../../../store/uiStore";
 import { useBackLayer } from "../../mobile/backStack";
 import { ClockInput } from "../ClockInput";
-import { dateQuickSet } from "../DateChip";
+import { dueQuickSet, scheduledQuickSet } from "../datePickRules";
 import { DurationPicker } from "../DurationPicker";
 import { MSheet, MSheetItem } from "../MSheet";
 import { MobileAttachPicker } from "../MobileAttachPicker";
@@ -47,6 +48,7 @@ export interface MobileQuickAddProps {
 
 export function MobileQuickAdd({ defaults, here, routeKind, hideRouteKind, placeholder, onCreated, className, onClose }: MobileQuickAddProps) {
   const api = useQuickAdd({ defaults, here, routeKind, hideRouteKind, onCreated });
+  const weekStart = useUiStore((s) => s.weekStart);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState(false);
@@ -224,25 +226,27 @@ export function MobileQuickAdd({ defaults, here, routeKind, hideRouteKind, place
           title={open === "date" ? "乘車日" : "締切日"}
           value={open === "date" ? api.values.scheduledOn : api.values.dueOn}
           endValue={open === "date" ? api.values.scheduledEnd : null}
+          isMultiDay={open === "date" ? api.values.isMultiDay : false}
           allowRange={open === "date"}
           min={open === "date" ? api.today : undefined}
           today={api.today}
           quick={
-            open === "due" && api.values.scheduledOn
-              ? [{ label: "＝同乘車日", day: api.values.scheduledOn }, ...dateQuickSet("forward", api.today)]
-              : dateQuickSet("forward", api.today)
+            open === "due"
+              ? dueQuickSet(api.today, { scheduledOn: api.values.scheduledEnd ?? api.values.scheduledOn, weekStart })
+              : scheduledQuickSet(api.today, weekStart)
           }
           backId={dateLayer}
           onPick={(d) => {
+            const syncAnchor = api.values.scheduledEnd ?? api.values.scheduledOn;
             if (open === "date") api.setDate(d);
-            else if (api.values.scheduledOn && d === api.values.scheduledOn) api.setSyncDueWithScheduled(true);
+            else if (syncAnchor && d === syncAnchor) api.setSyncDueWithScheduled(true);
             else api.setDue(d);
             picked();
           }}
           onPickRange={
             open === "date"
-              ? (s, e) => {
-                  api.setDateRange(s, e);
+              ? (s, e, multi) => {
+                  api.setDateRange(s, e, multi);
                   picked();
                 }
               : undefined
@@ -250,7 +254,7 @@ export function MobileQuickAdd({ defaults, here, routeKind, hideRouteKind, place
           onClear={
             open === "date" || api.values.dueOn || api.syncDueWithScheduled
               ? () => {
-                  if (open === "date") api.setDateRange(null, null);
+                  if (open === "date") api.setDateRange(null, null, false);
                   else api.setDue(null);
                   picked();
                 }

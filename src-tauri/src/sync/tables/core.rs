@@ -45,6 +45,8 @@ const NODES_COLS: &[(&str, bool)] = &[
     // 第四梯（0024 D-FB-7）：期間自由券訖日與預留席旗標
     ("scheduled_end", false),
     ("is_placeholder", true),
+    // 第八本第二梯（0026 D-1.36-7）：多日乘車日旗標（1＝多日乘車日，NULL/0＝期間自由券）
+    ("is_multi_day", true),
     ("route_id", false),
     ("created_at", false),
     ("updated_at", false),

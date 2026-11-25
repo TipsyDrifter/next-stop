@@ -23,14 +23,14 @@ import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { dateRangeQuickSet, shortDayKey, type DateQuick, type DateRangeQuick } from "./DatePicker";
 import { DayGrid } from "./DayGrid";
-import { stepRangePick } from "./datePickRules";
+import { isPickableDay, stepRangePick } from "./datePickRules";
 import "./datepicker.css";
 
 export type { DateQuick, DateRangeQuick } from "./DatePicker";
 
 const RANGE_MODE_OPTS = [
-  { value: "single" as const, label: "單日" },
-  { value: "range" as const, label: "區間" },
+  { value: "single" as const, label: "乘車日" },
+  { value: "range" as const, label: "期間自由券" },
 ];
 
 export interface MobileDatePickerProps {
@@ -38,18 +38,21 @@ export interface MobileDatePickerProps {
   title: string;
   /** 目前的值（同日的 chip 亮起；不在 chip 裡＝日期欄預填並亮起）；null＝沒有 */
   value: string | null;
-  /** 期間自由券訖日（有值且 > value 時顯示區間連帶；僅 allowRange 時使用） */
+  /** 跨日訖日（有值且 > value 時顯示區間連帶；僅 allowRange 時使用） */
   endValue?: string | null;
+  /** 目前跨日區間是否為「多日乘車日」（true＝開啟時落在乘車日分頁；false＝落在期間自由券分頁） */
+  isMultiDay?: boolean;
   /** YYYY-MM-DD；含 */
   min?: string;
   /** YYYY-MM-DD；含 */
   max?: string;
   quick: readonly DateQuick[];
-  /** 是否允許切換「單日｜區間」並顯示週末／本週／下週／本月區間快選（第四梯 4B） */
+  /** 是否允許「乘車日（含多日滑動與＋訖日）｜期間自由券」雙軌切換 */
   allowRange?: boolean;
   rangeQuick?: readonly DateRangeQuick[];
   onPick(day: string): void;
-  onPickRange?(start: string, end: string | null): void;
+  /** 區間選取回呼（end === null 表示單日；isMultiDay === true 表示多日乘車日，false 表示期間自由券） */
+  onPickRange?(start: string, end: string | null, isMultiDay?: boolean): void;
   onClose(): void;
   /** 舊的原生日期欄前的小字；磨光⑤ S8 起一律畫月格、不再顯示（保留 prop 免得呼叫端跟著改） */
   fieldLabel?: string;
@@ -67,7 +70,7 @@ export interface MobileDatePickerProps {
   backKind?: "sheet" | "dialog";
   /** 給了＝foot「取消」旁多一顆清除鈕（可清空的欄位用；同桌機 DatePicker 的 onClear）。呼叫端自己收起面板 */
   onClear?(): void;
-  /** 清除鈕的字（預設「清除」；票卡 ⋯ 的日期面板＝「清除執行日」） */
+  /** 清除鈕的字（預設「清除」；票卡 ⋯ 的日期面板＝「清除乘車日」） */
   clearLabel?: string;
 }
 
@@ -75,6 +78,7 @@ export function MobileDatePicker({
   title,
   value,
   endValue,
+  isMultiDay = false,
   min,
   max,
   quick,
@@ -96,13 +100,24 @@ export function MobileDatePicker({
   const weekStart = useUiStore((s) => s.weekStart);
   const effToday = today ?? todayKey(dayStartHour);
   const hasRangeVal = Boolean(value && endValue && endValue > value);
-  const [mode, setMode] = useState<"single" | "range">(() => (allowRange && hasRangeVal ? "range" : "single"));
+  const [mode, setMode] = useState<"single" | "range">(() => (allowRange && hasRangeVal && !isMultiDay ? "range" : "single"));
+  const [pickingEnd, setPickingEnd] = useState(false);
   const [draftStart, setDraftStart] = useState<string | null>(null);
   const effRangeQuick = allowRange
     ? (rangeQuick ?? dateRangeQuickSet(effToday, weekStart)).filter(
         (rq) => (!min || rq.to >= min) && (!max || rq.from <= max),
       )
     : [];
+
+  const togglePickEnd = () => {
+    if (pickingEnd) {
+      setPickingEnd(false);
+      setDraftStart(null);
+      return;
+    }
+    setPickingEnd(true);
+    setDraftStart(value && isPickableDay(value, min, max) ? value : null);
+  };
 
   const handleDayPick = (day: string) => {
     if (allowRange && mode === "range") {
@@ -112,42 +127,73 @@ export function MobileDatePicker({
         return;
       }
       setDraftStart(null);
-      if (onPickRange) onPickRange(step.start, step.end);
+      if (onPickRange) onPickRange(step.start, step.end, false);
+      else onPick(step.start);
+      return;
+    }
+    if (allowRange && mode === "single" && pickingEnd) {
+      const step = stepRangePick(draftStart, day);
+      if (step.kind === "start") {
+        setDraftStart(step.draftStart);
+        return;
+      }
+      setDraftStart(null);
+      setPickingEnd(false);
+      if (onPickRange) onPickRange(step.start, step.end, step.end !== null);
       else onPick(step.start);
       return;
     }
     setDraftStart(null);
-    if (allowRange && onPickRange) onPickRange(day, null);
+    setPickingEnd(false);
+    if (allowRange && onPickRange) onPickRange(day, null, false);
     else onPick(day);
   };
 
-  const chips = (
+  const handleDragRange = (start: string, end: string) => {
+    setDraftStart(null);
+    setPickingEnd(false);
+    if (onPickRange) onPickRange(start, end, true);
+    else onPick(start);
+  };
+
+  const showSingleChips = (!allowRange || mode === "single") && quick.length > 0;
+  const showRangeChips = allowRange && mode === "range" && effRangeQuick.length > 0;
+  const activeDraftStart = allowRange && (mode === "range" || pickingEnd) ? draftStart : null;
+  const canDragMulti = allowRange && mode === "single" && !pickingEnd;
+  const multiActive = allowRange && hasRangeVal && isMultiDay;
+
+  const chips = showSingleChips && (
     <div className="ns-mdatepick-chips">
       {quick.map((q) => {
-        const on = !hasRangeVal && value === q.day;
+        const on = q.day !== "" && !hasRangeVal && value === q.day;
         return (
           <button
             key={q.label}
             type="button"
             className={"ns-mdatepick-chip" + (on ? " on" : "")}
-            aria-pressed={on}
+            aria-pressed={q.day !== "" ? on : undefined}
             onClick={() => {
               setDraftStart(null);
-              if (allowRange && onPickRange) onPickRange(q.day, null);
+              setPickingEnd(false);
+              if (q.day === "") {
+                onPick("");
+                return;
+              }
+              if (allowRange && onPickRange) onPickRange(q.day, null, false);
               else onPick(q.day);
             }}
           >
             {q.label}
-            <span className="sub">{shortDayKey(q.day)}</span>
+            {q.day && <span className="sub">{shortDayKey(q.day)}</span>}
           </button>
         );
       })}
     </div>
   );
-  const rangeChips = effRangeQuick.length > 0 && (
-    <div className="ns-mdatepick-chips" role="group" aria-label="期間區間快選">
+  const rangeChips = showRangeChips && (
+    <div className="ns-mdatepick-chips" role="group" aria-label="期間自由券快選">
       {effRangeQuick.map((rq) => {
-        const on = value === rq.from && endValue === rq.to;
+        const on = !isMultiDay && value === rq.from && endValue === rq.to;
         return (
           <button
             key={rq.label}
@@ -156,7 +202,8 @@ export function MobileDatePicker({
             aria-pressed={on}
             onClick={() => {
               setDraftStart(null);
-              if (onPickRange) onPickRange(rq.from, rq.to);
+              setPickingEnd(false);
+              if (onPickRange) onPickRange(rq.from, rq.to, false);
               else onPick(rq.from);
             }}
           >
@@ -172,7 +219,7 @@ export function MobileDatePicker({
       variant="mobile"
       value={value}
       endValue={allowRange ? endValue : null}
-      draftStart={allowRange && mode === "range" ? draftStart : null}
+      draftStart={activeDraftStart}
       today={effToday}
       min={min}
       max={max}
@@ -180,6 +227,8 @@ export function MobileDatePicker({
       marksLabel={marksLabel}
       onMonthChange={onMonthChange}
       onPick={handleDayPick}
+      allowDragRange={canDragMulti}
+      onDragRange={canDragMulti ? handleDragRange : undefined}
     />
   );
 
@@ -213,20 +262,42 @@ export function MobileDatePicker({
               value={mode}
               onChange={(next) => {
                 setMode(next);
+                setPickingEnd(false);
                 setDraftStart(null);
               }}
-              aria-label="單日或期間區間"
+              aria-label="乘車日或期間自由券"
             />
           </div>
         )}
-        {quick.length > 0 && chips}
+        {chips}
         {rangeChips}
+        {allowRange && mode === "single" && (
+          <div className="ns-mdatepick-multibar">
+            <span className="ns-mdatepick-multihint" aria-live="polite">
+              {pickingEnd
+                ? draftStart
+                  ? `起日 ${shortDayKey(draftStart)} — 請點訖日（可換月）`
+                  : "先點起日，再點訖日（可換月）"
+                : multiActive && value && endValue
+                  ? `多日 ${formatDateRangeBadge(value, endValue)}（點單日轉單日）`
+                  : "單點設單日・按住滑過多格設多日"}
+            </span>
+            <button
+              type="button"
+              className={"ns-mdatepick-endbtn" + (pickingEnd ? " is-on" : "")}
+              aria-pressed={pickingEnd}
+              onClick={togglePickEnd}
+            >
+              {pickingEnd ? "取消" : multiActive ? "改訖日" : "＋ 訖日"}
+            </button>
+          </div>
+        )}
         {allowRange && mode === "range" && (
           <div className="ns-mdatepick-rangehint" aria-live="polite">
             {draftStart
               ? `已選起日 ${shortDayKey(draftStart)} — 請點訖日（再點同日＝單日）`
-              : hasRangeVal && value && endValue
-                ? `目前區間：${formatDateRangeBadge(value, endValue)}（點任一日重選起訖）`
+              : hasRangeVal && !isMultiDay && value && endValue
+                ? `目前期間：${formatDateRangeBadge(value, endValue)}（點任一日重選起訖）`
                 : "先點起日，再點訖日"}
           </div>
         )}

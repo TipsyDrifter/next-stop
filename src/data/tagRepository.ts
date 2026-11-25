@@ -62,6 +62,17 @@ export type TaggedItem =
     }
   | { kind: "other"; entityType: TagEntityType; id: string; matched: string[] };
 
+/** 行李牌索引卡牆的「最近紀錄預覽」一筆（2A-4：跨模組零 N+1 批次查詢回傳） */
+export interface TagPreviewItem {
+  entityType: string;
+  entityId: string;
+  title: string;
+  /** YYYY-MM-DD（供顯示 M/D 精簡日期）；無日期（如分類預設、目標）為 null */
+  date: string | null;
+  /** 模組短名：「筆記」「日記」「車票」「列車」「車廂」「時刻」「帳目」「願望」等 */
+  moduleLabel: string;
+}
+
 export interface AttachResult {
   key: string;
   name: string;
@@ -106,6 +117,8 @@ export interface TagRepository {
   listTagsOf(entityType: TagEntityType, entityId: string): Promise<TagRow[]>;
   /** 點父看子：掛著 key 或它任何子孫的實體（含子孫＝ name_key = key OR LIKE key/%）；entityType 省略＝全部 */
   listUnder(key: string, entityType?: TagEntityType): Promise<TaggedItem[]>;
+  /** 批次取每個根荷札（含子孫）最近 N 筆紀錄預覽（零 N+1 查詢；2A-4 行李牌索引卡牆） */
+  listRootPreviews(rootNames: readonly string[], limitPerRoot?: number): Promise<Record<string, TagPreviewItem[]>>;
   /** 手機點選器「最近用過」（裝置本地；最多 6 個 key） */
   recentKeys(): Promise<string[]>;
 
@@ -270,4 +283,74 @@ export function emptyReceipt(): TagReceipt {
 }
 export function isEmptyReceipt(r: TagReceipt): boolean {
   return !r.createdTagIds.length && !r.createdTaggingIds.length && !r.tagsBefore.length && !r.taggingsBefore.length && !r.notesBefore.length;
+}
+
+/* ── 行李牌最近紀錄預覽共用純函式（SQLite／Memory 兩版對齊） ── */
+
+const PREVIEW_MAX_CHARS = 28;
+
+/** 截斷為單行乾淨摘要（去除多餘空白與前導 Markdown 記號） */
+export function truncatePreviewTitle(raw: string | null | undefined, maxLen = PREVIEW_MAX_CHARS): string {
+  const clean = String(raw ?? "")
+    .replace(/\r?\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return "（無標題）";
+  const chars = Array.from(clean);
+  return chars.length <= maxLen ? clean : chars.slice(0, maxLen).join("") + "…";
+}
+
+/** 筆記／日記預覽摘要：優先取標題，無標題時取內文首段非空行並剝除 Markdown 標題／條列符號 */
+export function notePreviewTitle(title: string | null | undefined, body: string | null | undefined, maxLen = PREVIEW_MAX_CHARS): string {
+  const t = String(title ?? "").trim();
+  if (t) return truncatePreviewTitle(t, maxLen);
+  const lines = String(body ?? "").split(/\r?\n/);
+  for (const ln of lines) {
+    const stripped = ln
+      .trim()
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/^[-*+]\s+(?:\[[ xX]\]\s+)?/, "")
+      .replace(/^>\s+/, "")
+      .trim();
+    if (stripped) return truncatePreviewTitle(stripped, maxLen);
+  }
+  return "（空白筆記）";
+}
+
+/** 由 YYYY-MM-DD 或 UTC ISO 字串取 YYYY-MM-DD */
+export function isoToYmd(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) {
+    return s.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 取荷札 key 的根段（例如 '難度/高' → '難度'） */
+export function rootKeyOf(key: string): string {
+  const i = key.indexOf("/");
+  return i < 0 ? key : key.slice(0, i);
+}
+
+/** 正規化根荷札查詢鍵（NFKC、去開頭 #、ASCII 小寫、取根段） */
+export function normalizeRootKey(raw: string): string {
+  const s = String(raw ?? "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/^#/, "");
+  const root = rootKeyOf(s).trim();
+  return root.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+
+/** 任務節點 kind → 精簡模組小標 */
+export function nodeModuleLabel(kind: string): string {
+  if (kind === "train") return "列車";
+  if (kind === "car") return "車廂";
+  return "車票";
 }

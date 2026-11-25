@@ -20,7 +20,7 @@ import {
   type TimeOverrideRow,
 } from "../domain/scheduledTime";
 export type { RunOverrideRecord, SeatingSlotRef };
-import { isRangeTicket } from "../domain/dateRange";
+import { hasDateSpan } from "../domain/dateRange";
 import type { FullSearchHit } from "../domain/fullSearch";
 import type { SlotAnchor } from "../domain/nodeOrder";
 import type { ArrivalWrite } from "../domain/depot";
@@ -48,8 +48,10 @@ export interface CreateNodeInput {
   dayStartHour?: number;
   /** 所屬車站 id（建支線／列車／車票時同筆寫入；line／route／station 忽略） */
   stationId?: string | null;
-  /** 期間自由券訖日 'YYYY-MM-DD'（D-FB-7；若與 scheduledOn 同日或未給則存 null） */
+  /** 跨日訖日 'YYYY-MM-DD'（0024；若與 scheduledOn 同日或未給則存 null） */
   scheduledEnd?: string | null;
+  /** 是否為多日乘車日（0026；僅當 scheduledEnd > scheduledOn 時有效，true / 1 存為 1，其餘存 null） */
+  isMultiDay?: boolean | number | null;
   /** 是否為預留席車票（D-FB-7；true / 1 存為 1，其餘存 null） */
   isPlaceholder?: boolean | number | null;
 }
@@ -75,6 +77,7 @@ export type NodePatch = Partial<
     | "status"
     | "scheduled_on"
     | "scheduled_end"
+    | "is_multi_day"
     | "is_placeholder"
     | "due_on"
     | "priority"
@@ -546,6 +549,8 @@ export interface RescheduleOpts {
   dayStartHour?: number;
   /** 第四梯 4B：設定乘車區間時的訖日；省略＝收斂成單日票（清成 null） */
   scheduledEnd?: string | null;
+  /** 第八本第二梯（0026）：設定跨日票是否為多日乘車日（true＝多日乘車日，false＝期間自由券；單日時一律清為 null） */
+  isMultiDay?: boolean | number | null;
 }
 export interface RescheduleResult {
   /** true＝這次改期順便補記了（直接済在那一天） */
@@ -850,7 +855,7 @@ export function resolveRunSeatings(
     if (!slot || slot.deleted_at !== null || slot.status === "paused") continue;
     if (!ticket || ticket.deleted_at !== null || ticket.status === "paused") continue;
     if (slot.id === ticket.id || parseRule(ticket.repeat_rule)) continue;
-    if (isRangeTicket(ticket)) continue;
+    if (hasDateSpan(ticket)) continue;
 
     const dateValid =
       ov.due_on === "unscheduled"
@@ -932,7 +937,7 @@ export function buildSchedule(
     const rule = parseRule(node.repeat_rule);
     if (!rule) {
       const d = node.scheduled_on;
-      if (d && isRangeTicket(node)) {
+      if (d && hasDateSpan(node)) {
         const end = node.scheduled_end!;
         if (end >= from && d <= to) {
           const lo = d > from ? d : from;

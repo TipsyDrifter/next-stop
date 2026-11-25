@@ -34,10 +34,16 @@ import {
   emptyReceipt,
   followRename,
   followRenamePlan,
+  isoToYmd,
+  nodeModuleLabel,
+  normalizeRootKey,
+  notePreviewTitle,
   recordTagBeforeWithRename,
+  rootKeyOf,
   staleBodyRenames,
   tagId,
   taggingId,
+  truncatePreviewTitle,
   type AttachResult,
   type BackfillResult,
   type CreateTagResult,
@@ -47,6 +53,7 @@ import {
   type TagEntityType,
   type TaggedItem,
   type TaggingRow,
+  type TagPreviewItem,
   type TagReceipt,
   type TagRepository,
   type TagRow,
@@ -375,6 +382,364 @@ export class SqliteTagRepository implements TagRepository {
     const items = [...out.values()];
     for (const it of items) it.matched.sort();
     return items;
+  }
+
+  async listRootPreviews(rootNames: readonly string[], limitPerRoot = 2): Promise<Record<string, TagPreviewItem[]>> {
+    const out: Record<string, TagPreviewItem[]> = {};
+    if (!rootNames.length || limitPerRoot <= 0) return out;
+    const normToOriginals = new Map<string, string[]>();
+    for (const raw of rootNames) {
+      out[raw] = [];
+      const rk = normalizeRootKey(raw);
+      if (!rk) continue;
+      let list = normToOriginals.get(rk);
+      if (!list) normToOriginals.set(rk, (list = []));
+      if (!list.includes(raw)) list.push(raw);
+    }
+    if (!normToOriginals.size) return out;
+
+    const db = await getDb();
+    // Step 1（1 次 SQL）：取出所有存活荷札，依根段對應到目標根鍵
+    const allTags = await db.select<{ id: string; name_key: string }[]>(
+      `SELECT id, name_key FROM tags WHERE deleted_at IS NULL`,
+    );
+    const tagIdToRoot = new Map<string, string>();
+    const matchedTagIds: string[] = [];
+    for (const t of allTags) {
+      const rk = rootKeyOf(t.name_key);
+      if (normToOriginals.has(rk)) {
+        tagIdToRoot.set(t.id, rk);
+        matchedTagIds.push(t.id);
+      }
+    }
+    if (!matchedTagIds.length) return out;
+
+    // Step 2（批次 SQL，日常 1 次）：一次撈出所有匹配荷札的存活 taggings，依建立時間由新到舊排序
+    const skip = uncountedTagEntityTypes();
+    type TgRow = { tag_id: string; entity_type: string; entity_id: string; created_at: string; updated_at: string };
+    const tgRows: TgRow[] = [];
+    const CHUNK = 400;
+    for (let i = 0; i < matchedTagIds.length; i += CHUNK) {
+      const chunk = matchedTagIds.slice(i, i + CHUNK);
+      const inList = placeholders(chunk.length, 1);
+      const skipSql = skip.length ? ` AND g.entity_type NOT IN (${placeholders(skip.length, chunk.length + 1)})` : "";
+      const rows = await db.select<TgRow[]>(
+        `SELECT g.tag_id, g.entity_type, g.entity_id, g.created_at, g.updated_at
+         FROM taggings g
+         WHERE g.deleted_at IS NULL AND g.tag_id IN (${inList})${skipSql}
+         ORDER BY g.created_at DESC, g.updated_at DESC`,
+        skip.length ? [...chunk, ...skip] : chunk,
+      );
+      tgRows.push(...rows);
+    }
+    if (!tgRows.length) return out;
+    if (matchedTagIds.length > CHUNK) {
+      tgRows.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0));
+    }
+
+    // 每組 root 取前 candidateCap 個不重複 (entity_type, entity_id) 作為候選（多取以防軟刪實體補位）
+    const candidateCap = Math.max(limitPerRoot * 3, 6);
+    const candidatesByRoot = new Map<string, { entityType: string; entityId: string }[]>();
+    const seenByRoot = new Map<string, Set<string>>();
+    const idsByType = new Map<string, Set<string>>();
+
+    for (const g of tgRows) {
+      const rk = tagIdToRoot.get(g.tag_id);
+      if (!rk) continue;
+      let list = candidatesByRoot.get(rk);
+      if (!list) candidatesByRoot.set(rk, (list = []));
+      if (list.length >= candidateCap) continue;
+      let seen = seenByRoot.get(rk);
+      if (!seen) seenByRoot.set(rk, (seen = new Set()));
+      const ref = g.entity_type + "\u0001" + g.entity_id;
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      list.push({ entityType: g.entity_type, entityId: g.entity_id });
+      let idSet = idsByType.get(g.entity_type);
+      if (!idSet) idsByType.set(g.entity_type, (idSet = new Set()));
+      idSet.add(g.entity_id);
+    }
+
+    // Step 3（每種實際出現的 entity_type 最多 1 次批次 IN 查詢，全並行，零 N+1）
+    const resolved = new Map<string, TagPreviewItem>();
+    const fetchIds = async <R>(ids: readonly string[], run: (chunk: string[], inList: string) => Promise<R[]>): Promise<R[]> => {
+      const acc: R[] = [];
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        acc.push(...(await run(chunk, placeholders(chunk.length, 1))));
+      }
+      return acc;
+    };
+
+    const tasks: Promise<void>[] = [];
+    const knownTypes = new Set([
+      "node",
+      "note",
+      "timetable:block",
+      "timetable:category",
+      "timetable:goal",
+      "ticket:entry",
+      "ticket:repeat",
+      "ticket:wish",
+      "ticket:template",
+    ]);
+
+    const nodeIds = [...(idsByType.get("node") ?? [])];
+    if (nodeIds.length) {
+      tasks.push(
+        fetchIds(nodeIds, (chunk, inList) =>
+          db.select<{ id: string; name: string; kind: string; scheduled_on: string | null; created_at: string }[]>(
+            `SELECT id, name, kind, scheduled_on, created_at FROM nodes
+             WHERE deleted_at IS NULL AND kind IN (${NODE_KINDS_SQL}) AND id IN (${inList})`,
+            chunk,
+          ),
+        ).then((rows) => {
+          for (const r of rows) {
+            resolved.set("node\u0001" + r.id, {
+              entityType: "node",
+              entityId: r.id,
+              title: truncatePreviewTitle(r.name),
+              date: r.scheduled_on ?? isoToYmd(r.created_at),
+              moduleLabel: nodeModuleLabel(r.kind),
+            });
+          }
+        }),
+      );
+    }
+
+    const noteIds = [...(idsByType.get("note") ?? [])];
+    if (noteIds.length) {
+      tasks.push(
+        fetchIds(noteIds, (chunk, inList) =>
+          db.select<{ id: string; kind: string; title: string | null; body: string; entry_date: string | null; noted_at: string }[]>(
+            `SELECT id, kind, title, body, entry_date, noted_at FROM notes
+             WHERE deleted_at IS NULL AND id IN (${inList})`,
+            chunk,
+          ),
+        ).then((rows) => {
+          for (const r of rows) {
+            resolved.set("note\u0001" + r.id, {
+              entityType: "note",
+              entityId: r.id,
+              title: notePreviewTitle(r.title, r.body),
+              date: r.entry_date ?? isoToYmd(r.noted_at),
+              moduleLabel: r.kind === "diary" ? "日記" : "筆記",
+            });
+          }
+        }),
+      );
+    }
+
+    const ttBlockIds = [...(idsByType.get("timetable:block") ?? [])];
+    if (ttBlockIds.length) {
+      tasks.push(
+        fetchIds(ttBlockIds, (chunk, inList) =>
+          db
+            .select<{ id: string; note: string | null; started_at: string; cat_name: string | null }[]>(
+              `SELECT b.id, b.note, b.started_at, c.name AS cat_name
+               FROM time_blocks b LEFT JOIN time_categories c ON c.id = b.category_id
+               WHERE b.deleted_at IS NULL AND b.id IN (${inList})`,
+              chunk,
+            )
+            .catch(() => []),
+        ).then((rows) => {
+          for (const r of rows) {
+            const memo = (r.note ?? "").trim();
+            const cat = (r.cat_name ?? "").trim();
+            const label = memo ? (cat ? `${cat} · ${memo}` : memo) : cat || "時間紀錄";
+            resolved.set("timetable:block\u0001" + r.id, {
+              entityType: "timetable:block",
+              entityId: r.id,
+              title: truncatePreviewTitle(label),
+              date: isoToYmd(r.started_at),
+              moduleLabel: "時刻",
+            });
+          }
+        }),
+      );
+    }
+
+    const ttCatIds = [...(idsByType.get("timetable:category") ?? [])];
+    if (ttCatIds.length) {
+      tasks.push(
+        fetchIds(ttCatIds, (chunk, inList) =>
+          db
+            .select<{ id: string; name: string }[]>(
+              `SELECT id, name FROM time_categories WHERE deleted_at IS NULL AND id IN (${inList})`,
+              chunk,
+            )
+            .catch(() => []),
+        ).then((rows) => {
+          for (const r of rows) {
+            resolved.set("timetable:category\u0001" + r.id, {
+              entityType: "timetable:category",
+              entityId: r.id,
+              title: truncatePreviewTitle(`分類「${r.name}」`),
+              date: null,
+              moduleLabel: "時刻",
+            });
+          }
+        }),
+      );
+    }
+
+    const ttGoalIds = [...(idsByType.get("timetable:goal") ?? [])];
+    if (ttGoalIds.length) {
+      tasks.push(
+        fetchIds(ttGoalIds, (chunk, inList) =>
+          db
+            .select<{ id: string; name: string }[]>(
+              `SELECT id, name FROM time_goals WHERE deleted_at IS NULL AND id IN (${inList})`,
+              chunk,
+            )
+            .catch(() => []),
+        ).then((rows) => {
+          for (const r of rows) {
+            resolved.set("timetable:goal\u0001" + r.id, {
+              entityType: "timetable:goal",
+              entityId: r.id,
+              title: truncatePreviewTitle(`目標「${r.name}」`),
+              date: null,
+              moduleLabel: "時刻",
+            });
+          }
+        }),
+      );
+    }
+
+    const tkEntryIds = [...(idsByType.get("ticket:entry") ?? [])];
+    if (tkEntryIds.length) {
+      tasks.push(
+        fetchIds(tkEntryIds, (chunk, inList) =>
+          db
+            .select<{ id: string; kind: string; occurred_on: string; note: string | null; cat_name: string | null }[]>(
+              `SELECT e.id, e.kind, e.occurred_on, e.note, c.name AS cat_name
+               FROM tk_entries e LEFT JOIN tk_categories c ON c.id = e.category_id
+               WHERE e.deleted_at IS NULL AND e.id IN (${inList})`,
+              chunk,
+            )
+            .catch(() => []),
+        ).then((rows) => {
+          for (const r of rows) {
+            const memo = (r.note ?? "").trim();
+            const cat = (r.cat_name ?? "").trim();
+            const label = memo || cat || (r.kind === "transfer" ? "轉帳" : "帳目");
+            resolved.set("ticket:entry\u0001" + r.id, {
+              entityType: "ticket:entry",
+              entityId: r.id,
+              title: truncatePreviewTitle(label),
+              date: r.occurred_on || null,
+              moduleLabel: "帳目",
+            });
+          }
+        }),
+      );
+    }
+
+    const tkRepeatIds = [...(idsByType.get("ticket:repeat") ?? [])];
+    if (tkRepeatIds.length) {
+      tasks.push(
+        fetchIds(tkRepeatIds, (chunk, inList) =>
+          db
+            .select<{ id: string; kind: string; note: string | null; cat_name: string | null }[]>(
+              `SELECT r.id, r.kind, r.note, c.name AS cat_name
+               FROM tk_repeats r LEFT JOIN tk_categories c ON c.id = r.category_id
+               WHERE r.deleted_at IS NULL AND r.id IN (${inList})`,
+              chunk,
+            )
+            .catch(() => []),
+        ).then((rows) => {
+          for (const r of rows) {
+            const label = (r.note ?? "").trim() || (r.cat_name ?? "").trim() || (r.kind === "transfer" ? "轉帳" : "定期帳");
+            resolved.set("ticket:repeat\u0001" + r.id, {
+              entityType: "ticket:repeat",
+              entityId: r.id,
+              title: truncatePreviewTitle(`定期帳「${label}」`),
+              date: null,
+              moduleLabel: "帳目",
+            });
+          }
+        }),
+      );
+    }
+
+    const tkWishIds = [...(idsByType.get("ticket:wish") ?? [])];
+    if (tkWishIds.length) {
+      tasks.push(
+        fetchIds(tkWishIds, (chunk, inList) =>
+          db
+            .select<{ id: string; name: string }[]>(
+              `SELECT id, name FROM tk_wishes WHERE deleted_at IS NULL AND id IN (${inList})`,
+              chunk,
+            )
+            .catch(() => []),
+        ).then((rows) => {
+          for (const r of rows) {
+            resolved.set("ticket:wish\u0001" + r.id, {
+              entityType: "ticket:wish",
+              entityId: r.id,
+              title: truncatePreviewTitle(r.name),
+              date: null,
+              moduleLabel: "願望",
+            });
+          }
+        }),
+      );
+    }
+
+    const tkTemplateIds = [...(idsByType.get("ticket:template") ?? [])];
+    if (tkTemplateIds.length) {
+      tasks.push(
+        fetchIds(tkTemplateIds, (chunk, inList) =>
+          db
+            .select<{ id: string; name: string }[]>(
+              `SELECT id, name FROM tk_templates WHERE deleted_at IS NULL AND id IN (${inList})`,
+              chunk,
+            )
+            .catch(() => []),
+        ).then((rows) => {
+          for (const r of rows) {
+            resolved.set("ticket:template\u0001" + r.id, {
+              entityType: "ticket:template",
+              entityId: r.id,
+              title: truncatePreviewTitle(`常用票種「${r.name}」`),
+              date: null,
+              moduleLabel: "帳目",
+            });
+          }
+        }),
+      );
+    }
+
+    await Promise.all(tasks);
+
+    // 未列舉的別線類型：直接補上通用預覽項目
+    for (const [type, ids] of idsByType) {
+      if (knownTypes.has(type)) continue;
+      for (const id of ids) {
+        resolved.set(type + "\u0001" + id, {
+          entityType: type,
+          entityId: id,
+          title: truncatePreviewTitle(type),
+          date: null,
+          moduleLabel: "別處",
+        });
+      }
+    }
+
+    // Step 4：依各根荷札時間順序取前 limitPerRoot 筆存活預覽
+    for (const [rk, originals] of normToOriginals) {
+      const cands = candidatesByRoot.get(rk) ?? [];
+      const items: TagPreviewItem[] = [];
+      for (const c of cands) {
+        const hit = resolved.get(c.entityType + "\u0001" + c.entityId);
+        if (!hit) continue;
+        items.push(hit);
+        if (items.length >= limitPerRoot) break;
+      }
+      for (const orig of originals) out[orig] = items;
+    }
+    return out;
   }
 
   async recentKeys(): Promise<string[]> {

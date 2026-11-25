@@ -83,3 +83,93 @@ export function dayRangeRole(
   return null;
 }
 
+/** Pointer Drag 跨日拖曳正規化（起訖相同＝單日，訖早於起＝自動交換） */
+export function normalizeDragRange(
+  anchor: string,
+  current: string,
+): { start: string; end: string | null } {
+  if (anchor === current) return { start: anchor, end: null };
+  return current < anchor ? { start: current, end: anchor } : { start: anchor, end: current };
+}
+
+/* ───────────── 全站共用日期快選預設（v1.37 2A-1） ───────────── */
+
+/** 一顆日期快選膠囊（多選動態「＝同乘車日」哨兵可設 `day: ""`） */
+export interface DateQuickOption {
+  label: string;
+  /** YYYY-MM-DD（或動態語意哨兵 `""`） */
+  day: string;
+}
+
+const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
+
+function addDaysKey(dayKey: string, delta: number): string {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + delta));
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+}
+
+function dowOfKey(dayKey: string): number {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/** 嚴格晚於 today 的最近星期一（今天是週一 ⇒ 7 天後） */
+export function nextMondayKey(today: string): string {
+  const dow = dowOfKey(today);
+  return addDaysKey(today, (8 - dow) % 7 || 7);
+}
+
+/** 即將到來的「本週末」（週一～週六取本週六；週日取下週六，確保不落於今天以前） */
+export function thisWeekendKey(today: string): string {
+  const dow = dowOfKey(today);
+  return dow === 0 ? addDaysKey(today, 6) : addDaysKey(today, 6 - dow);
+}
+
+/** 「本週日」：週一～週六取即將到來的週日；週日當日視 weekStart（1＝今天，0＝7 天後） */
+export function thisSundayKey(today: string, weekStart: 0 | 1 = 1): string {
+  const dow = dowOfKey(today);
+  if (dow === 0) return weekStart === 0 ? addDaysKey(today, 7) : today;
+  return addDaysKey(today, 7 - dow);
+}
+
+/** 乘車日統一快選膠囊：今天 · 明天 · 後天 · 本週末 · 下週一 */
+export function scheduledQuickSet(today: string, _weekStart: 0 | 1 = 1): DateQuickOption[] {
+  return [
+    { label: "今天", day: today },
+    { label: "明天", day: addDaysKey(today, 1) },
+    { label: "後天", day: addDaysKey(today, 2) },
+    { label: "本週末", day: thisWeekendKey(today) },
+    { label: "下週一", day: nextMondayKey(today) },
+  ];
+}
+
+/** 締切日統一快選膠囊：[＝同乘車日（有乘車日時顯示）] · 今天 · 明天 · 本週日 · 下週一 */
+export function dueQuickSet(
+  today: string,
+  opts?: { scheduledOn?: string | null; weekStart?: 0 | 1; dynamicSync?: boolean },
+): DateQuickOption[] {
+  const list: DateQuickOption[] = [];
+  if (opts?.scheduledOn) {
+    list.push({ label: "＝同乘車日", day: opts.scheduledOn });
+  } else if (opts?.dynamicSync) {
+    list.push({ label: "＝同乘車日", day: "" });
+  }
+  list.push(
+    { label: "今天", day: today },
+    { label: "明天", day: addDaysKey(today, 1) },
+    { label: "本週日", day: thisSundayKey(today, opts?.weekStart ?? 1) },
+    { label: "下週一", day: nextMondayKey(today) },
+  );
+  return list;
+}
+
+/** 往回快選（日記／售票口記帳等往回翻的情境）：今天 · 昨天 · 前天 */
+export function backwardQuickSet(today: string): DateQuickOption[] {
+  return [
+    { label: "今天", day: today },
+    { label: "昨天", day: addDaysKey(today, -1) },
+    { label: "前天", day: addDaysKey(today, -2) },
+  ];
+}
+

@@ -39,6 +39,7 @@
 @import "./ui/common/toggle.css";
 @import "./ui/common/attachpicker.css";
 @import "./ui/common/defer.css";
+@import "./styles/responsive-narrow.css";
 @import "./styles/mobile.css";
 @import "./ui/ambience/mood.css";
 

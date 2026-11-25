@@ -12,10 +12,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { applyDurationMin, applyEndClock, applyStartClock, deriveClockSpan } from "../../../domain/clockSpan";
+import { useUiStore } from "../../../store/uiStore";
 import { AttachPicker } from "../AttachPicker";
 import { ClockInput } from "../ClockInput";
 import { DatePicker } from "../DatePicker";
-import { dateQuickSet } from "../DateChip";
+import { dueQuickSet, scheduledQuickSet } from "../datePickRules";
 import { DurationPicker } from "../DurationPicker";
 import { EntityTagField } from "../EntityTagField";
 import { PopMenu } from "../PopMenu";
@@ -37,6 +38,7 @@ export interface QuickPickersProps {
 }
 
 export function QuickPickers({ api, open, anchor, onClose, onDismiss, refocus }: QuickPickersProps) {
+  const weekStart = useUiStore((s) => s.weekStart);
   if (!open || !anchor) return null;
   /** 挑好了：收起、焦點回輸入框（接著打字） */
   const done = () => {
@@ -117,21 +119,22 @@ export function QuickPickers({ api, open, anchor, onClose, onDismiss, refocus }:
           label="乘車日"
           value={v.scheduledOn}
           endValue={v.scheduledEnd}
+          isMultiDay={v.isMultiDay}
           allowRange
           markValue
           min={api.today}
           today={api.today}
-          quick={dateQuickSet("forward", api.today)}
+          quick={scheduledQuickSet(api.today, weekStart)}
           onPick={(d) => {
             api.setDate(d);
             done();
           }}
-          onPickRange={(s, e) => {
-            api.setDateRange(s, e);
+          onPickRange={(s, e, multi) => {
+            api.setDateRange(s, e, multi);
             done();
           }}
           onClear={() => {
-            api.setDateRange(null, null);
+            api.setDateRange(null, null, false);
             done();
           }}
           clearLabel="無日期"
@@ -139,10 +142,8 @@ export function QuickPickers({ api, open, anchor, onClose, onDismiss, refocus }:
         />
       );
     case "due": {
-      const dueQuick = [
-        ...(v.scheduledOn ? [{ label: "＝同乘車日", day: v.scheduledOn }] : []),
-        ...dateQuickSet("forward", api.today),
-      ];
+      const syncAnchor = v.scheduledEnd ?? v.scheduledOn;
+      const dueQuick = dueQuickSet(api.today, { scheduledOn: syncAnchor, weekStart });
       return (
         <DatePicker
           anchor={anchor}
@@ -153,7 +154,7 @@ export function QuickPickers({ api, open, anchor, onClose, onDismiss, refocus }:
           today={api.today}
           quick={dueQuick}
           onPick={(d) => {
-            if (v.scheduledOn && d === v.scheduledOn) api.setSyncDueWithScheduled(true);
+            if (syncAnchor && d === syncAnchor) api.setSyncDueWithScheduled(true);
             else api.setDue(d);
             done();
           }}

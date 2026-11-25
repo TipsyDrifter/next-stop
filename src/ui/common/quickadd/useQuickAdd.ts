@@ -44,6 +44,7 @@ export interface QuickExtra {
     | "stationId"
     | "scheduledOn"
     | "scheduledEnd"
+    | "isMultiDay"
     | "scheduledTime"
     | "estimateMin"
     | "dueOn"
@@ -109,7 +110,7 @@ export interface QuickAddApi {
   setDest(d: QuickDest): void;
   setStation(id: string | null): void;
   setDate(d: string | null): void;
-  setDateRange(start: string | null, end: string | null): void;
+  setDateRange(start: string | null, end: string | null, isMultiDay?: boolean): void;
   setTime(t: string | null, estimateMin: number | null): void;
   setDue(d: string | null): void;
   /** 締切與乘車日同步開關 */
@@ -181,8 +182,10 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
   const composingRef = useRef(false);
   const textRef = useRef(opts.initialText ?? "");
   const [chips, setChips] = useState<QuickChips>({});
-  /** 連打留下來的掛到／車站／乘車日（含區間訖日）：當預設用——這一張打的字照樣蓋得過 */
-  const [carry, setCarry] = useState<Partial<Pick<QuickDefaults, "dest" | "stationId" | "scheduledOn" | "scheduledEnd">>>({});
+  /** 連打留下來的掛到／車站／乘車日（含區間訖日與多日旗標）：當預設用——這一張打的字照樣蓋得過 */
+  const [carry, setCarry] = useState<
+    Partial<Pick<QuickDefaults, "dest" | "stationId" | "scheduledOn" | "scheduledEnd" | "isMultiDay">>
+  >({});
   const chipsRef = useRef(chips);
   chipsRef.current = chips;
   // v1.31 Bug 1：新建葉節點預設統一為 ticket；顯式指定 routeKind="branch" 時建立支線
@@ -263,6 +266,7 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
       if (added.includes("date")) {
         drop("scheduledOn");
         drop("scheduledEnd");
+        drop("isMultiDay");
       }
       if (added.includes("time") || added.includes("length")) {
         drop("scheduledTime");
@@ -389,14 +393,19 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
   );
   const setStation = useCallback((id: string | null) => (setChips((c) => ({ ...c, stationId: id })), stripFor("station")), [stripFor]);
   const setDateRange = useCallback(
-    (start: string | null, end: string | null) => {
+    (start: string | null, end: string | null, isMultiDay = false) => {
       const norm = normalizeDateRange(start, end);
-      setChips((c) => ({ ...c, scheduledOn: norm.scheduledOn, scheduledEnd: norm.scheduledEnd }));
+      setChips((c) => ({
+        ...c,
+        scheduledOn: norm.scheduledOn,
+        scheduledEnd: norm.scheduledEnd,
+        isMultiDay: norm.scheduledEnd ? Boolean(isMultiDay) : false,
+      }));
       stripFor("date");
     },
     [stripFor],
   );
-  const setDate = useCallback((d: string | null) => setDateRange(d, null), [setDateRange]);
+  const setDate = useCallback((d: string | null) => setDateRange(d, null, false), [setDateRange]);
   const setTime = useCallback(
     (t: string | null, estimateMin: number | null) => (setChips((c) => ({ ...c, scheduledTime: t, estimateMin })), stripFor("time")),
     [stripFor],
@@ -424,7 +433,7 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
       ...(c.dest !== undefined ? { dest: c.dest } : {}),
       ...(c.stationId !== undefined ? { stationId: c.stationId } : {}),
       ...(c.scheduledOn !== undefined
-        ? { scheduledOn: c.scheduledOn, scheduledEnd: c.scheduledEnd ?? null }
+        ? { scheduledOn: c.scheduledOn, scheduledEnd: c.scheduledEnd ?? null, isMultiDay: Boolean(c.scheduledEnd && c.isMultiDay) }
         : {}),
     }));
     setChips({});
@@ -462,6 +471,7 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
           stationId: v.stationId,
           scheduledOn: null,
           scheduledEnd: null,
+          isMultiDay: undefined,
           scheduledTime: null,
           estimateMin: null,
           dueOn: null,
@@ -477,6 +487,7 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
         stationId: v.stationId,
         scheduledOn: v.scheduledOn,
         scheduledEnd: v.scheduledEnd,
+        isMultiDay: v.isMultiDay || undefined,
         scheduledTime: v.scheduledTime,
         estimateMin: v.estimateMin,
         dueOn: v.dueOn,
@@ -506,6 +517,7 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
         afterId: o.afterId ?? undefined,
         scheduledOn: isBranch ? null : v.scheduledOn,
         scheduledEnd: isBranch ? null : v.scheduledEnd,
+        isMultiDay: isBranch ? undefined : (v.isMultiDay || undefined),
         scheduledTime: isBranch ? null : v.scheduledTime,
         estimateMin: isBranch ? null : v.estimateMin,
         dueOn: isBranch ? null : v.dueOn,
@@ -523,6 +535,7 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
         {
           scheduledOn: isBranch ? null : v.scheduledOn,
           scheduledEnd: isBranch ? null : v.scheduledEnd,
+          isMultiDay: isBranch ? false : v.isMultiDay,
           target: t,
           routeId: v.dest.routeId,
         },

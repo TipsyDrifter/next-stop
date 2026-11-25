@@ -124,10 +124,128 @@
 /* ═══ 格（共用 DayCell＋行程表內容） ═══ */
 /* minmax(0,1fr)：1fr 軌的 min-content 陷阱——不設 0，nowrap 長票名會把欄撐出卡外（原型 :525／雷區 4） */
 .ns-calendar .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.ns-calendar .grid.cal-month-weeks { display: flex; flex-direction: column; }
+.ns-calendar .cal-week-row { position: relative; }
+.ns-calendar .cal-week-cells { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 /* 行程表的格比共用預設（64 固定高）高：月格下限 96、內容多就長（週格見 week.css）；欄線由格自己的右框／下框畫 */
 .ns-calendar .cal-cell { height: auto; min-height: 96px; padding: 8px 10px 7px; }
 .ns-calendar .grid .cal-cell:nth-child(7n) { border-right: 0; }
 .ns-calendar .grid .cal-cell:nth-last-child(-n + 7) { border-bottom: 0; } /* ＝原型的 .lastrow */
+.ns-calendar .cal-week-cells .cal-cell:nth-child(7) { border-right: 0; }
+.ns-calendar .cal-week-row:not(:last-child) .cal-cell { border-bottom: 1px solid var(--color-line); }
+.ns-calendar .cal-week-row:last-child .cal-cell { border-bottom: 0; }
+
+/* ═══ 月視圖跨日連續行程色帶（v1.37 2A-2；僅多日乘車日 isMultiDayTicket） ═══ */
+.ns-calendar .cal-week-row.has-ribbons {
+  --cal-ribbon-h: 20px;
+  --cal-ribbon-gap: 3px;
+  --cal-ribbon-offset: calc(var(--cal-ribbon-lanes, 0) * (var(--cal-ribbon-h) + var(--cal-ribbon-gap)) + 4px);
+}
+.ns-calendar .cal-week-row.has-ribbons .cal-cell {
+  min-height: max(96px, calc(42px + var(--cal-ribbon-offset)));
+}
+.ns-calendar .cal-week-row.has-ribbons .cal-cell .items {
+  margin-top: var(--cal-ribbon-offset);
+}
+.ns-calendar .cal-week-ribbons {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: var(--cal-ribbon-h, 20px);
+  row-gap: var(--cal-ribbon-gap, 3px);
+}
+.ns-calendar .cal-ribbon {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 100%;
+  margin: 0 4px;
+  padding: 0 7px 0 6px;
+  border: 0;
+  border-left: 3px solid var(--ribbon-c, var(--route-none));
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--ribbon-c, var(--route-none)) 18%, var(--color-paper-high));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ribbon-c, var(--route-none)) 30%, transparent);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: .02em;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-soft), box-shadow var(--dur-fast) var(--ease-soft), opacity var(--dur-fast) var(--ease-soft);
+}
+[data-theme="dark"] .ns-calendar .cal-ribbon {
+  background: color-mix(in srgb, var(--ribbon-c, var(--route-none)) 24%, var(--color-paper-high));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ribbon-c, var(--route-none)) 38%, transparent);
+}
+.ns-calendar .cal-ribbon:hover {
+  background: color-mix(in srgb, var(--ribbon-c, var(--route-none)) 28%, var(--color-paper-high));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ribbon-c, var(--route-none)) 54%, transparent);
+}
+.ns-calendar .cal-ribbon:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.ns-calendar .cal-ribbon.is-cont-l {
+  margin-left: 0;
+  padding-left: 5px;
+  border-left: 1px dashed color-mix(in srgb, var(--ribbon-c, var(--route-none)) 55%, transparent);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.ns-calendar .cal-ribbon.is-cont-r {
+  margin-right: 0;
+  padding-right: 5px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.ns-calendar .cal-ribbon-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ns-calendar .cal-ribbon-range {
+  flex: none;
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+  opacity: .82;
+}
+.ns-calendar .cal-ribbon-cont {
+  flex: none;
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+  line-height: 1;
+}
+.ns-calendar .cal-ribbon-seal {
+  flex: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  color: var(--color-seal);
+}
+.ns-calendar .cal-ribbon.is-done { opacity: .64; }
+.ns-calendar .cal-ribbon.is-done .cal-ribbon-name { text-decoration: line-through 1px; color: var(--color-ink-faint); }
+.ns-calendar .cal-ribbon.is-paused { opacity: .58; color: var(--color-ink-faint); }
+.ns-calendar .cal-ribbon.is-late {
+  color: var(--color-late);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-late) 48%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ns-calendar .cal-ribbon { transition: none; }
+}
 .ns-calendar .cal-cell .ns-daycell-num { font-weight: 600; letter-spacing: .02em; }
 .ns-calendar .cal-cell:not(.is-today):not(.is-out) .ns-daycell-num { color: var(--color-ink-soft); }
 
@@ -147,6 +265,16 @@
 .ns-calendar .it.skipped { color: var(--color-ink-faint); }
 .ns-calendar .it.skipped .dot { opacity: .45; }
 .ns-calendar .it.late { color: var(--color-late); }
+.ns-calendar .it.is-flex { color: var(--color-ink-faint); }
+.ns-calendar .it.is-flex .dot { opacity: .6; }
+.ns-calendar .it-range {
+  flex: none;
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-faint);
+  opacity: .85;
+}
 .ns-calendar .more {
   font-family: var(--font-body); font-size: var(--fs-micro); color: var(--color-ink-faint); letter-spacing: .12em;
   margin-top: 1px; padding-left: 11px;

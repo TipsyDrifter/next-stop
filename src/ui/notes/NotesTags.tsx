@@ -22,6 +22,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type MutableRefObject } from "react";
 import { tagRepo } from "../../data/tagRepo";
+import type { TagPreviewItem } from "../../data/tagRepository";
 import {
   backfillNotice,
   deleteConfirmText,
@@ -31,16 +32,16 @@ import {
   planRename,
   renameImpact,
 } from "../../domain/tags";
-import { useTagStore } from "../../store/tagStore";
+import { buildLuggageCards, fmtPreviewDate, useTagStore, type LuggageCardData } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
 import { EmptyState } from "../common/EmptyState";
 import { ErrorBar } from "../common/ErrorBar";
-import { IconDots, IconPlus } from "../common/icons";
+import { IconDots, IconPlus, IconSearch } from "../common/icons";
 import { PageHeader } from "../common/PageHeader";
 import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { IconLeft, IconTag, IconX, usePopDismiss } from "./notesBits";
 import { NewTagPop } from "./tags/NewTagPop";
-import { TagChip, TagChipLarge } from "./tags/TagChip";
+import { TagChipLarge } from "./tags/TagChip";
 import { TagList, type TagListApi } from "./tags/TagList";
 import { TagSuggestRows, moveAct, suggestCount } from "./tags/TagSuggest";
 import "./notes-tags.css";
@@ -257,17 +258,128 @@ function MergePick({ tagKey, onClose }: { tagKey: string; onClose(): void }) {
   );
 }
 
+/* ───────── 鐵道行李牌索引卡（2A-4；穿孔吊牌牆） ───────── */
+
+const MAX_SHOWN_CHILDREN = 5;
+
+function LuggageCard({
+  card,
+  previews,
+  onSelect,
+}: {
+  card: LuggageCardData;
+  previews: readonly TagPreviewItem[];
+  onSelect(key: string): void;
+}) {
+  const { root, children, modules } = card;
+  const shownChildren = children.slice(0, MAX_SHOWN_CHILDREN);
+  const extraCount = children.length - shownChildren.length;
+
+  const onCardKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect(root.key);
+    }
+  };
+
+  return (
+    <article
+      className={`nt-luggage-card${root.real ? "" : " is-virtual"}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`查看荷札 #${root.name}，共 ${root.total} 處掛載`}
+      onClick={() => onSelect(root.key)}
+      onKeyDown={onCardKeyDown}
+    >
+      <div className="nt-luggage-ear" aria-hidden="true">
+        <span className="nt-luggage-eyelet" />
+      </div>
+
+      <div className="nt-luggage-body">
+        <div className="nt-luggage-head">
+          <h3 className="nt-luggage-name" title={`#${root.name}`}>
+            <span className="hash" aria-hidden="true">#</span>
+            <span className="txt">{root.name}</span>
+            {!root.real && <span className="virt">分類</span>}
+          </h3>
+          <span className="nt-luggage-count" title={`共 ${root.total} 處掛載`}>
+            {root.total}
+          </span>
+        </div>
+
+        {shownChildren.length > 0 && (
+          <div className="nt-luggage-children" role="group" aria-label={`#${root.name} 的子荷札`}>
+            {shownChildren.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                className="nt-luggage-child"
+                title={`#${c.name}（${c.total}）`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(c.key);
+                }}
+              >
+                <span className="sl" aria-hidden="true">/</span>
+                <span className="nm">{c.rel}</span>
+              </button>
+            ))}
+            {extraCount > 0 && (
+              <span className="nt-luggage-more" aria-label={`另有 ${extraCount} 個子荷札`}>
+                +{extraCount}
+              </span>
+            )}
+          </div>
+        )}
+
+        {modules.length > 0 && (
+          <p className="nt-luggage-modules">
+            {modules.map((m, i) => (
+              <span key={m.label} className="nt-luggage-moditem">
+                {i > 0 && <span className="sep" aria-hidden="true">·</span>}
+                {m.label} <b>{m.count}</b>
+              </span>
+            ))}
+          </p>
+        )}
+
+        <div className="nt-luggage-previews">
+          {previews.length > 0 ? (
+            <ul className="nt-luggage-plist">
+              {previews.slice(0, 2).map((p) => {
+                const md = fmtPreviewDate(p.date);
+                return (
+                  <li key={`${p.entityType}:${p.entityId}`} className="nt-luggage-prow">
+                    <span className="nt-luggage-pmod">{p.moduleLabel}</span>
+                    <span className="nt-luggage-ptitle">{p.title}</span>
+                    {md && <span className="nt-luggage-pdate">{md}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="nt-luggage-empty">尚無掛載紀錄</p>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 /* ───────── 主欄 ───────── */
 
 export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | null> }) {
   const index = useTagStore((s) => s.index);
   const selectedKey = useTagStore((s) => s.selectedKey);
+  const rootPreviews = useTagStore((s) => s.rootPreviews);
   const back = useTagStore((s) => s.back);
   const notice = useTagStore((s) => s.notice);
   const renaming = useTagStore((s) => s.renaming);
   const loadFailed = useTagStore((s) => s.loadError !== null && !s.loading);
   const [menu, setMenu] = useState(false);
   const [merging, setMerging] = useState(false);
+  const [wallFilter, setWallFilter] = useState("");
   /** 新荷札浮層：開著＝錨點（頁首 add 鈕／空狀態的「新荷札」鈕；null＝置中）；undefined＝收著 */
   const [newTagAt, setNewTagAt] = useState<HTMLElement | null | undefined>(undefined);
   const listApi = useRef<TagListApi | null>(null);
@@ -363,6 +475,9 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
         : [],
     [index],
   );
+  const luggageCards = useMemo(() => (index ? buildLuggageCards(index, wallFilter) : []), [index, wallFilter]);
+  const rootCount = index?.roots.length ?? 0;
+  const filteringWall = wallFilter.trim().length > 0;
   /** 第一次空（E11）：索引載好了、一個真荷札都沒有 ⇒ 頁首「＋ 新荷札」藏起來，入口只留空狀態那顆（§2.7）。
    *  索引還沒到（載入中／失敗）也不給「＋」：失敗時頁上只有錯誤列與重試（stats 同理，0 個不寫） */
   const firstEmpty = !!index && realTags.length === 0;
@@ -400,12 +515,22 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
       <div className="ns-notes-body ns-notes-tagbody">
         <section className="ns-notes-tagmain ns-notes-col techo-scroll" aria-label="荷札">
           <div className="ns-notes-measure">
-            {back && (
-              <button type="button" className="ns-notes-backlink" onClick={() => st().goBack()}>
-                <IconLeft size={13} />
-                回到剛才
-                <span>{back.label}</span>
-              </button>
+            {(back || node) && (
+              <div className="ns-notes-backrow">
+                {node && (
+                  <button type="button" className="ns-notes-backlink" onClick={() => st().select(null)}>
+                    <IconLeft size={13} />
+                    全部荷札
+                  </button>
+                )}
+                {back && (
+                  <button type="button" className="ns-notes-backlink" onClick={() => st().goBack()}>
+                    <IconLeft size={13} />
+                    回到剛才
+                    <span>{back.label}</span>
+                  </button>
+                )}
+              </div>
             )}
             {notice && (
               <div className="ns-notes-notice" role="status">
@@ -422,10 +547,66 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
               loadFailed && <ErrorBar message="荷札沒有載入成功。" onRetry={() => void st().loadIndex()} />
             ) : !node ? (
               realTags.length > 0 ? (
-                <div className="ns-notes-cloud ns-washi-card">
-                  {realTags.map((x) => (
-                    <TagChip key={x.key} name={x.name} onOpen={() => st().select(x.key)} />
-                  ))}
+                <div className="nt-luggage-wall">
+                  <div className="nt-luggage-bar">
+                    <label className="nt-luggage-search">
+                      <IconSearch size={14} />
+                      <input
+                        type="text"
+                        value={wallFilter}
+                        placeholder="篩選母荷札或子荷札…"
+                        aria-label="篩選荷札"
+                        autoComplete="off"
+                        spellCheck={false}
+                        onChange={(e) => setWallFilter(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape" && wallFilter) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setWallFilter("");
+                          }
+                        }}
+                      />
+                      {wallFilter && (
+                        <button type="button" className="nt-luggage-clear" aria-label="清除篩選" onClick={() => setWallFilter("")}>
+                          <IconX size={11} />
+                        </button>
+                      )}
+                    </label>
+                    <span className="nt-luggage-summary" aria-live="polite">
+                      {filteringWall ? (
+                        <>
+                          找到 <b>{luggageCards.length}</b> / 共 <b>{rootCount}</b> 組荷札
+                        </>
+                      ) : (
+                        <>
+                          共 <b>{rootCount}</b> 組荷札
+                        </>
+                      )}
+                    </span>
+                  </div>
+
+                  {luggageCards.length > 0 ? (
+                    <div className="nt-luggage-grid" role="list" aria-label="荷札索引卡牆">
+                      {luggageCards.map((card) => (
+                        <LuggageCard
+                          key={card.root.key}
+                          card={card}
+                          previews={rootPreviews[card.root.key] ?? []}
+                          onSelect={(k) => st().select(k)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="ns-notes-tagnone">
+                      <EmptyState
+                        tone="nores"
+                        title={`找不到「${wallFilter.trim()}」`}
+                        desc="試試其他母荷札或子荷札關鍵字。"
+                        secondary={{ label: "清除篩選", onClick: () => setWallFilter("") }}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div ref={emptyRef} className="ns-notes-tagfirst">

@@ -40,6 +40,8 @@ export interface QuickChips {
   stationId?: string | null;
   scheduledOn?: string | null;
   scheduledEnd?: string | null;
+  /** 是否為多日乘車日（僅跨日區間時有意義；false＝期間自由券） */
+  isMultiDay?: boolean;
   scheduledTime?: string | null;
   estimateMin?: number | null;
   dueOn?: string | null;
@@ -55,6 +57,7 @@ export interface QuickDefaults {
   stationId?: string | null;
   scheduledOn: string | null;
   scheduledEnd?: string | null;
+  isMultiDay?: boolean;
   scheduledTime?: string | null;
   estimateMin?: number | null;
   dueOn?: string | null;
@@ -77,6 +80,8 @@ export interface QuickValues {
   stationId: string | null;
   scheduledOn: string | null;
   scheduledEnd: string | null;
+  /** 是否為多日乘車日（跨日且為多日時 true，其餘一律 false） */
+  isMultiDay: boolean;
   scheduledTime: string | null;
   estimateMin: number | null;
   dueOn: string | null;
@@ -126,21 +131,26 @@ export function mergeQuick(
   // 乘車日與期間區間：chip ＞ 文字語法 ＞ 預設，統一經 normalizeDateRange 正規化
   let resolvedScheduled: string | null;
   let resolvedScheduledEnd: string | null;
-  const dateChipTouched = chips.scheduledOn !== undefined || chips.scheduledEnd !== undefined;
+  let resolvedMultiDay = false;
+  const dateChipTouched =
+    chips.scheduledOn !== undefined || chips.scheduledEnd !== undefined || chips.isMultiDay !== undefined;
   if (dateChipTouched) {
     const norm = normalizeDateRange(chips.scheduledOn ?? null, chips.scheduledEnd ?? null);
     resolvedScheduled = norm.scheduledOn;
     resolvedScheduledEnd = norm.scheduledEnd;
+    resolvedMultiDay = Boolean(norm.scheduledEnd && chips.isMultiDay);
     on.add("date");
   } else if (parse.scheduledOn !== undefined) {
     const norm = normalizeDateRange(parse.scheduledOn, parse.scheduledEnd ?? null);
     resolvedScheduled = norm.scheduledOn;
     resolvedScheduledEnd = norm.scheduledEnd;
+    resolvedMultiDay = false;
     on.add("date");
   } else {
     const norm = normalizeDateRange(defaults.scheduledOn, defaults.scheduledEnd ?? null);
     resolvedScheduled = norm.scheduledOn;
     resolvedScheduledEnd = norm.scheduledEnd;
+    resolvedMultiDay = Boolean(norm.scheduledEnd && defaults.isMultiDay);
   }
 
   // 締切與同乘車日：chip 明確指定 ＞ 文字語法（`=`／`〆=` vs `〆日期`）＞ 預設（區間票同乘車日對齊訖日或起日）
@@ -245,6 +255,7 @@ export function mergeQuick(
     stationId: resolvedStationId,
     scheduledOn: resolvedScheduled,
     scheduledEnd: resolvedScheduledEnd,
+    isMultiDay: resolvedMultiDay,
     scheduledTime: resolvedTime,
     estimateMin: resolvedEstimate,
     dueOn: resolvedDue,
@@ -360,8 +371,16 @@ export function dateChipText(key: string, today: string): string {
   return dayText(key);
 }
 
-export function dateRangeChipText(start: string, end: string | null | undefined, today: string): string {
-  if (end && end > start) return formatDateRangeBadge(start, end);
+export function dateRangeChipText(
+  start: string,
+  end: string | null | undefined,
+  today: string,
+  isMultiDay?: boolean,
+): string {
+  if (end && end > start) {
+    const badge = formatDateRangeBadge(start, end);
+    return isMultiDay === false ? `期間 ${badge}` : badge;
+  }
   return dateChipText(start, today);
 }
 
@@ -386,16 +405,24 @@ export const INBOX_NOTE = "已放進收件匣——到旅客筆記整理";
  */
 export function leaveNote(
   here: QuickHere,
-  v: { scheduledOn: string | null; scheduledEnd?: string | null; target: QuickTarget; routeId: string | null },
+  v: {
+    scheduledOn: string | null;
+    scheduledEnd?: string | null;
+    isMultiDay?: boolean;
+    target: QuickTarget;
+    routeId: string | null;
+  },
   routeName: (id: string) => string | null,
 ): string | null {
   const inbox = v.target.kind === "ticket" && !v.target.parentId && !v.target.routeTagId && !v.scheduledOn;
   const hasRange = Boolean(v.scheduledOn && v.scheduledEnd && v.scheduledEnd > v.scheduledOn);
+  const rangeMsg = () =>
+    v.isMultiDay
+      ? `已排入多日 ${formatDateRangeBadge(v.scheduledOn!, v.scheduledEnd!)}`
+      : `已排入期間 ${formatDateRangeBadge(v.scheduledOn!, v.scheduledEnd!)}`;
   const elsewhere = (): string => {
     if (inbox) return INBOX_NOTE;
-    if (hasRange && v.scheduledOn && v.scheduledEnd) {
-      return `已排入期間 ${formatDateRangeBadge(v.scheduledOn, v.scheduledEnd)}`;
-    }
+    if (hasRange && v.scheduledOn && v.scheduledEnd) return rangeMsg();
     if (v.scheduledOn) return `已排到 ${dayText(v.scheduledOn)}`;
     const name = v.routeId ? routeName(v.routeId) : null;
     return name ? `已建到「${name}」` : "已建好";
@@ -420,9 +447,7 @@ export function leaveNote(
       if (inbox) return INBOX_NOTE;
       const name = v.routeId ? routeName(v.routeId) : null;
       if (name) return `已建到「${name}」`;
-      if (hasRange && v.scheduledOn && v.scheduledEnd) {
-        return `已排入期間 ${formatDateRangeBadge(v.scheduledOn, v.scheduledEnd)}`;
-      }
+      if (hasRange && v.scheduledOn && v.scheduledEnd) return rangeMsg();
       return v.scheduledOn ? `已排到 ${dayText(v.scheduledOn)}` : "已建好";
     }
     case "none":

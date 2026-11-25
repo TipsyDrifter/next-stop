@@ -22,6 +22,7 @@ import {
   type CreateTagResult,
   type RenameFollow,
   type TagEntityType,
+  type TagPreviewItem,
   type TagReceipt,
 } from "../data/tagRepository";
 import {
@@ -32,12 +33,14 @@ import {
   parentOf,
   planDelete,
   planRename,
+  relName,
   setTagsToast,
   suggest as suggestPure,
   type DeletePlan,
   type RenamePlan,
   type SuggestOptions,
   type TagIndex,
+  type TagNode,
   type TagSuggestResult,
 } from "../domain/tags";
 import type { LineReloadContext } from "../lines/types";
@@ -85,8 +88,12 @@ export interface TagStore {
   recent: string[];
   /** 增補：等確認的改名／併入計畫（rootConflict 或 conflicts 非空） */
   pendingPlan: RenamePlan | null;
+  /** 2A-4：各根荷札（含子孫）最近紀錄預覽快取（零 N+1 批次查詢） */
+  rootPreviews: Record<string, TagPreviewItem[]>;
 
   loadIndex(): Promise<void>;
+  /** 2A-4：批次載入所有根荷札的最近 N 筆紀錄預覽 */
+  loadRootPreviews(limitPerRoot?: number): Promise<void>;
   /** 0-10 守門；完成後 loadIndex；notice 依 seen */
   ensureBackfill(): Promise<void>;
   /** seen:1 */
@@ -190,6 +197,8 @@ async function beforeBodyRewrite(): Promise<void> {
 
 /** loadIndex 的序號：途中又被叫一次＝以後到的那一趟為準 */
 let loadSeq = 0;
+/** loadRootPreviews 的序號：防過期回應蓋掉較新的預覽 */
+let previewSeq = 0;
 /** ensureBackfill 不可重入 */
 let backfillRun: Promise<void> | null = null;
 
@@ -287,6 +296,7 @@ export const useTagStore = create<TagStore>((set, get) => {
     picker: null,
     recent: [],
     pendingPlan: null,
+    rootPreviews: {},
 
     async loadIndex() {
       const seq = ++loadSeq;
@@ -297,9 +307,28 @@ export const useTagStore = create<TagStore>((set, get) => {
         const index = buildIndex(src);
         const sel = get().selectedKey;
         set({ index, recent, loading: false, loadError: null, ...(sel !== null && !index.byKey[sel] ? { selectedKey: null } : {}) });
+        if (index.roots.length > 0) void get().loadRootPreviews();
+        else set({ rootPreviews: {} });
       } catch (e) {
         console.warn("tagStore.loadIndex 失敗", e);
         if (seq === loadSeq) set({ loading: false, loadError: message(e).trim() || "荷札沒載入" });
+      }
+    },
+
+    async loadRootPreviews(limitPerRoot = 2) {
+      const idx = get().index;
+      if (!idx || !idx.roots.length) {
+        set({ rootPreviews: {} });
+        return;
+      }
+      if (typeof tagRepo.listRootPreviews !== "function") return;
+      const seq = ++previewSeq;
+      try {
+        const rootPreviews = await tagRepo.listRootPreviews(idx.roots, limitPerRoot);
+        if (seq !== previewSeq) return;
+        set({ rootPreviews });
+      } catch (e) {
+        console.warn("tagStore.loadRootPreviews 失敗", e);
       }
     },
 
@@ -610,7 +639,7 @@ export const useTagStore = create<TagStore>((set, get) => {
 
     async reload(ctx) {
       if (ctx.wiped) {
-        set({ selectedKey: null, back: null, renaming: null, picker: null, pendingPlan: null });
+        set({ selectedKey: null, back: null, renaming: null, picker: null, pendingPlan: null, rootPreviews: {} });
         backfillRun = null;
       }
       // 同步引擎班 D-主-121「改名跟到底」：拉到荷札或掛載的變動 ⇒ 先把改名殘影整理掉，再重載 index。
@@ -637,3 +666,99 @@ useUiStore.subscribe((s, prev) => {
   const leftMobile = s.mobileTab !== prev.mobileTab && s.mobileTab !== "notes";
   if ((leftDesktop || leftMobile) && useTagStore.getState().back) useTagStore.setState({ back: null });
 });
+
+/* ───────── 2A-4 鐵道行李牌索引卡牆共用彙整（桌機／手機雙端共用） ───────── */
+
+export interface LuggageChildItem {
+  key: string;
+  name: string;
+  /** 相對於母荷札的路徑，例如 '高' 或 '搬家/打包' */
+  rel: string;
+  total: number;
+}
+
+export interface LuggageModuleCount {
+  label: string;
+  count: number;
+}
+
+export interface LuggageCardData {
+  root: TagNode;
+  children: LuggageChildItem[];
+  modules: LuggageModuleCount[];
+}
+
+/** 彙整根荷札為行李牌索引卡資料：含真子荷札（依數量排序）、跨模組統計（只留 >0），並支援母／子荷札即時搜尋過濾 */
+export function buildLuggageCards(index: TagIndex, rawFilter: string): LuggageCardData[] {
+  const q = rawFilter
+    .normalize("NFKC")
+    .trim()
+    .replace(/^#/, "")
+    .replace(/[A-Z]/g, (c) => c.toLowerCase());
+
+  const cards: LuggageCardData[] = [];
+  for (const rk of index.roots) {
+    const root = index.byKey[rk];
+    if (!root) continue;
+
+    // 收集該母荷札下所有真子荷札（多層子孫皆收，以相對路徑呈現）
+    const children: LuggageChildItem[] = [];
+    for (const k of Object.keys(index.byKey)) {
+      if (k === rk || !isUnder(k, rk)) continue;
+      const n = index.byKey[k];
+      if (!n.real) continue;
+      children.push({ key: n.key, name: n.name, rel: relName(n.name, rk), total: n.total });
+    }
+    children.sort((a, b) => b.total - a.total || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+
+    // 搜尋比對：母荷札或任一子荷札（含路徑）命中即保留
+    if (q) {
+      const hitRoot = root.key.includes(q);
+      const hitChild = children.some((c) => c.key.includes(q));
+      if (!hitRoot && !hitChild) continue;
+    }
+
+    // 跨模組掛載計數（只算 counted !== false）
+    const bucket = { note: 0, diary: 0, node: 0, timetable: 0, ticket: 0, wish: 0, other: 0 };
+    for (const e of index.ents) {
+      if (e.counted === false) continue;
+      if (!e.keys.some((k) => isUnder(k, rk))) continue;
+      if (e.type === "note") {
+        if (e.kind === "diary") bucket.diary++;
+        else bucket.note++;
+      } else if (e.type === "node") {
+        bucket.node++;
+      } else if (e.type.startsWith("timetable:")) {
+        bucket.timetable++;
+      } else if (e.type === "ticket:wish") {
+        bucket.wish++;
+      } else if (e.type.startsWith("ticket:")) {
+        bucket.ticket++;
+      } else {
+        bucket.other++;
+      }
+    }
+
+    const modules: LuggageModuleCount[] = [];
+    if (bucket.note > 0) modules.push({ label: "筆記", count: bucket.note });
+    if (bucket.diary > 0) modules.push({ label: "日記", count: bucket.diary });
+    if (bucket.node > 0) modules.push({ label: "車票", count: bucket.node });
+    if (bucket.timetable > 0) modules.push({ label: "時刻", count: bucket.timetable });
+    if (bucket.ticket > 0) modules.push({ label: "帳目", count: bucket.ticket });
+    if (bucket.wish > 0) modules.push({ label: "願望", count: bucket.wish });
+    if (bucket.other > 0) modules.push({ label: "別處", count: bucket.other });
+
+    cards.push({ root, children, modules });
+  }
+
+  cards.sort((a, b) => b.root.total - a.root.total || (a.root.name < b.root.name ? -1 : a.root.name > b.root.name ? 1 : 0));
+  return cards;
+}
+
+/** YYYY-MM-DD → 精簡 M/D（例 '2026-10-08' → '10/8'） */
+export function fmtPreviewDate(ymd: string | null | undefined): string {
+  if (!ymd) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
+  if (!m) return "";
+  return `${Number(m[2])}/${Number(m[3])}`;
+}

@@ -52,7 +52,7 @@
  *   - 三條功能線的桌機全域浮層：`lineOverlays("desktop")` 依三線固定順序掛在桌機覆蓋層區的最後；
  *     只有通車且有填的線才掛——三線都沒登記時是空陣列，零 DOM 節點。
  */
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useNodeStore } from "./store/nodeStore";
 import { useUiStore } from "./store/uiStore";
 import { useBackupStore, BACKUP_FAIL_BANNER_STREAK } from "./store/backupStore";
@@ -94,6 +94,56 @@ import "./ui/common/overlay.css";
 // UI 丙-2：`?mock=1&gallery=1` 主欄改畫共用元件樣本頁（DEV_FLAGS.gallery；lazy＝沒帶參數不載入）
 const Gallery = lazy(() => import("./ui/dev/Gallery"));
 
+/** 桌機窄視窗（768px–1180px，半螢幕分屏工作區）媒體查詢 */
+const NARROW_DESKTOP_MQ = "(min-width: 768px) and (max-width: 1180px)";
+
+function readNarrowDesktop(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  try {
+    return window.matchMedia(NARROW_DESKTOP_MQ).matches;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 偵測桌機窄視窗（768px–1180px）：同步掛上 `<html data-narrow="1">` 供 Portal 浮層與全域 CSS 精準控制，
+ * 離開區間（寬視窗 >1180px 或手機殼 <768px）自動卸除。
+ */
+function useNarrowDesktop(mobile: boolean): boolean {
+  const [matched, setMatched] = useState<boolean>(readNarrowDesktop);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mql = window.matchMedia(NARROW_DESKTOP_MQ);
+    const sync = () => setMatched(mql.matches);
+    sync();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", sync);
+      return () => mql.removeEventListener("change", sync);
+    }
+    mql.addListener(sync);
+    return () => mql.removeListener(sync);
+  }, []);
+
+  const narrow = !mobile && matched;
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (narrow) root.setAttribute("data-narrow", "1");
+    else root.removeAttribute("data-narrow");
+    return () => {
+      root.removeAttribute("data-narrow");
+    };
+  }, [narrow]);
+
+  return narrow;
+}
+
+const HIGHER_OVERLAY_SEL =
+  '[role="dialog"], [role="alertdialog"], [role="menu"], .ns-dialog, .ns-popmenu, .ns-datepick, .ns-timepick, .ns-select-pop';
+
 export default function App() {
   const loadSidebar = useNodeStore((s) => s.loadSidebar);
   const openRoute = useNodeStore((s) => s.openRoute);
@@ -103,13 +153,111 @@ export default function App() {
   const error = useNodeStore((s) => s.error);
   const loadSettings = useUiStore((s) => s.loadSettings);
   const page = useUiStore((s) => s.page);
+  const routeOverview = useUiStore((s) => s.routeOverview);
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const today = page === "today";
   const View = PAGE_VIEWS[page] ?? Outline;
   // v1.1.0 手機殼：判準是「視窗寬度 <768」不是平台（useShell.ts 檔頭有理由）。
-  // 桌機視窗 minWidth 960（tauri.conf.json）永遠落不進 <768 → 桌機走的仍是原本那一支分支，行為零改變。
   const shell = useShell();
   const mobile = shell === "mobile";
+  // v1.37 2B：桌機窄視窗（768px–1180px）書封與右側詳情側板轉覆蓋式浮層抽屜
+  const narrow = useNarrowDesktop(mobile);
+
+  // 記住使用者在寬視窗（>1180px）的書封收合偏好；進出窄視窗自動收合／還原，且窄視窗抽屜開闔不覆蓋寬視窗持久化偏好
+  const wideSidebarPrefRef = useRef<boolean>(useUiStore.getState().sidebarCollapsed);
+  const prevNarrowRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    if (mobile) return;
+    const prev = prevNarrowRef.current;
+    if (narrow) {
+      if (prev !== true) {
+        if (prev === false) {
+          wideSidebarPrefRef.current = sidebarCollapsed;
+        }
+        prevNarrowRef.current = true;
+        if (!useUiStore.getState().sidebarCollapsed) {
+          useUiStore.setState({ sidebarCollapsed: true });
+        }
+      }
+      useUiStore.getState().writeLastNav?.({ sidebarCollapsed: wideSidebarPrefRef.current });
+    } else if (prev === true) {
+      prevNarrowRef.current = false;
+      useUiStore.getState().setSidebarCollapsed(wideSidebarPrefRef.current);
+    } else {
+      prevNarrowRef.current = false;
+      wideSidebarPrefRef.current = sidebarCollapsed;
+    }
+  }, [mobile, narrow, sidebarCollapsed]);
+
+  const closeSidebarDrawer = useCallback(() => {
+    useUiStore.setState({ sidebarCollapsed: true });
+  }, []);
+
+  const sidebarDrawerOpen = narrow && !sidebarCollapsed;
+
+  // 窄視窗抽屜模式：按 Esc 收起開啟中的左側書封抽屜（讓開更高層對話框與選單）
+  useEffect(() => {
+    if (!sidebarDrawerOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
+      if (document.querySelector(HIGHER_OVERLAY_SEL)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeSidebarDrawer();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sidebarDrawerOpen, closeSidebarDrawer]);
+
+  // 窄視窗抽屜模式：透過快捷鍵或歷史前後切換頁面／路線時自動收起書封抽屜
+  const prevNavSigRef = useRef(`${page}|${routeId ?? ""}|${routeOverview ? "1" : "0"}`);
+  useEffect(() => {
+    const sig = `${page}|${routeId ?? ""}|${routeOverview ? "1" : "0"}`;
+    const changed = sig !== prevNavSigRef.current;
+    prevNavSigRef.current = sig;
+    if (changed && sidebarDrawerOpen) {
+      closeSidebarDrawer();
+    }
+  }, [page, routeId, routeOverview, sidebarDrawerOpen, closeSidebarDrawer]);
+
+  // 窄視窗抽屜模式：偵測 <main> 內各功能線掛載的 SidePanelFrame（如售票口大票），提供統一柔和暗幕與 Esc 收起（不耦合線內 store）
+  const mainRef = useRef<HTMLElement>(null);
+  const [innerPanelEl, setInnerPanelEl] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!narrow) {
+      setInnerPanelEl(null);
+      return;
+    }
+    const el = mainRef.current;
+    if (!el) return;
+    const scan = () => {
+      const found = el.querySelector<HTMLElement>("aside.panel:not([hidden])");
+      setInnerPanelEl((cur) => (cur === found ? cur : found));
+    };
+    scan();
+    const mo = new MutationObserver(scan);
+    mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "class"] });
+    return () => mo.disconnect();
+  }, [narrow, page]);
+
+  const closeInnerPanel = useCallback(() => {
+    innerPanelEl?.querySelector<HTMLButtonElement>(".panel-close")?.click();
+  }, [innerPanelEl]);
+
+  useEffect(() => {
+    if (!narrow || !innerPanelEl) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
+      if (sidebarDrawerOpen) return;
+      if (document.querySelector(HIGHER_OVERLAY_SEL)) return;
+      e.preventDefault();
+      closeInnerPanel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [narrow, innerPanelEl, sidebarDrawerOpen, closeInnerPanel]);
 
   // 桌機才掛全域快捷鍵（評審 S4）：手機殼沒有 QuickJump／SettingsPanel／HotkeyGuide 這三顆元件，
   // 但外接／藍牙鍵盤按 Ctrl+P 或 `?` 仍會把 uiStore 的 quickJumpOpen／hotkeyGuideOpen 設成 true
@@ -165,8 +313,10 @@ export default function App() {
     // 桌機得到 data-shell="desktop"，沒有任何 CSS 選它 → 桌機視覺零改變。
     <div
       data-shell={shell}
-      data-sidebar-collapsed={!mobile && sidebarCollapsed ? "1" : undefined}
-      className="flex h-screen bg-paper text-ink overflow-hidden"
+      data-narrow={narrow ? "1" : undefined}
+      data-sidebar-collapsed={!mobile && (sidebarCollapsed || narrow) ? "1" : undefined}
+      data-sidebar-drawer={sidebarDrawerOpen ? "open" : undefined}
+      className="ns-app flex h-screen bg-paper text-ink overflow-hidden"
     >
       {/* 手機一律 reduced：省電，且銀河帶寬 1180px 的橫溢由根 div 的 overflow hidden 擋掉 */}
       <SkyLayer density={!mobile && today ? "full" : "reduced"} twinkle={!mobile} />
@@ -174,11 +324,18 @@ export default function App() {
         <MobileShell />
       ) : (
         <>
-          <Sidebar />
+          {sidebarDrawerOpen && (
+            <div
+              className="ns-narrow-backdrop is-sidebar"
+              aria-hidden="true"
+              onMouseDown={closeSidebarDrawer}
+            />
+          )}
+          <Sidebar onNavigate={narrow ? closeSidebarDrawer : undefined} />
           <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
             <TitleBar />
             <div className="relative flex min-h-0 flex-1 overflow-hidden">
-              <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+              <main ref={mainRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                 {error && <div className="px-8 pt-3 text-sm text-late">⚠ {error}</div>}
                 <BackupBanner />
                 <SyncBanner shell="desktop" />
@@ -188,7 +345,14 @@ export default function App() {
                     搬到根層會改到桌機位置（鐵則 1 不允許）。手機 v1.1.0 不開完成卡（契約 §2.7）。 */}
                 <CompleteCard />
               </main>
-              <DetailPanel />
+              {narrow && innerPanelEl && (
+                <div
+                  className="ns-narrow-backdrop is-panel"
+                  aria-hidden="true"
+                  onMouseDown={closeInnerPanel}
+                />
+              )}
+              <DetailPanel narrow={narrow} />
             </div>
           </div>
           <QuickJump />

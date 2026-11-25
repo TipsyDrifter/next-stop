@@ -4,7 +4,7 @@
  */
 import type { NodeRow } from "../../../domain/node.ts";
 import { parseRule } from "../../../domain/repeat.ts";
-import { isRangeTicket } from "../../../domain/dateRange.ts";
+import { hasDateSpan } from "../../../domain/dateRange.ts";
 import type { SeatingSlotRef } from "../../../domain/scheduledTime.ts";
 import { lengthText } from "../quickadd/quickAddModel.ts";
 
@@ -15,7 +15,7 @@ export function canActAsSeatSlot(
 ): boolean {
   if (settled || node.status === "paused") return false;
   if (parseRule(node.repeat_rule) !== null) return true;
-  return Boolean(node.is_placeholder) && !isRangeTicket(node);
+  return Boolean(node.is_placeholder) && !hasDateSpan(node);
 }
 
 /** 某節點是否可被選來入座頂替預留空位（排除定期券、預留席自身、已結案、已入座其他空位者） */

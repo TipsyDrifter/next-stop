@@ -7,7 +7,7 @@
  *   3. Mode B 待辦入座候選篩選與優先排序（`canSeatIntoSlot`、`isEligibleSeatCandidate`、`sortSeatCandidates`）。
  */
 import type { NodeRow } from "../../../domain/node";
-import { formatDateRangeBadge, isRangeCoveringDay, isRangeTicket } from "../../../domain/dateRange.ts";
+import { formatDateRangeBadge, hasDateSpan, isRangeCoveringDay } from "../../../domain/dateRange.ts";
 import { hasRepeatRule } from "../../../domain/scheduledTime.ts";
 import type { PlanItem } from "../../../domain/timetableSchedule.ts";
 
@@ -91,7 +91,7 @@ export function sortSeatCandidates<
     : [...candidates];
 
   const dayRank = (c: T): number => {
-    if (c.scheduled_on === opts.targetDate && !isRangeTicket(c)) return 0;
+    if (c.scheduled_on === opts.targetDate && !hasDateSpan(c)) return 0;
     if (isRangeCoveringDay(c, opts.targetDate)) return 1;
     if (c.scheduled_on === null) return 2;
     return 3;
@@ -179,8 +179,8 @@ export function planItemDisplay(
     };
   }
 
-  // 4. 4B：期間自由券（在待排區／未定時帶標註區間）
-  if (node && isRangeTicket(node) && node.scheduled_on && node.scheduled_end) {
+  // 4. 4B / 2A：跨日票（期間自由券或多日乘車日，在待排區／未定時帶標註區間）
+  if (node && hasDateSpan(node) && node.scheduled_on && node.scheduled_end) {
     const rangeBadge = formatDateRangeBadge(node.scheduled_on, node.scheduled_end);
     const title = rawName || "？";
     return {

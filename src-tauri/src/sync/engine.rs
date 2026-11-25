@@ -8129,7 +8129,8 @@ mod tests {
                 "progress",
                 "time_spent_min",
                 "today_position",
-                "is_placeholder"
+                "is_placeholder",
+                "is_multi_day"
             ]
         );
     }

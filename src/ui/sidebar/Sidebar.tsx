@@ -42,7 +42,7 @@
  *   - 路線名從 <button> 改成 role=button 的 div：共用拖曳元件不從按鈕上起拖（列裡的按鈕要能照常點），整列就是拖的把手。
  *   - 書封是深底，落點色改燙金（sidebar.css `.cover { --dr-accent }`）。
  */
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import { compareSiblings } from "../../domain/nodeOrder";
 import { useNodeStore } from "../../store/nodeStore";
@@ -223,7 +223,12 @@ function shift(id: string, parentId: string | null, sibs: readonly string[], del
 const LINE_OV = { zh: "這條幹線", latin: "Line" };
 const ROUTE_OV = { zh: "這條路線", latin: "Route" };
 
-export function Sidebar() {
+export interface SidebarProps {
+  /** 窄視窗抽屜模式：切換頁面／路線／頁務件後自動收起側欄抽屜 */
+  onNavigate?: () => void;
+}
+
+export function Sidebar({ onNavigate }: SidebarProps = {}) {
   useHotkeyRevision();
   // 車庫與回顧 D-主-206 #1：書封只列還在跑的幹線與路線；收進車庫的在清單最底「車庫 N 條」進去看
   const lines = useNodeStore((s) => s.liveLines);
@@ -282,6 +287,7 @@ export function Sidebar() {
     void openRoute(id);
     setZoom(null);
     select(null);
+    onNavigate?.();
   };
 
   /** 路線「詳情…」（原本的 ✎）：切到該路線並打開側板——DetailPanel 在沒有選中節點時畫目前路線的 RoutePanel */
@@ -369,8 +375,29 @@ export function Sidebar() {
     }
   };
 
+  // 窄視窗抽屜模式：點擊頁務件（旅客筆記子畫面／路線篩選／12 週方格／荷札、售票口帳戶、時刻表分類、常用篩選、記一句）時自動收起側欄
+  const onCoverClick = (e: MouseEvent<HTMLElement>) => {
+    if (!onNavigate) return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest(".line-more, .trunk-toggle, .cr, input, textarea, select, [role='menu']")) return;
+    if (
+      t.closest(
+        ".ns-notes-auxitem, .ns-notes-auxroute, .ns-notes-wk, .ns-notes-treenm, .ns-notes-capbtn, .ns-cover-saved .line-item, .ns-tk-acct, .ns-tk-all, .page-aux .line-item",
+      )
+    ) {
+      onNavigate();
+    }
+  };
+
   return (
-    <aside className={`cover${sidebarCollapsed ? " is-collapsed" : ""}`} aria-label="路線清單側欄" aria-hidden={sidebarCollapsed || undefined}>
+    <aside
+      className={`cover${sidebarCollapsed ? " is-collapsed" : ""}`}
+      aria-label="路線清單側欄"
+      aria-hidden={sidebarCollapsed || undefined}
+      inert={sidebarCollapsed ? true : undefined}
+      onClick={onCoverClick}
+    >
       <CoverTopBar />
       <div className="brand">
         <h1>私鐵手帳</h1>
@@ -383,7 +410,10 @@ export function Sidebar() {
         className={`ns-cover-frontispiece${page === "ideal" ? " is-active" : ""}`}
         aria-current={page === "ideal" ? "page" : undefined}
         title={`車窓・理想手札（${capsOf("global.ideal")}）`}
-        onClick={() => setPage("ideal")}
+        onClick={() => {
+          setPage("ideal");
+          onNavigate?.();
+        }}
       >
         <span className="ns-cover-frontispiece-star" aria-hidden="true">✦</span>
         <span className="ns-cover-frontispiece-label">車窓・理想手札</span>
@@ -404,7 +434,11 @@ export function Sidebar() {
                 aria-current={page === p.id ? "page" : undefined}
                 title={`${p.label}（${capsOf(p.navHotkeyId)}）${hint ? `・${hint}` : ""}`}
                 // 丁 D-主-239：「路線圖」＝路線一覽（最上層）；書封點路線才直進大綱
-                onClick={() => (p.id === "routemap" ? useUiStore.getState().openRouteMap() : setPage(p.id))}
+                onClick={() => {
+                  if (p.id === "routemap") useUiStore.getState().openRouteMap();
+                  else setPage(p.id);
+                  onNavigate?.();
+                }}
               >
                 {GNAV_ICONS[p.id](17)}
                 {p.label}
@@ -445,7 +479,10 @@ export function Sidebar() {
                 className={`gnav-line${page === p.id ? " active" : ""}`}
                 aria-current={page === p.id ? "page" : undefined}
                 title={base}
-                onClick={() => setPage(p.id)}
+                onClick={() => {
+                  setPage(p.id);
+                  onNavigate?.();
+                }}
                 onMouseEnter={showHint}
                 onFocus={showHint}
               >
@@ -470,7 +507,10 @@ export function Sidebar() {
                   className={`gnav-item${page === p.id ? " active" : ""}`}
                   aria-current={page === p.id ? "page" : undefined}
                   title={`${p.label}（${capsOf(p.navHotkeyId)}）`}
-                  onClick={() => setPage(p.id)}
+                  onClick={() => {
+                    setPage(p.id);
+                    onNavigate?.();
+                  }}
                 >
                   {GNAV_ICONS[p.id](17)}
                   {p.label}
@@ -501,7 +541,10 @@ export function Sidebar() {
             type="button"
             className={`gnav-search${page === "search" ? " active" : ""}`}
             aria-current={page === "search" ? "page" : undefined}
-            onClick={() => setQuickJumpOpen(true)}
+            onClick={() => {
+              setQuickJumpOpen(true);
+              onNavigate?.();
+            }}
             title={`搜尋・跳轉（${capsOf("global.quickjump")}）`}
           >
             <IconSearch />
@@ -610,7 +653,15 @@ export function Sidebar() {
             })}
             {/* 車庫與回顧 D-主-208：收進車庫的路線從這裡進（沒有就不畫） */}
             {depotCount > 0 && (
-              <button type="button" className="line-depot" onClick={() => setPage("depot")} title="到站的路線收在車庫">
+              <button
+                type="button"
+                className="line-depot"
+                onClick={() => {
+                  setPage("depot");
+                  onNavigate?.();
+                }}
+                title="到站的路線收在車庫"
+              >
                 {GNAV_ICONS.depot(13)}
                 <span className="ld-t">車庫</span>
                 <span className="ld-n">{depotCount} 條 ›</span>
@@ -633,7 +684,15 @@ export function Sidebar() {
         {/* 書封底兩顆文字鈕並排（規範 §2.0）：設定（全域設定）＋「? 說明」（快捷鍵指引；鍵盤也可按 ?／Ctrl+/）。
             「? 說明」用 mousedown 不搶焦點：滑鼠點開指引時焦點留在原處，關掉指引後鍵盤流不斷（同搬家前） */}
         <div className="foot-btns">
-          <button type="button" className="foot-set" onClick={() => setSettingsOpen(true)} title={`設定（${capsOf("global.settings")}）`}>
+          <button
+            type="button"
+            className="foot-set"
+            onClick={() => {
+              setSettingsOpen(true);
+              onNavigate?.();
+            }}
+            title={`設定（${capsOf("global.settings")}）`}
+          >
             <IconGear />
             設定
           </button>
@@ -642,7 +701,10 @@ export function Sidebar() {
             className="foot-set foot-guide"
             title={`快捷鍵（${capsOf("global.guide")}）`}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={toggleHotkeyGuide}
+            onClick={() => {
+              toggleHotkeyGuide();
+              onNavigate?.();
+            }}
           >
             <span aria-hidden className="q">?</span>
             說明

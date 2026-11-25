@@ -384,7 +384,11 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
       const host = containerRef.current;
       if (!host) return null;
       const sel = `[data-day="${CSS.escape(day)}"]`;
-      return host.querySelector<HTMLElement>(`${sel} .ns-daycell-hit`) ?? host.querySelector<HTMLElement>(sel);
+      return (
+        host.querySelector<HTMLElement>(`${sel} .ns-daycell-hit`) ??
+        host.querySelector<HTMLElement>(`${sel} .wk-day-datebtn`) ??
+        host.querySelector<HTMLElement>(sel)
+      );
     },
     [containerRef],
   );

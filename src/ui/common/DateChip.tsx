@@ -27,10 +27,12 @@
  * - 快選 chip 是 `aria-pressed` 的按鈕、在 `role="group"` 裡；× 有 `aria-label`＋`title`。
  */
 import { useCallback, useId, useRef, useState } from "react";
-import { addDays, todayKey } from "../../lib/date";
+import { formatDateRangeBadge } from "../../domain/dateRange";
+import { todayKey } from "../../lib/date";
 import { useUiStore } from "../../store/uiStore";
 import { useBackLayer } from "../mobile/backStack";
 import { useShell } from "../mobile/useShell";
+import { backwardQuickSet, dueQuickSet, scheduledQuickSet } from "./datePickRules";
 import { DatePicker, type DateQuick } from "./DatePicker";
 import { IconCalendar, IconClose, IconFlag } from "./icons";
 import { MobileDatePicker } from "./MobileDatePicker";
@@ -44,49 +46,49 @@ export function dateChipText(key: string): string {
   return `${m}/${d}（${WEEK_ZH[new Date(y, m - 1, d).getDay()]}）`;
 }
 
-/** 區間 chip 顯示字（有訖日且 > 起日顯示「10/8（四）–10/10（六）」，否則同 dateChipText） */
-export function dateChipRangeText(start: string, end?: string | null): string {
+/**
+ * 區間 chip 顯示字（v1.37 2A-2 雙軌）：
+ * - 無訖日或起訖同日 → `"10/2（五）"`
+ * - 多日乘車日（`isMultiDay === true`）或誤點原定（`bare === true`）→ `"10/2–10/4"`
+ * - 期間自由券（`isMultiDay === false`）→ `"期間 10/2–10/4"`
+ */
+export function dateChipRangeText(
+  start: string,
+  end?: string | null,
+  isMultiDay = false,
+  bare = false,
+): string {
   if (!end || end <= start) return dateChipText(start);
-  return `${dateChipText(start)}–${dateChipText(end)}`;
+  const badge = formatDateRangeBadge(start, end);
+  return isMultiDay || bare ? badge : `期間 ${badge}`;
 }
 
-/** 嚴格晚於 today 的最近週一（今天就是週一 ⇒ 七天後；同 schedule/streamModel nextMonday） */
-function nextMondayOf(today: string): string {
-  const [y, m, d] = today.split("-").map(Number);
-  const dow = new Date(y, m - 1, d).getDay();
-  return addDays(today, (8 - dow) % 7 || 7);
-}
-
-/** 快選兩套（§2.5）：往後＝今天／明天／後天／下週一；往前＝今天／昨天／前天 */
-export function dateQuickSet(kind: "forward" | "backward", today: string): DateQuick[] {
-  if (kind === "backward") {
-    return [
-      { label: "今天", day: today },
-      { label: "昨天", day: addDays(today, -1) },
-      { label: "前天", day: addDays(today, -2) },
-    ];
-  }
-  return [
-    { label: "今天", day: today },
-    { label: "明天", day: addDays(today, 1) },
-    { label: "後天", day: addDays(today, 2) },
-    { label: "下週一", day: nextMondayOf(today) },
-  ];
+/** 快選兩套（v1.37 2A-1 統一收斂至 datePickRules）：往後＝今天／明天／後天／本週末／下週一；往前＝今天／昨天／前天 */
+export function dateQuickSet(kind: "forward" | "backward", today: string, weekStart: 0 | 1 = 1): DateQuick[] {
+  return kind === "backward" ? backwardQuickSet(today) : scheduledQuickSet(today, weekStart);
 }
 
 export interface DateChipProps {
   /** YYYY-MM-DD；null＝無日期 */
   date: string | null;
-  /** 期間自由券訖日（有值且 > date 時顯示區間；僅 allowRange 時使用） */
+  /** 跨日訖日（有值且 > date 時顯示區間；僅 allowRange 時使用） */
   endDate?: string | null;
+  /** 是否為多日乘車日（僅 allowRange 時使用：true＝顯示 10/2–10/4，false＝顯示 期間 10/2–10/4） */
+  isMultiDay?: boolean;
   /** 挑了一天（或清除＝null） */
   onPick(date: string | null): void;
-  /** 區間選取回呼（start=null 表示清除） */
-  onPickRange?(start: string | null, end: string | null): void;
-  /** 是否允許挑選期間區間（單日｜區間 ＋ 週末／本週／下週／本月） */
+  /** 區間選取回呼（start=null 表示清除；isMultiDay=true 表多日乘車日、false 表期間自由券） */
+  onPickRange?(start: string | null, end: string | null, isMultiDay?: boolean): void;
+  /** 是否允許挑選乘車日（含多日）與期間自由券雙軌 */
   allowRange?: boolean;
-  /** 快選列：往後／往前；省略＝沒有快選列 */
+  /** 行內外顯快選列：往後／往前；省略＝不在 chip 外再畫一排 */
   quick?: "forward" | "backward";
+  /** 面板內部快選預設（scheduled＝乘車日 5 顆；due＝締切日含＝同乘車日；省略時 allowRange 預設走 scheduled） */
+  preset?: "scheduled" | "due";
+  /** 締切日用：所屬票的乘車日（有值時在締切日面板首位顯示「＝同乘車日」） */
+  syncScheduledOn?: string | null;
+  /** 自訂面板內快選（覆蓋 preset） */
+  pickerQuick?: readonly DateQuick[];
   /** late＝過期赭字；backfill＝旗子圖示＋「補記」 */
   flag?: "late" | "backfill";
   /** 可以挑今天以前（E20 手機補記）；省略＝backward 可以、其餘不行 */
@@ -110,10 +112,14 @@ export interface DateChipProps {
 export function DateChip({
   date,
   endDate,
+  isMultiDay = false,
   onPick,
   onPickRange,
   allowRange = false,
   quick,
+  preset,
+  syncScheduledOn,
+  pickerQuick,
   flag,
   allowPast,
   label = "日期",
@@ -126,6 +132,7 @@ export function DateChip({
   className,
 }: DateChipProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
   const today = todayProp ?? todayKey(dayStartHour);
   const mobile = useShell() === "mobile";
   const chipRef = useRef<HTMLButtonElement>(null);
@@ -148,26 +155,43 @@ export function DateChip({
     if (mobile) closeSheet();
     else setOpen(false);
     if (allowRange && onPickRange) {
-      if (d !== date || (endDate ?? null) !== null) onPickRange(d, null);
+      if (d !== date || (endDate ?? null) !== null || isMultiDay) onPickRange(d, null, false);
       return;
     }
     if (d !== date) onPick(d);
   };
 
-  const pickRange = (start: string, end: string | null): void => {
+  const pickRange = (start: string, end: string | null, nextMulti = false): void => {
     const normEnd = end && end > start ? end : null;
+    const effMulti = normEnd ? Boolean(nextMulti) : false;
     if (mobile) closeSheet();
     else setOpen(false);
     if (onPickRange) {
-      if (start !== date || normEnd !== (endDate ?? null)) onPickRange(start, normEnd);
+      if (start !== date || normEnd !== (endDate ?? null) || effMulti !== Boolean(isMultiDay)) {
+        onPickRange(start, normEnd, effMulti);
+      }
     } else if (start !== date) {
       onPick(start);
     }
   };
 
-  const text = date ? (allowRange ? dateChipRangeText(date, endDate) : dateChipText(date)) : emptyText;
+  const text = date
+    ? allowRange
+      ? dateChipRangeText(date, endDate, isMultiDay, flag === "late")
+      : dateChipText(date)
+    : emptyText;
   const backfill = flag === "backfill";
-  const quicks = quick ? dateQuickSet(quick, today) : [];
+  const quicks = quick ? dateQuickSet(quick, today, weekStart) : [];
+  const rawPopQuick: readonly DateQuick[] =
+    pickerQuick ??
+    (preset === "due"
+      ? dueQuickSet(today, { scheduledOn: syncScheduledOn, weekStart })
+      : preset === "scheduled" || allowRange
+        ? scheduledQuickSet(today, weekStart)
+        : quick
+          ? dateQuickSet(quick, today, weekStart)
+          : []);
+  const popQuicks = rawPopQuick.filter((q) => q.day === "" || inRange(q.day));
   const hasRangeVal = Boolean(allowRange && date && endDate && endDate > date);
 
   return (
@@ -226,10 +250,11 @@ export function DateChip({
             title={label}
             value={date}
             endValue={allowRange ? endDate : null}
+            isMultiDay={allowRange ? isMultiDay : false}
             allowRange={allowRange}
             min={lo}
             max={max}
-            quick={[]}
+            quick={popQuicks}
             today={today}
             onPick={(d) => pick(d)}
             onPickRange={allowRange ? pickRange : undefined}
@@ -244,7 +269,9 @@ export function DateChip({
             label={label}
             value={date}
             endValue={allowRange ? endDate : null}
+            isMultiDay={allowRange ? isMultiDay : false}
             allowRange={allowRange}
+            quick={popQuicks}
             markValue
             min={lo}
             max={max}

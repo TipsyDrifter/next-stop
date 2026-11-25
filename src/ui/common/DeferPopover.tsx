@@ -39,15 +39,16 @@
  *   原路徑 today/DeferPopover.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { describeRule, parseRule, type NodeRow } from "../../domain";
-import { formatDateRangeBadge, isRangeTicket } from "../../domain/dateRange";
+import { describeRule, parseRule, type NodeRow, type RepeatRule } from "../../domain";
+import { formatDateRangeBadge, isMultiDayTicket } from "../../domain/dateRange";
 import type { CurrentOccurrence } from "../../data";
 import { scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
 import { useSelectionStore } from "../../store/selectionStore";
 import { useUiStore } from "../../store/uiStore";
-import { addDays, todayKey } from "../../lib/date";
+import { todayKey } from "../../lib/date";
 import { isGuideKey } from "../shell/hotkeys";
-import { DatePicker, dateRangeQuickSet } from "./DatePicker";
+import { scheduledQuickSet } from "./datePickRules";
+import { DatePicker } from "./DatePicker";
 import { INBOX_TOAST, showRescheduleToast } from "../today/useTodayController";
 import { SETTLED_DEFER_MSG } from "../mobile/useMobileToday";
 import { moveRunFlow } from "../outline/nodeFlows";
@@ -88,28 +89,16 @@ function dateOf(key: string): Date {
 
 const WEEK_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 
-/**
- * 過去用原生 date input 時，鍵盤逐字輸入會邊打邊發 change（年份只打了「0002」也算一個合法值），
- * 這裡擋掉明顯打到一半的值（小卡送出即關窗，沒有去抖的餘地）。磨光⑤ S8 起挑選器是自畫月格、
- * 不會再送出半成品，這道檢查只留作保險（擋年份離譜的值）。
- */
 function isSaneDateKey(v: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
   const y = Number(v.slice(0, 4));
   return y >= 1900 && y <= 2999;
 }
 
-/** 「M/D（週X）」——小卡右側的淡字：告訴主人那一項到底是哪一天 */
+/** 「M/D 週X」——改期收據與定期券本班小卡右側的日期字 */
 function whenLabel(key: string): string {
   const d = dateOf(key);
   return `${d.getMonth() + 1}/${d.getDate()} 週${WEEK_ZH[d.getDay()]}`;
-}
-
-/** 下一個「下週一」＝嚴格晚於 dateKey 的最近星期一（今天就是週一 → 跳到七天後那個週一） */
-function nextMonday(key: string): string {
-  const day = dateOf(key).getDay(); // 0=日
-  const delta = (8 - day) % 7 || 7;
-  return addDays(key, delta);
 }
 
 export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
@@ -119,27 +108,132 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
   const weekStart = useUiStore((s) => s.weekStart);
   const dateKey = storedKey ?? todayKey(dayStartHour);
 
-  // 操作 3（互斥）：開啟單張推遲小卡時自動退出多選
+  // 操作 3（互斥）：開啟單張推遲面板時自動退出多選
   useEffect(() => {
     if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
   }, []);
 
+  const rule = parseRule(row.repeat_rule);
+  if (rule) {
+    return <TeikiDeferCard row={row} rule={rule} dateKey={dateKey} weekStart={weekStart} anchor={anchor} onClose={onClose} />;
+  }
+
+  const ns = () => useNodeStore.getState();
+  const ui = () => useUiStore.getState();
+  const showToday = row.scheduled_on !== null && row.scheduled_on !== dateKey;
+
+  const applyDate = (next: string) => {
+    const prev = scheduleSnapshot(row);
+    const prevEnd = row.scheduled_end ?? null;
+    const prevMulti = row.is_multi_day ?? null;
+    void ns().reschedule(nodeId, next, { scheduledEnd: null, isMultiDay: false });
+    onClose();
+    if (next !== dateKey || showToday || prevEnd !== null) {
+      if (prevEnd !== null) {
+        ui().showToast({
+          message: next === dateKey ? "已排到今天" : `已移至 ${whenLabel(next)}`,
+          actionLabel: "復原",
+          onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd, is_multi_day: prevMulti }),
+        });
+      } else {
+        showRescheduleToast(nodeId, prev, next);
+      }
+    }
+  };
+
+  const applyRange = (start: string, end: string | null, isMultiDay = false) => {
+    if (!end || end <= start) {
+      applyDate(start);
+      return;
+    }
+    const prev = scheduleSnapshot(row);
+    const prevEnd = row.scheduled_end ?? null;
+    const prevMulti = row.is_multi_day ?? null;
+    void ns().reschedule(nodeId, start, { scheduledEnd: end, isMultiDay });
+    onClose();
+    ui().showToast({
+      message: isMultiDay
+        ? `已排入多日 ${formatDateRangeBadge(start, end)}`
+        : `已排入期間 ${formatDateRangeBadge(start, end)}`,
+      actionLabel: "復原",
+      onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd, is_multi_day: prevMulti }),
+    });
+  };
+
+  const clearDate = () => {
+    const prev = scheduleSnapshot(row);
+    const prevEnd = row.scheduled_end ?? null;
+    const prevMulti = row.is_multi_day ?? null;
+    void ns().reschedule(nodeId, null);
+    onClose();
+    ui().showToast({
+      message: INBOX_TOAST,
+      actionLabel: "復原",
+      onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd, is_multi_day: prevMulti }),
+    });
+  };
+
+  // v1.37 2A-1：一般車票／列車淘汰舊版純文字推遲清單，直接渲染統一的 DatePicker（快選膠囊＋乘車日｜期間自由券＋直攤月曆＋清除）
+  return (
+    <DatePicker
+      anchor={anchor}
+      centered={!anchor}
+      className="ns-qa-pop"
+      label="乘車日"
+      value={row.scheduled_on}
+      endValue={row.scheduled_end}
+      isMultiDay={isMultiDayTicket(row)}
+      allowRange
+      markValue
+      min={dateKey}
+      today={dateKey}
+      quick={scheduledQuickSet(dateKey, weekStart)}
+      onPick={(v) => {
+        if (!isSaneDateKey(v)) return;
+        applyDate(v);
+      }}
+      onPickRange={(s, e, multi) => {
+        if (!isSaneDateKey(s) || (e && !isSaneDateKey(e))) return;
+        applyRange(s, e, Boolean(multi));
+      }}
+      onClear={row.scheduled_on ? clearDate : undefined}
+      clearLabel="清除乘車日"
+      onClose={onClose}
+    />
+  );
+}
+
+/** 定期券本班調度小卡：本班運休／取消運休、這一班改到…、編輯重複週期… */
+function TeikiDeferCard({
+  row,
+  rule,
+  dateKey,
+  weekStart,
+  anchor,
+  onClose,
+}: {
+  row: DeferRow;
+  rule: RepeatRule;
+  dateKey: string;
+  weekStart: 0 | 1;
+  anchor: HTMLElement | null;
+  onClose(): void;
+}) {
+  const nodeId = row.id;
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [picking, setPicking] = useState(false);
-  /** 挑選器收起（Esc／點卡內別處）：焦點交回「選日期…」那一項，卡的鍵盤（↑↓／Esc）才接得上 */
+
   const closePicker = useCallback(() => {
     setPicking(false);
     const el = ref.current;
     if (el && el.contains(document.activeElement)) el.querySelector<HTMLElement>("button[aria-expanded]")?.focus();
   }, []);
 
-  /* ── 定位：量完 anchor 與自身尺寸再落座，clamp 進視窗（沒有 anchor＝鍵盤觸發 → 靠上置中） ── */
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const { offsetWidth: w, offsetHeight: h } = el;
-    // 視窗尺寸取 documentElement.clientWidth／Height（扣掉捲軸的可視區，比 innerWidth 準）
     const vw = document.documentElement.clientWidth || window.innerWidth;
     const vh = document.documentElement.clientHeight || window.innerHeight;
     const M = 12;
@@ -150,18 +244,10 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     const r = anchor.getBoundingClientRect();
     let top = r.bottom + 8;
     if (top + h > vh - M) top = Math.max(M, r.top - h - 8);
-    // 先右邊界後左邊界：視窗比小卡還窄時（極小視窗／面板收起時量到 innerWidth 0）也不會被推到負座標
     const left = Math.max(M, Math.min(r.left, vw - w - M));
     setPos({ top: Math.round(top), left: Math.round(left) });
   }, [anchor, picking]);
 
-  /**
-   * 開卡就把焦點放在第一項（鍵盤流不中斷）。
-   * ⚠ 一定要等 pos 落位之後才 focus——落位前小卡是 `visibility:hidden`（避免量測時閃一下左上角），
-   *   而 `.focus()` 對 visibility:hidden 的元素是 no-op（實測 Chrome 139：焦點會留在今日頁容器上）。
-   *   guard 用 ref 而不是 deps，才不會在「選日期…」重新量測（pos 變）時把焦點從日期框搶回來；
-   *   StrictMode 雙掛載時元件是真的重建，ref 也是新的，可重入。
-   */
   const focusedOnce = useRef(false);
   useEffect(() => {
     if (!pos || focusedOnce.current) return;
@@ -169,7 +255,6 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     ref.current?.querySelector<HTMLButtonElement>("button[data-defer-item]")?.focus();
   }, [pos]);
 
-  /* ── 點卡外＝關閉；點回原本那枚 chip 不處理，交給 chip 自己 toggle（openDefer 同 id 再叫＝收起） ── */
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node | null;
@@ -184,67 +269,33 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
 
   const ns = () => useNodeStore.getState();
   const ui = () => useUiStore.getState();
+  const suspended = row.occurrence?.status === "skipped";
+  const railDate = row.railDate ?? row.occurrence?.due_on ?? row.scheduled_on;
 
-  /**
-   * 改期：唯一入口 reschedule（繰越章與今日序清空的規則都在那一層），改完就收卡。
-   * 票離開今日的那一刻畫面上沒有別的回饋（繰越章要到目標日才看得到）→ 補一張可反悔的收據，
-   * 與「清除乘車日」／`Delete` 同款，三項改期不再靜默（should 3）。
-   */
-  const applyDate = (next: string) => {
-    const prev = scheduleSnapshot(row);
-    const prevEnd = row.scheduled_end ?? null;
-    void ns().reschedule(nodeId, next, { scheduledEnd: null });
+  const toggleSuspend = () => {
     onClose();
-    // 今天→今天（同一天且非期間券收斂）不出收據；誤點／未來的票或期間自由券收斂為單日時，補一張可反悔的收據
-    if (next !== dateKey || showToday || prevEnd !== null) {
-      if (prevEnd !== null) {
-        ui().showToast({
-          message: next === dateKey ? "已排到今天" : `已移至 ${whenLabel(next)}`,
-          actionLabel: "復原",
-          onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd }),
-        });
-      } else {
-        showRescheduleToast(nodeId, prev, next);
-      }
-    }
+    void ns()
+      .skipOccurrence(nodeId, !suspended, row.railDate ?? undefined)
+      .then((r) => {
+        if (!r.ok && r.reason) ui().showToast({ message: r.reason }, 3600);
+      });
   };
 
-  /** 期間區間改期（週末／本週／下週／本月或自訂區間） */
-  const applyRange = (start: string, end: string | null) => {
-    if (!end || end <= start) {
-      applyDate(start);
-      return;
-    }
-    const prev = scheduleSnapshot(row);
-    const prevEnd = row.scheduled_end ?? null;
-    void ns().reschedule(nodeId, start, { scheduledEnd: end });
+  const moveRun = (to: string) => {
     onClose();
-    ui().showToast({
-      message: `已排入期間 ${formatDateRangeBadge(start, end)}`,
-      actionLabel: "復原",
-      onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd }),
-    });
+    if (railDate) void moveRunFlow(nodeId, railDate, to);
   };
 
-  /** 清除乘車日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原乘車日（含訖日）放回去 */
-  const clearDate = () => {
-    const prev = scheduleSnapshot(row);
-    const prevEnd = row.scheduled_end ?? null;
-    void ns().reschedule(nodeId, null);
+  const moveWhy = !railDate ? "目前沒有班次" : suspended ? "運休中——先取消運休才能改日期" : row.occurrence ? SETTLED_DEFER_MSG : null;
+
+  const editRule = () => {
     onClose();
-    ui().showToast({
-      message: INBOX_TOAST,
-      actionLabel: "復原",
-      onAction: () => void ns().updateNode(nodeId, { ...prev, scheduled_end: prevEnd }),
-    });
+    ui().select(nodeId);
+    ui().setPanelOpen(true);
   };
 
-  /** ↑↓ 在項目之間移動；Esc 自己收（不冒泡）；Tab 在卡內循環 */
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    // M3 ⑦：小卡開著時 `?`／Ctrl+/ 都不叫快捷鍵指引（開關是本地 state，全域表看不到；不擋會再疊一張卡、Esc 互搶）。
-    // 日期欄裡打 `?` 仍是打字，只擋導航模式那一下；Ctrl+/ 連日期欄裡都擋（備援鍵的「輸入框」指視圖裡的行內
-    // 輸入框，不是小卡裡的）。React 的 stopPropagation 會一路擋到 window（mock 頁實測）。
     if (isGuideKey(e)) {
       e.preventDefault();
       e.stopPropagation();
@@ -268,8 +319,6 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
       const j = i < 0 ? (d > 0 ? 0 : items.length - 1) : (i + d + items.length) % items.length;
       items[j]?.focus();
     } else if (e.key === "Tab") {
-      // 卡內循環（別把焦點丟回底下那張已停用的清單）
-      // tabIndex ≥ 0 才算：共用挑選器的月格是 roving tabindex（磨光⑤ S8 起推遲也畫月格），其餘 41 格是 -1，不該被 Tab 一格格走過
       const focusables = Array.from(
         ref.current?.querySelectorAll<HTMLElement>("button, input") ?? [],
       ).filter((el) => !(el as HTMLButtonElement).disabled && el.tabIndex >= 0);
@@ -282,63 +331,11 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     }
   };
 
-  /**
-   * 改期兩項的基準日（主線車次① ☎4）：票的乘車日在未來（行程表串流／日曆浮層的未來列）時，
-   * 「明天」會把票往前拉——改成「往後推一天」＝乘車日＋1，「下週一」也以乘車日為基準（與手機 sheet 同一把尺）。
-   * 今日頁的列不會有未來乘車日 ⇒ 今日頁行為不變。
-   */
-  const future = row.scheduled_on !== null && row.scheduled_on > dateKey;
-  const base = future ? (row.scheduled_on as string) : dateKey;
-  const tomorrow = addDays(base, 1);
-  const monday = nextMonday(base);
-  /** 「今天」項：乘車日存在且 ≠ 今天（誤點＝過去；未來＝提前）。沒有乘車日的票走「選日期…」就好，不給 */
-  const showToday = row.scheduled_on !== null && row.scheduled_on !== dateKey;
-
-  /* ── 定期券版（見檔頭）：規則 parse 得出來就換一套內容 ── */
-  const rule = parseRule(row.repeat_rule);
-  const suspended = row.occurrence?.status === "skipped";
-  /**
-   * 這一班的日子＝班次日（定期券交代完後 scheduled_on 已指向下一班，不能拿來當「本班」）。
-   * 呼叫端明講的 `railDate` 最優先（日曆浮層＝那一列那一天）；今日頁沒給就照舊推。
-   */
-  const railDate = row.railDate ?? row.occurrence?.due_on ?? row.scheduled_on;
-
-  /**
-   * 本班運休／取消運休；失敗（例：退役的定期券、歷史班次）照 store 的原句吐 toast。
-   * 班次日只在呼叫端明講時才送——今日頁不送＝維持 store 的口徑（行為不變，見 `DeferRow.railDate`）。
-   */
-  const toggleSuspend = () => {
-    onClose();
-    void ns()
-      .skipOccurrence(nodeId, !suspended, row.railDate ?? undefined)
-      .then((r) => {
-        if (!r.ok && r.reason) ui().showToast({ message: r.reason }, 3600);
-      });
-  };
-
-  /** 這一班改到別天（⑥ D-主-295）：收據、復原與擋下的原因都在 moveRunFlow */
-  const moveRun = (to: string) => {
-    onClose();
-    if (railDate) void moveRunFlow(nodeId, railDate, to);
-  };
-  /** 這一班已交代或講不出是哪一班＝「這一班改到…」停用，title 說原因 */
-  const moveWhy = !railDate ? "目前沒有班次" : suspended ? "運休中——先取消運休才能改日期" : row.occurrence ? SETTLED_DEFER_MSG : null;
-
-  /** 編輯重複規則＝開詳情側板（與今日列的 `.`／票種小字同一個去處；編輯器本體是 WP3） */
-  const editRule = () => {
-    onClose();
-    ui().select(nodeId);
-    ui().setPanelOpen(true);
-  };
-
-  const rangeQuicks = dateRangeQuickSet(dateKey, weekStart);
-  const rangeActive = isRangeTicket(row);
-
   return (
     <div
       ref={ref}
       role="dialog"
-      aria-label={rule ? `定期券「${row.name}」` : `推遲「${row.name}」`}
+      aria-label={`定期券「${row.name}」`}
       onKeyDown={onKeyDown}
       onMouseDown={(e) => e.stopPropagation()}
       className={"ns-defer techo-card" + (picking ? " is-picking" : "")}
@@ -348,134 +345,49 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
         visibility: pos ? "visible" : "hidden",
       }}
     >
-      <p className="techo-overline ns-defer-head">{rule ? "定期券 — TEIKI" : "推遲 — DEFER"}</p>
+      <p className="techo-overline ns-defer-head">定期券 — TEIKI</p>
 
-      {rule ? (
-        <ul className="ns-defer-list">
-          <li>
-            <button type="button" data-defer-item className="ns-defer-item" onClick={toggleSuspend}>
-              <span>{suspended ? "取消運休" : "本班運休"}</span>
-              <span className="when">{railDate ? whenLabel(railDate) : "—"}</span>
-            </button>
-          </li>
-          <li>
-            <button
-              type="button"
-              data-defer-item
-              aria-expanded={picking}
-              disabled={moveWhy !== null}
-              title={moveWhy ?? undefined}
-              className="ns-defer-item"
-              onClick={() => setPicking(true)}
-            >
-              <span>這一班改到…</span>
-              <span className="when">{railDate ? whenLabel(railDate) : "—"}</span>
-            </button>
-          </li>
-          <li className="cut">
-            <button type="button" data-defer-item className="ns-defer-item" onClick={editRule}>
-              <span>編輯重複週期…</span>
-              <span className="when">{describeRule(rule)}</span>
-            </button>
-          </li>
-        </ul>
-      ) : (
       <ul className="ns-defer-list">
-        {(showToday || rangeActive) && (
-          <li>
-            <button type="button" data-defer-item className="ns-defer-item" onClick={() => applyDate(dateKey)}>
-              <span>{rangeActive ? "排今天（單日）" : "今天"}</span>
-              <span className="when">{whenLabel(dateKey)}</span>
-            </button>
-          </li>
-        )}
         <li>
-          <button type="button" data-defer-item className="ns-defer-item" onClick={() => applyDate(tomorrow)}>
-            <span>{future && !rangeActive ? "往後推一天" : "明天"}</span>
-            <span className="when">{whenLabel(tomorrow)}</span>
+          <button type="button" data-defer-item className="ns-defer-item" onClick={toggleSuspend}>
+            <span>{suspended ? "取消運休" : "本班運休"}</span>
+            <span className="when">{railDate ? whenLabel(railDate) : "—"}</span>
           </button>
-        </li>
-        <li>
-          <button type="button" data-defer-item className="ns-defer-item" onClick={() => applyDate(monday)}>
-            <span>下週一</span>
-            <span className="when">{whenLabel(monday)}</span>
-          </button>
-        </li>
-        <li className="cut">
-          <div className="ns-defer-ranges" role="group" aria-label="期間自由券快選">
-            {rangeQuicks.map((rq) => {
-              const on = row.scheduled_on === rq.from && row.scheduled_end === rq.to;
-              return (
-                <button
-                  key={rq.label}
-                  type="button"
-                  data-defer-item
-                  className={"chip ns-chip" + (on ? " is-on" : "")}
-                  aria-pressed={on}
-                  title={`${rq.label}（${formatDateRangeBadge(rq.from, rq.to)}）`}
-                  onClick={() => applyRange(rq.from, rq.to)}
-                >
-                  {rq.label}
-                </button>
-              );
-            })}
-          </div>
         </li>
         <li>
           <button
             type="button"
             data-defer-item
             aria-expanded={picking}
+            disabled={moveWhy !== null}
+            title={moveWhy ?? undefined}
             className="ns-defer-item"
             onClick={() => setPicking((o) => !o)}
           >
-            <span>選日期／區間…</span>
-            <span className="when">
-              {row.scheduled_on
-                ? rangeActive
-                  ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end)
-                  : whenLabel(row.scheduled_on)
-                : "—"}
-            </span>
+            <span>這一班改到…</span>
+            <span className="when">{railDate ? whenLabel(railDate) : "—"}</span>
           </button>
         </li>
         <li className="cut">
-          <button
-            type="button"
-            data-defer-item
-            disabled={!row.scheduled_on}
-            title={row.scheduled_on ? "票會離開今日，流入旅客筆記的收件匣" : "這張車票沒有設定乘車日"}
-            className="ns-defer-item warn"
-            onClick={clearDate}
-          >
-            <span>清除乘車日</span>
+          <button type="button" data-defer-item className="ns-defer-item" onClick={editRule}>
+            <span>編輯重複週期…</span>
+            <span className="when">{describeRule(rule)}</span>
           </button>
         </li>
       </ul>
-      )}
 
       {picking && (
         <div className="ns-defer-pick">
           <DatePicker
-            label={rule ? "這一班改到" : "選乘車日或區間"}
-            value={(rule ? railDate : row.scheduled_on) ?? dateKey}
-            endValue={rule ? null : row.scheduled_end}
-            allowRange={!rule}
-            rangeQuick={[]}
+            label="這一班改到"
+            value={railDate ?? dateKey}
             min={dateKey}
+            today={dateKey}
+            quick={scheduledQuickSet(dateKey, weekStart)}
             onPick={(v) => {
               if (!isSaneDateKey(v)) return;
-              if (rule) moveRun(v);
-              else applyDate(v);
+              moveRun(v);
             }}
-            onPickRange={
-              rule
-                ? undefined
-                : (s, e) => {
-                    if (!isSaneDateKey(s) || (e && !isSaneDateKey(e))) return;
-                    applyRange(s, e);
-                  }
-            }
             onClose={closePicker}
           />
         </div>

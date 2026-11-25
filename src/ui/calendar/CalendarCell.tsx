@@ -23,6 +23,7 @@
  */
 import { useLayoutEffect, useState, type RefObject } from "react";
 import { parseRule, type NodeRow } from "../../domain";
+import { formatDateRangeBadge, isFlexibleRangeTicket } from "../../domain/dateRange";
 import type { DateCount, DueEntry, ScheduleEntry } from "../../data";
 import { batchSetDate } from "../../store/batchActions";
 import { useNodeStore } from "../../store/nodeStore";
@@ -64,6 +65,8 @@ export interface CalendarCellProps {
   /** 那天預定到站的車站（D-主-380；只有月格傳） */
   stationMarks?: readonly StationDayMark<NodeRow, NodeRow>[];
   onStation?(stationId: string, anchor: HTMLElement): void;
+  /** 本週已於跨日色帶呈現的多日乘車日 node_id 集合（不於單日格內小列重複刷滿） */
+  hiddenNodeIds?: ReadonlySet<string>;
 }
 
 /**
@@ -132,11 +135,15 @@ export function CalendarCell({
   onTip,
   stationMarks,
   onStation,
+  hiddenNodeIds,
 }: CalendarCellProps) {
   // 三線格內記號（0-2 乙插槽）：直接取控制器 context；三線零登記＝undefined
   const cal = useCalendar();
   const marks = cal.marks[day];
-  const shown = truncate ? entries.slice(0, MONTH_SHOWN) : entries;
+  const visibleEntries = hiddenNodeIds && hiddenNodeIds.size > 0
+    ? entries.filter((e) => !hiddenNodeIds.has(e.node_id))
+    : entries;
+  const shown = truncate ? visibleEntries.slice(0, MONTH_SHOWN) : visibleEntries;
 
   // 回饋乙 ☎3①：格內的票拖到別的格子＝改到那一天（單張也走 batchSetDate，附復原）。
   // 格內清單沒有縫（順序照時刻），只能拖到外部落點；已蓋済的不能改期（同推遲的守門）。
@@ -185,7 +192,7 @@ export function CalendarCell({
   if (!inRange) return <DayCell date={day} out className="cal-cell" />;
 
   const total = count?.total ?? entries.length;
-  const rest = entries.length - shown.length;
+  const rest = visibleEntries.length - shown.length;
   const dnum = Number(day.slice(8, 10));
   const label =
     `${Number(day.slice(5, 7))}月${dnum}日` +
@@ -250,10 +257,19 @@ export function CalendarCell({
           {shown.map((e) => {
             const node = nodes[e.node_id];
             const route = node?.route_id ? routes.find((r) => r.id === node.route_id) : undefined;
+            const isFlex = Boolean(node && isFlexibleRangeTicket(node));
+            const flexLabel =
+              isFlex && node?.scheduled_on ? formatDateRangeBadge(node.scheduled_on, node.scheduled_end) : null;
             return (
-              <div key={`${e.date}-${e.node_id}`} className={cx("it", toneOf(e))} title={node?.name} data-drag-id={e.node_id}>
+              <div
+                key={`${e.date}-${e.node_id}`}
+                className={cx("it", toneOf(e), isFlex && "is-flex")}
+                title={flexLabel ? `${node?.name ?? ""}（期間自由券 ${flexLabel}）` : node?.name}
+                data-drag-id={e.node_id}
+              >
                 <i className="dot" style={{ background: route?.color ?? "var(--route-none)" }} />
                 <span className="nm">{node?.name ?? ""}</span>
+                {flexLabel && <span className="it-range">{flexLabel}</span>}
               </div>
             );
           })}

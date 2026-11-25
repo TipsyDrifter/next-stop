@@ -1,0 +1,670 @@
+/* ─────────────────────────────────────────────────────
+ * responsive-narrow.css — 桌機窄視窗（768px–1180px 半螢幕分屏工作區）全面自適應
+ *
+ * 定位（v1.37 2B）：
+ *   1. 本檔在 src/index.css 排於所有桌機元件與共用樣式之後、mobile.css 之前，
+ *      所有規則嚴格限定於 `@media (min-width: 768px) and (max-width: 1180px)` 或 `.ns-app[data-narrow="1"]`，
+ *      寬視窗（>1180px）與手機殼（<768px）零改動。
+ *   2. 顏色、字級、圓角、動效全面遵循 theme.css 語意層 Token（零裸色碼、朱紅 --seal 僅留済／領収）。
+ *   3. 涵蓋範圍：
+ *      - 書封側欄（.cover）自動收合＋覆蓋式抽屜＋暗幕（z-index: 35/36）
+ *      - 右側詳情側板（.panel，含 DetailPanel 與各線 SidePanelFrame 如售票口大票）自動轉覆蓋式抽屜＋暗幕（z-index: 32/33）
+ *      - 全局留白 Token、TitleBar、PageHeader 優雅換行與截斷保護
+ *      - 五大窄寬熱點：旅客筆記、時刻表、行程表 2×4 週間見開き、行路企劃書（主體在 weekAims.css）、全站卡片與工具列
+ * ───────────────────────────────────────────────────── */
+
+/* ═══════════════════════════════════════════════════════
+ * 一、覆蓋式抽屜柔和暗幕（書封抽屜＋詳情側板抽屜共用）
+ * ═══════════════════════════════════════════════════════ */
+
+.ns-narrow-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--veil);
+  opacity: 1;
+  transition: opacity var(--dur) var(--ease-soft);
+}
+@starting-style {
+  .ns-narrow-backdrop {
+    opacity: 0;
+  }
+}
+
+/* 右側詳情側板暗幕：讓開頂部 34px TitleBar 拖曳區與視窗控制鍵 */
+.ns-narrow-backdrop.is-panel {
+  top: 34px;
+  z-index: 32;
+}
+
+/* 左側書封暗幕：覆蓋整視窗、高於詳情側板與 TitleBar，低於 DialogShell（z-40） */
+.ns-narrow-backdrop.is-sidebar {
+  z-index: 35;
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 二、書封側欄（.cover）與右側詳情側板（.panel）轉覆蓋式浮層抽屜
+ * ═══════════════════════════════════════════════════════ */
+
+.ns-app[data-narrow="1"] .cover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--cover-w, 236px);
+  height: 100vh;
+  padding: 8px 22px 24px;
+  z-index: 36;
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+  box-shadow:
+    inset -10px 0 22px rgba(0, 0, 0, 0.38),
+    16px 0 38px rgba(14, 16, 40, 0.36); /* 字面值：陰影色（視覺規範 §1.1 例外） */
+  transition:
+    transform var(--dur-slow) var(--ease),
+    opacity var(--dur) var(--ease-soft);
+}
+
+.ns-app[data-narrow="1"] .cover.is-collapsed {
+  width: var(--cover-w, 236px);
+  padding: 8px 22px 24px;
+  transform: translateX(-104%);
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+/* 右側詳情側板（DetailPanel ＋ 各功能線 SidePanelFrame 如售票口大票）轉靠右滑出覆蓋層 */
+.ns-app[data-narrow="1"] .panel {
+  position: fixed;
+  top: 34px;
+  right: 0;
+  bottom: 0;
+  width: min(360px, 86vw);
+  height: auto;
+  z-index: 33;
+  overflow: visible;
+}
+
+.ns-app[data-narrow="1"] .panel-sheet {
+  box-shadow:
+    var(--skin-panel-shadow, -16px 0 38px rgba(32, 28, 72, 0.22)),
+    var(--shadow-card-hover); /* 字面值：陰影色（視覺規範 §1.1 例外） */
+}
+
+[data-theme="dark"] .ns-app[data-narrow="1"] .panel-sheet {
+  box-shadow:
+    inset 0 1px 0 rgba(var(--starlight), 0.1),
+    -16px 0 40px rgba(3, 6, 14, 0.62); /* 字面值：陰影色（視覺規範 §1.1 例外） */
+}
+
+/* 解除售票口 .page.ns-tk 的 z-index: 1 堆疊脈絡，使內嵌的 TicketPanel（z-index: 33）浮於暗幕（z-index: 32）之上 */
+.ns-app[data-narrow="1"] .page.ns-tk {
+  z-index: auto;
+}
+.ns-app[data-narrow="1"] .page.ns-tk > .ns-tk-ledger {
+  position: relative;
+  z-index: 1;
+}
+
+/* 窄視窗側板為覆蓋層、不擠壓主欄：月牙與頁邊留白不隨側板開闔跳動 */
+.ns-app[data-narrow="1"] .page::before {
+  opacity: 0;
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 三、桌機窄視窗主區段（768px – 1180px）
+ * ═══════════════════════════════════════════════════════ */
+
+@media (min-width: 768px) and (max-width: 1180px) {
+  /* ── 3.1 全局留白 Token 收斂（同時覆寫 theme.css 的 body:has(.panel) 防跳動） ── */
+  :root,
+  .ns-app[data-narrow="1"],
+  .ns-panel-open,
+  body:has(.panel) {
+    --page-gutter: 16px;
+    --page-pad-top: 32px;
+    --page-pad-x: 24px;
+    --page-side: calc(var(--page-gutter) + var(--page-pad-x));
+    --read-inset: max(var(--page-side), calc((100% - var(--read-w)) / 2));
+    --canvas-inset: max(var(--page-side), calc((100% - var(--canvas-w)) / 2));
+    --read-margin: max(var(--page-gutter), calc((100% - var(--read-w)) / 2 - var(--page-pad-x)));
+    --canvas-margin: max(var(--page-gutter), calc((100% - var(--canvas-w)) / 2 - var(--page-pad-x)));
+  }
+
+  /* 側板為覆蓋抽屜時，銀河月牙保持原位不跳動 */
+  .ns-panel-open .sky-moon,
+  body:has(.panel) .sky-moon {
+    right: 64px;
+  }
+
+  /* 通用防水平溢出保護 */
+  .page {
+    overflow-x: hidden;
+  }
+  .sheet {
+    max-width: 100%;
+    padding-bottom: 44px;
+  }
+  .page-foot {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    margin-top: 36px;
+  }
+
+  /* ── 3.2 TitleBar 緊湊保護 ── */
+  .ns-titlebar {
+    padding-left: 8px;
+  }
+  .ns-titlebar-spacer {
+    min-width: 8px;
+  }
+  .ns-tb-timer-label {
+    max-width: 120px;
+  }
+
+  /* ── 3.3 PageHeader 優雅換行與標題防裁切 ── */
+  .ns-pagehead {
+    flex-wrap: wrap;
+    row-gap: var(--sp-2);
+    column-gap: var(--sp-3);
+    min-height: auto;
+    padding-bottom: 16px;
+  }
+  .ns-pagehead-main {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+  .ns-pagehead-titleline {
+    min-height: 36px;
+    min-width: 0;
+  }
+  .ns-pagehead-title {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ns-pagehead .ns-toolbar {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 100%;
+    margin-left: auto;
+    margin-top: var(--sp-2);
+    gap: 6px;
+  }
+  .ns-pagehead .ns-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .ns-pagehead .ns-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .ns-pagehead .ns-tabs > [role="tab"] {
+    padding: 0 var(--sp-3);
+    letter-spacing: 0.16em;
+    text-indent: 0.16em;
+  }
+
+  /* ── 3.4 熱點一：旅客筆記（Notes）960px–1180px 壓縮清單欄、解放編輯區 ── */
+  .page.ns-notes .ns-pagehead {
+    min-height: auto;
+    margin-bottom: var(--sp-4);
+  }
+  .ns-notes-body {
+    gap: var(--sp-4);
+    min-width: 0;
+  }
+  .ns-notes-listcol {
+    width: clamp(220px, 27vw, 272px);
+  }
+  .ns-notes-listtop {
+    padding: 12px 14px 10px 16px;
+  }
+  .ns-notes-month {
+    padding: 12px 14px 5px 16px;
+  }
+  .ns-notes-row {
+    padding: 0 14px 0 16px;
+  }
+  .ns-notes-page {
+    padding: 24px 32px 26px;
+  }
+  .ns-notes-sheetwrap {
+    padding: 20px 24px 36px 24px;
+  }
+  .ns-notes-contentcol > .ns-notes-sheetwrap {
+    padding: 0 12px var(--sp-4) 10px;
+  }
+  .ns-notes-entry.is-sel::before {
+    left: -16px;
+  }
+  .ns-notes-actions {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .ns-notes-fpcol {
+    width: 240px;
+    min-width: 210px;
+  }
+  .ns-notes-caphint {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    white-space: normal;
+  }
+  .ns-notes-tagtitle {
+    flex-wrap: wrap;
+  }
+
+  /* ── 3.5 熱點二：時刻表（Timetable）1041px–1180px 緊湊兩欄 ── */
+  .page.ns-tt > .ns-tt-pagehead {
+    margin-bottom: var(--sp-4);
+  }
+  .page.ns-tt .ns-tt-cols {
+    grid-template-columns: 316px minmax(0, 1fr);
+    gap: 18px;
+  }
+  .page.ns-tt .ns-tt-col {
+    min-width: 0;
+  }
+  .page.ns-tt .ns-tt-cats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .ns-tt-fbar {
+    flex-wrap: wrap;
+  }
+  .ns-tt-dock.is-desktop {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .ns-tt-grid.is-desk {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 16px;
+  }
+
+  /* ── 3.6 熱點三：行程表（Calendar）960px–1180px 緊湊留白保持 2×4 見開き 4 欄清晰 ── */
+  .ns-calendar .ns-cal-head .ns-pagehead-titleline {
+    height: auto;
+    min-height: 36px;
+    overflow: visible;
+  }
+  .ns-calendar .ns-cal-head .ns-datenav {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .ns-calendar .wk-day-head {
+    padding: 0 7px;
+  }
+  .ns-calendar .wk-day-body {
+    padding: 6px;
+    gap: 4px;
+  }
+  .ns-calendar .wk-card {
+    padding: 5px 5px 5px 6px;
+    gap: 5px;
+  }
+  .ns-calendar .wk-card-title {
+    font-size: var(--fs-xs);
+  }
+  .ns-calendar .wk-sum-head {
+    padding: 0 8px;
+  }
+  .ns-calendar .wk-summary-body {
+    padding: 6px 8px 10px;
+    gap: 8px;
+  }
+  .ns-calendar .wk-ribbon {
+    margin: 0 4px;
+    padding: 0 6px;
+  }
+  .ns-calendar .cal-cell {
+    padding: 7px 8px 6px;
+  }
+
+  /* ── 3.7 看板、售票口、運行報告、理想手札與全站工具列防裁切 ── */
+  .ns-bd-subbar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .ns-tk-subbar {
+    flex-wrap: wrap;
+  }
+  .ns-tk-subbar .ns-tk-search {
+    width: min(220px, 100%);
+    flex: 1 1 140px;
+  }
+  .ns-tk-st-row > button {
+    grid-template-columns: 14px minmax(112px, 152px) minmax(0, 1fr) 44px 88px 42px;
+    column-gap: 8px;
+  }
+  .ns-tk-bud-row > button,
+  .ns-tk-bud-row > div {
+    grid-template-columns: minmax(116px, 152px) minmax(0, 1fr) minmax(136px, 168px) 88px;
+    column-gap: 12px;
+  }
+  .ns-rp-card {
+    padding: 12px 14px 14px;
+  }
+  .ns-rp-grid {
+    gap: 12px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 四、時刻表兩欄收斂檔（768px – 1040px）
+ * ═══════════════════════════════════════════════════════ */
+
+@media (min-width: 768px) and (max-width: 1040px) {
+  /* 時刻表兩欄／方眼在 ≤1040px 收斂為上下堆疊（整頁順暢捲動、零橫向壓迫） */
+  .page.ns-tt[data-view="split"],
+  .page.ns-tt[data-view="grid"] {
+    overflow-y: auto;
+  }
+  .page.ns-tt[data-view="split"] .ns-tt-cols {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 32px;
+  }
+  .page.ns-tt[data-view="split"] .ns-tt-col,
+  .page.ns-tt[data-view="split"] .ns-tt-axis.is-self {
+    overflow: visible;
+    flex: none;
+    max-width: none;
+  }
+  .page.ns-tt[data-view="split"] .ns-tt-col.is-left .ns-tt-dock {
+    flex-wrap: nowrap;
+  }
+  .page.ns-tt[data-view="split"] .ns-tt-col.is-left .ns-tt-dock-edit {
+    flex: 1 1 0;
+  }
+  .page.ns-tt[data-view="split"] .ns-tt-col.is-left .ns-tt-dock > .ns-btn {
+    flex: none;
+  }
+  .ns-tt-grid.is-desk {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ns-tt-grid-sheet {
+    flex: none;
+    height: 68vh;
+  }
+  .ns-tt-grid-side {
+    overflow: visible;
+  }
+
+  /* 時刻表統計卡片與雙欄自動收斂為 1–2 欄 */
+  .ns-tt-stats-cols {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .ns-tt-topics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ns-tt-stats-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto 38px 66px;
+    column-gap: 6px;
+  }
+  .ns-tt-stats-row.is-route {
+    grid-template-columns: 28px minmax(0, 1fr) auto 38px 66px;
+  }
+  .ns-tt-stats-row.has-act,
+  .ns-tt-stats-row.is-goal {
+    grid-template-columns: 24px minmax(0, 1fr) auto 38px 66px 26px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 五、半螢幕最窄檔（768px – 960px）
+ * ═══════════════════════════════════════════════════════ */
+
+@media (min-width: 768px) and (max-width: 960px) {
+  /* ── 5.1 進一步收斂全局留白與頁首字階 ── */
+  :root,
+  .ns-app[data-narrow="1"],
+  .ns-panel-open,
+  body:has(.panel) {
+    --page-gutter: 12px;
+    --page-pad-top: 24px;
+    --page-pad-x: 16px;
+    --page-side: calc(var(--page-gutter) + var(--page-pad-x));
+    --read-inset: max(var(--page-side), calc((100% - var(--read-w)) / 2));
+    --canvas-inset: max(var(--page-side), calc((100% - var(--canvas-w)) / 2));
+    --read-margin: max(var(--page-gutter), calc((100% - var(--read-w)) / 2 - var(--page-pad-x)));
+    --canvas-margin: max(var(--page-gutter), calc((100% - var(--canvas-w)) / 2 - var(--page-pad-x)));
+    --fs-date: 30px;
+    --fs-display: 26px;
+  }
+
+  .ns-pagehead-stamp > svg {
+    width: 72px;
+    height: 72px;
+  }
+  .ns-tb-timer-label {
+    max-width: 96px;
+  }
+
+  /* ── 5.2 旅客筆記（Notes）兩欄緊湊配比：清單 216px ＋ 編輯大紙全幅吃滿 ── */
+  .ns-notes-body {
+    gap: var(--sp-3);
+  }
+  .ns-notes-listcol {
+    width: 216px;
+  }
+  .ns-notes-listtop {
+    padding: 10px 12px 8px;
+  }
+  .ns-notes-month {
+    padding: 10px 12px 4px;
+  }
+  .ns-notes-row {
+    padding: 0 12px;
+  }
+  .ns-notes-page {
+    padding: 20px 22px 24px;
+  }
+  .ns-notes-entry.is-sel::before {
+    left: -12px;
+  }
+  .ns-notes-iticket .ns-notes-destrow,
+  .ns-notes-iticket .ns-notes-pop {
+    margin-left: 16px;
+  }
+  .ns-notes-iticket .ns-notes-dest .ns-notes-pop.float {
+    left: 16px;
+  }
+  .ns-notes-body:has(.ns-notes-fpcol) {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .ns-notes-fpcol {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    max-height: none;
+  }
+  .ns-notes-tagcard {
+    padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  }
+  .ns-notes-cloud {
+    padding: var(--sp-4);
+  }
+  .ns-notes-tag.lg {
+    max-width: 100%;
+  }
+  .ns-notes-tag.lg .ns-notes-tag-nm {
+    padding: 0 14px 0 26px;
+    font-size: var(--fs-title);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── 5.3 行程表 2×4 週間見開き（Calendar Week）：優雅轉為直向兩欄四排，零重疊零水平溢出 ── */
+  .ns-calendar .ns-cal-head .ns-pagehead-title {
+    font-size: var(--fs-display);
+  }
+  .ns-calendar.is-week .sheet,
+  .ns-calendar.is-week .ns-cal-body {
+    flex: none;
+    height: auto;
+  }
+  .ns-calendar .wk-spread {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .ns-calendar .wk-row-band {
+    flex: none;
+  }
+  .ns-calendar .wk-row-grid {
+    flex: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: 248px;
+  }
+  .ns-calendar .wk-row-grid > .wk-day,
+  .ns-calendar .wk-row-grid > .wk-summary {
+    min-height: 0;
+    height: 100%;
+    border-right: 1px solid var(--color-line);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .ns-calendar .wk-row-grid > :nth-child(2n) {
+    border-right: 0;
+  }
+  .ns-calendar .wk-row-grid > :nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+  /* 兩欄折排時，多日跨格色帶改置於該半週頂部獨立橫條帶，完整顯示起訖日期且不遮擋格內卡片 */
+  .ns-calendar .wk-ribbons {
+    position: static;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px dashed var(--color-line);
+    background: color-mix(in srgb, var(--color-ink) 2%, transparent);
+  }
+  .ns-calendar .wk-ribbon {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    height: auto;
+    min-height: 24px;
+    margin: 0;
+    padding: 3px 8px;
+    border-radius: var(--radius-ctl);
+  }
+  .ns-calendar .wk-row-band.has-ribbons .wk-day .wk-day-body {
+    padding-top: var(--sp-2);
+  }
+
+  /* 月曆格於 768px–960px 緊湊防溢出 */
+  .ns-calendar .cal-cell {
+    min-height: 82px;
+    padding: 6px 6px 5px;
+  }
+  .ns-calendar .it {
+    gap: 4px;
+    font-size: var(--fs-micro);
+  }
+  .ns-calendar .cal-corner {
+    right: 20px;
+  }
+
+  /* ── 5.4 時刻表（Timetable）日程與週檢視最窄檔保護 ── */
+  .ns-tt-sched-main {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .ns-tt-sched-un.is-side {
+    width: 100%;
+    max-height: 200px;
+    padding-right: 0;
+  }
+  .ns-tt-sched-un.is-side .ns-tt-sched-ulist {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .ns-tt-week-h {
+    padding: 5px 1px;
+  }
+  .ns-tt-week-hd {
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .ns-tt-week-h.is-today b::before {
+    margin-right: 3px;
+  }
+  .ns-tt-stats-sum {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* ── 5.5 售票口、運行報告、車庫、理想手札卡片網格自適應 ── */
+  .ns-tk-bud-row > button,
+  .ns-tk-bud-row > div {
+    grid-template-columns: minmax(96px, 128px) minmax(0, 1fr) minmax(108px, 140px) 78px;
+    column-gap: 8px;
+  }
+  .ns-tk-st-row > button {
+    grid-template-columns: 14px minmax(96px, 132px) minmax(0, 1fr) 38px 78px 38px;
+    column-gap: 6px;
+  }
+  .ns-tk-re-cols {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    row-gap: 16px;
+  }
+
+  .ns-rp-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ns-rp-card.is-wide {
+    grid-column: span 2;
+  }
+  .ns-rp-spread-book {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ns-rp-spread-left {
+    border-right: 0;
+    border-bottom: 1px dashed var(--color-dash);
+  }
+
+  .ns-depot-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+  .ns-depot-yb {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px 16px;
+  }
+
+  .ns-ideal-aims-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wa-ideal-peek {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ns-wr-add.has-amt {
+    grid-template-columns: auto minmax(0, 1fr) 96px auto;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 六、減量動態無障礙保護
+ * ═══════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-narrow-backdrop,
+  .ns-app[data-narrow="1"] .cover {
+    transition: none;
+  }
+}

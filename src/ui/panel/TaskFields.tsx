@@ -9,6 +9,7 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KIND_LABEL, isTaskKind, parseRule, type Mood, type NodeRow } from "../../domain";
+import { isMultiDayTicket } from "../../domain/dateRange";
 import { REPEATABLE_KINDS } from "../../data";
 import { autoProgress, descendantCount, isSettling, openDescendantCount, serialOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -400,22 +401,27 @@ function ScheduledChip({ node }: { node: NodeRow }) {
     <DateChip
       date={node.scheduled_on}
       endDate={node.scheduled_end}
+      isMultiDay={isMultiDayTicket(node)}
       allowRange
+      preset="scheduled"
       onPick={(v) => {
         const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
         void updateNode(
           node.id,
-          syncDue && v ? { scheduled_on: v, scheduled_end: null, due_on: v } : { scheduled_on: v, scheduled_end: null },
+          syncDue && v
+            ? { scheduled_on: v, scheduled_end: null, is_multi_day: null, due_on: v }
+            : { scheduled_on: v, scheduled_end: null, is_multi_day: null },
           { backfill: true },
         );
       }}
-      onPickRange={(s, e) => {
+      onPickRange={(s, e, multi) => {
         const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
+        const nextMulti = e && multi ? 1 : null;
         void updateNode(
           node.id,
           syncDue && s
-            ? { scheduled_on: s, scheduled_end: e, due_on: e ?? s }
-            : { scheduled_on: s, scheduled_end: e },
+            ? { scheduled_on: s, scheduled_end: e, is_multi_day: nextMulti, due_on: e ?? s }
+            : { scheduled_on: s, scheduled_end: e, is_multi_day: nextMulti },
           { backfill: !e },
         );
       }}
@@ -681,6 +687,8 @@ function ExecutionScheduleSection({
             <div className="panel-due-row">
               <DateChip
                 date={node.due_on}
+                preset="due"
+                syncScheduledOn={syncDueTarget}
                 onPick={(v) => void updateNode(node.id, { due_on: v })}
                 allowPast
                 clearable

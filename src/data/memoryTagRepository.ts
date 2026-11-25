@@ -30,10 +30,16 @@ import {
   emptyReceipt,
   followRename,
   followRenamePlan,
+  isoToYmd,
+  nodeModuleLabel,
+  normalizeRootKey,
+  notePreviewTitle,
   recordTagBeforeWithRename,
+  rootKeyOf,
   staleBodyRenames,
   tagId,
   taggingId,
+  truncatePreviewTitle,
   type AttachResult,
   type BackfillResult,
   type CreateTagResult,
@@ -43,6 +49,7 @@ import {
   type TagEntityType,
   type TaggedItem,
   type TaggingRow,
+  type TagPreviewItem,
   type TagReceipt,
   type TagRepository,
   type TagRow,
@@ -192,6 +199,119 @@ export class MemoryTagRepository implements TagRepository {
           matched,
         });
       } else if (await otherEntityAliveMemory(e.type, e.id)) out.push({ kind: "other", entityType: e.type, id: e.id, matched });
+    }
+    return out;
+  }
+
+  async listRootPreviews(rootNames: readonly string[], limitPerRoot = 2): Promise<Record<string, TagPreviewItem[]>> {
+    await this.ensureSeed();
+    const out: Record<string, TagPreviewItem[]> = {};
+    if (!rootNames.length || limitPerRoot <= 0) return out;
+    const normToOriginals = new Map<string, string[]>();
+    for (const raw of rootNames) {
+      out[raw] = [];
+      const rk = normalizeRootKey(raw);
+      if (!rk) continue;
+      let list = normToOriginals.get(rk);
+      if (!list) normToOriginals.set(rk, (list = []));
+      if (!list.includes(raw)) list.push(raw);
+    }
+    if (!normToOriginals.size) return out;
+
+    const tagIdToRoot = new Map<string, string>();
+    for (const t of this.aliveTags()) {
+      const rk = rootKeyOf(t.name_key);
+      if (normToOriginals.has(rk)) tagIdToRoot.set(t.id, rk);
+    }
+    if (!tagIdToRoot.size) return out;
+
+    const skip = new Set(uncountedTagEntityTypes());
+    const tgs = this.aliveTaggings()
+      .filter((g) => tagIdToRoot.has(g.tag_id) && !skip.has(g.entity_type))
+      .sort((a, b) =>
+        a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0,
+      );
+
+    const resolvedCache = new Map<string, TagPreviewItem | null>();
+    const resolveEntity = async (entityType: TagEntityType, entityId: string): Promise<TagPreviewItem | null> => {
+      const ref = entityType + "\u0001" + entityId;
+      if (resolvedCache.has(ref)) return resolvedCache.get(ref) ?? null;
+      let item: TagPreviewItem | null = null;
+      if (entityType === "node") {
+        const n = await this.nodeRepo.getNode(entityId);
+        if (n && n.deleted_at === null && TAG_ENTITY_NODE_KINDS.includes(n.kind)) {
+          item = {
+            entityType: "node",
+            entityId,
+            title: truncatePreviewTitle(n.name),
+            date: n.scheduled_on ?? isoToYmd(n.created_at),
+            moduleLabel: nodeModuleLabel(n.kind),
+          };
+        }
+      } else if (entityType === "note") {
+        const x = await this.noteRepo.getNote(entityId);
+        if (x) {
+          item = {
+            entityType: "note",
+            entityId,
+            title: notePreviewTitle(x.title, x.body),
+            date: x.entry_date ?? isoToYmd(x.noted_at),
+            moduleLabel: x.kind === "diary" ? "日記" : "筆記",
+          };
+        }
+      } else if (await otherEntityAliveMemory(entityType, entityId)) {
+        const isTt = entityType.startsWith("timetable:");
+        const isTk = entityType.startsWith("ticket:");
+        const moduleLabel =
+          entityType === "ticket:wish" ? "願望" : isTt ? "時刻" : isTk ? "帳目" : "別處";
+        const fallbackTitle =
+          entityType === "timetable:block"
+            ? "時刻紀錄"
+            : entityType === "timetable:category"
+              ? "時刻分類"
+              : entityType === "timetable:goal"
+                ? "時數目標"
+                : entityType === "ticket:entry"
+                  ? "記帳紀錄"
+                  : entityType === "ticket:repeat"
+                    ? "定期帳"
+                    : entityType === "ticket:wish"
+                      ? "候車室願望"
+                      : entityType === "ticket:template"
+                        ? "常用票種"
+                        : entityType;
+        item = {
+          entityType,
+          entityId,
+          title: truncatePreviewTitle(fallbackTitle),
+          date: null,
+          moduleLabel,
+        };
+      }
+      resolvedCache.set(ref, item);
+      return item;
+    };
+
+    const byRoot = new Map<string, TagPreviewItem[]>();
+    const seenByRoot = new Map<string, Set<string>>();
+    for (const g of tgs) {
+      const rk = tagIdToRoot.get(g.tag_id);
+      if (!rk) continue;
+      let acc = byRoot.get(rk);
+      if (!acc) byRoot.set(rk, (acc = []));
+      if (acc.length >= limitPerRoot) continue;
+      let seen = seenByRoot.get(rk);
+      if (!seen) seenByRoot.set(rk, (seen = new Set()));
+      const ref = g.entity_type + "\u0001" + g.entity_id;
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      const item = await resolveEntity(g.entity_type, g.entity_id);
+      if (item) acc.push(item);
+    }
+
+    for (const [rk, originals] of normToOriginals) {
+      const items = byRoot.get(rk) ?? [];
+      for (const orig of originals) out[orig] = items;
     }
     return out;
   }

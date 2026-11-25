@@ -34,7 +34,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import { matches } from "../shell/hotkeys";
+import { isGuideKey, matches } from "../shell/hotkeys";
 import { createPortal } from "react-dom";
 import {
   DATE_RANGE_PRESET_LABEL,
@@ -47,15 +47,11 @@ import { todayKey } from "../../lib/date";
 import { placeBelow, tabStops, useOutsideDismiss } from "./anchorPop";
 import { DayGrid } from "./DayGrid";
 import { Segmented } from "./Segmented";
-import { isPickableDay, stepRangePick } from "./datePickRules";
+import { isPickableDay, stepRangePick, type DateQuickOption } from "./datePickRules";
 import "./datepicker.css";
 
 /** 一顆快選 chip */
-export interface DateQuick {
-  label: string;
-  /** YYYY-MM-DD */
-  day: string;
-}
+export type DateQuick = DateQuickOption;
 
 /** 一顆區間快選 chip（第四梯 4B · D-FB-7：週末／本週／下週／本月） */
 export interface DateRangeQuick {
@@ -74,8 +70,8 @@ export function dateRangeQuickSet(today: string, weekStart: 0 | 1 = 1): DateRang
 }
 
 const RANGE_MODE_OPTS = [
-  { value: "single" as const, label: "單日" },
-  { value: "range" as const, label: "區間" },
+  { value: "single" as const, label: "乘車日" },
+  { value: "range" as const, label: "期間自由券" },
 ];
 
 export interface DatePickerProps {
@@ -83,24 +79,28 @@ export interface DatePickerProps {
   label: string;
   /** 目前的日子（日期欄初值；`markValue` 時同日的 chip 亮起）；null／省略＝空 */
   value?: string | null;
-  /** 期間自由券訖日（有值且 > value 時顯示區間連帶；僅 allowRange 時使用） */
+  /** 跨日訖日（有值且 > value 時顯示區間連帶；僅 allowRange 時使用） */
   endValue?: string | null;
+  /** 目前跨日區間是否為「多日乘車日」（true＝開啟時落在乘車日分頁；false＝落在期間自由券分頁） */
+  isMultiDay?: boolean;
   /** YYYY-MM-DD；含 */
   min?: string;
   /** YYYY-MM-DD；含 */
   max?: string;
-  /** 快選 chip（例：明天／後天／下週一；今天／昨天／前天） */
+  /** 快選 chip（乘車日：今天／明天／後天／本週末／下週一；締切日：［＝同乘車日］／今天／明天／本週日／下週一） */
   quick?: readonly DateQuick[];
-  /** 是否允許切換「單日｜區間」並顯示週末／本週／下週／本月區間快選（第四梯 4B） */
+  /** 是否允許「乘車日（含多日拖曳與＋訖日）｜期間自由券」雙軌切換 */
   allowRange?: boolean;
   /** 自訂區間快選（省略且 allowRange=true 時預設用週末／本週／下週／本月） */
   rangeQuick?: readonly DateRangeQuick[];
   onPick(day: string): void;
-  /** 區間選取回呼（end === null 表示選了單日） */
-  onPickRange?(start: string, end: string | null): void;
+  /** 區間選取回呼（end === null 表示單日；isMultiDay === true 表示多日乘車日，false 表示期間自由券） */
+  onPickRange?(start: string, end: string | null, isMultiDay?: boolean): void;
   onClose(): void;
   /** true＝絕對定位的浮動卡（霧面票面，位置由呼叫端的 class 給 top／left）；false＝內嵌在版面裡的一塊 */
   float?: boolean;
+  /** true＝無 anchor 時以 fixed 置中浮層渲染（供鍵盤觸發推遲小卡用） */
+  centered?: boolean;
   /** true＝與 `value` 同日的 chip 亮起（預設 false） */
   markValue?: boolean;
   /** 加在根節點上的 class（呼叫端調 margin／top／left 用） */
@@ -133,6 +133,7 @@ export function DatePicker({
   label,
   value,
   endValue,
+  isMultiDay = false,
   min,
   max,
   quick,
@@ -142,6 +143,7 @@ export function DatePicker({
   onPickRange,
   onClose,
   float = false,
+  centered = false,
   markValue = false,
   className,
   marks,
@@ -156,7 +158,8 @@ export function DatePicker({
   const weekStart = useUiStore((s) => s.weekStart);
   const effToday = today ?? todayKey(dayStartHour);
   const hasRangeVal = Boolean(value && endValue && endValue > value);
-  const [mode, setMode] = useState<"single" | "range">(() => (allowRange && hasRangeVal ? "range" : "single"));
+  const [mode, setMode] = useState<"single" | "range">(() => (allowRange && hasRangeVal && !isMultiDay ? "range" : "single"));
+  const [pickingEnd, setPickingEnd] = useState(false);
   const [draftStart, setDraftStart] = useState<string | null>(null);
   const effRangeQuick = allowRange
     ? (rangeQuick ?? dateRangeQuickSet(effToday, weekStart)).filter(
@@ -164,28 +167,39 @@ export function DatePicker({
       )
     : [];
   const rootRef = useRef<HTMLDivElement>(null);
-  const anchored = !!anchor;
+  const portaled = !!anchor || centered;
   useOutsideDismiss(rootRef, onClose, anchor);
 
-  /* anchor 模式：落位（落位前 visibility:hidden）；捲動／縮放視窗時跟著 anchor 走 */
+  /* anchor／centered 模式：落位（落位前 visibility:hidden）；捲動／縮放視窗時跟著走 */
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const place = useCallback(() => {
     const el = rootRef.current;
-    if (!anchor || !el) return;
-    const at = placeBelow(anchor, el);
-    // 第一次就量不到（anchor 沒有框）也要現身——退到視窗左上的邊距，不讓卡永遠 hidden、焦點進不去
-    setPos((p) => at ?? p ?? { top: 12, left: 12 });
-  }, [anchor]);
+    if (!portaled || !el) return;
+    if (anchor) {
+      const at = placeBelow(anchor, el);
+      // 第一次就量不到（anchor 沒有框）也要現身——退到視窗左上的邊距，不讓卡永遠 hidden、焦點進不去
+      setPos((p) => at ?? p ?? { top: 12, left: 12 });
+      return;
+    }
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    const vh = document.documentElement.clientHeight || window.innerHeight;
+    const w = el.offsetWidth || 312;
+    const h = el.offsetHeight || 360;
+    const M = 12;
+    const top = Math.max(M, Math.min(Math.round(vh * 0.2), vh - h - M));
+    const left = Math.max(M, Math.round((vw - w) / 2));
+    setPos({ top, left });
+  }, [anchor, portaled]);
   useLayoutEffect(place, [place]);
   useEffect(() => {
-    if (!anchor) return;
+    if (!portaled) return;
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => {
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [anchor, place]);
+  }, [portaled, place]);
 
   /* 磨光⑤ 收尾（自測 ③：售票口日期浮層 Esc 後焦點掉到頁面本身）：內嵌／float 沒有 anchor，改記「打開那一刻手上的焦點」——
    * 點或按開關鈕打開時就是那顆鈕（桌機 Chromium 點按鈕會聚焦它）。收起時跟 anchor 同一條規則還回去 */
@@ -195,9 +209,6 @@ export function DatePicker({
   });
   const returnTo = anchor ?? opener;
 
-  /* 收起時：焦點還在卡裡或掉到 body ⇒ 還給 anchor（內嵌／float＝開它的那個元素）；呼叫端已經把焦點交給別處就不搶。
-   * 卸載前（節點還在）先看焦點在不在卡裡，等這一輪提交完（microtask）卡真的不在了才還——dev 的 StrictMode 會「假卸載再掛回」，
-   * 當場就還會把剛開的卡的焦點搶回開關鈕（float 卡開著焦點卻在鈕上、Esc 漏給頁面；磨光⑤ 收尾實測） */
   useLayoutEffect(() => {
     if (!returnTo) return;
     const root = rootRef.current;
@@ -214,31 +225,32 @@ export function DatePicker({
     };
   }, [returnTo]);
 
-  /* 開啟時焦點：第一顆 chip → 月格上的那一天 → 第一顆可按的鈕。anchor 模式等落位後才 focus（hidden 時 focus 是 no-op）。
-   * anchor 模式改成月格那一天優先（磨光⑤ S8）：這些是「改一個日期欄」，點開就該能方向鍵＋Enter 選；「今天」快選 Tab 得到 */
   const focusedOnce = useRef(false);
   useEffect(() => {
-    if (focusedOnce.current || (anchored && !pos)) return;
+    if (focusedOnce.current || (portaled && !pos)) return;
     focusedOnce.current = true;
     const root = rootRef.current;
     const chip = root?.querySelector<HTMLElement>(".ns-datepick-chip") ?? null;
     const day = root?.querySelector<HTMLElement>('[data-day][tabindex="0"]:not(:disabled)') ?? null;
-    const first = (anchored ? (day ?? chip) : (chip ?? day)) ?? tabStops(root)[0];
+    const first = (portaled ? (day ?? chip) : (chip ?? day)) ?? tabStops(root)[0];
     first?.focus({ preventScroll: true });
-    if (!anchored) root?.scrollIntoView({ block: "nearest" }); // 浮層別落在視野外
-  }, [anchored, pos]);
+    if (!portaled) root?.scrollIntoView({ block: "nearest" }); // 浮層別落在視野外
+  }, [portaled, pos]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (isGuideKey(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
       onClose();
       return;
     }
-    if (!anchored) return;
-    // anchor 模式：卡掛在 body，按鍵照 React 樹冒泡會落到開它的列／側板／dialog 的鍵盤表上——一律擋下。
-    // Ctrl／⌘ 組合鍵放行給全域表（Ctrl+/ 例外，指引頁不疊在卡上；同 PopMenu）
+    if (!portaled) return;
     if (e.ctrlKey || e.metaKey) {
       if (matches(e, "global.guide")) {
         e.preventDefault();
@@ -257,6 +269,16 @@ export function DatePicker({
     }
   };
 
+  const togglePickEnd = () => {
+    if (pickingEnd) {
+      setPickingEnd(false);
+      setDraftStart(null);
+      return;
+    }
+    setPickingEnd(true);
+    setDraftStart(value && isPickableDay(value, min, max) ? value : null);
+  };
+
   const handleDayPick = (day: string) => {
     if (allowRange && mode === "range") {
       const step = stepRangePick(draftStart, day);
@@ -265,25 +287,51 @@ export function DatePicker({
         return;
       }
       setDraftStart(null);
-      if (onPickRange) onPickRange(step.start, step.end);
+      if (onPickRange) onPickRange(step.start, step.end, false);
+      else onPick(step.start);
+      return;
+    }
+    if (allowRange && mode === "single" && pickingEnd) {
+      const step = stepRangePick(draftStart, day);
+      if (step.kind === "start") {
+        setDraftStart(step.draftStart);
+        return;
+      }
+      setDraftStart(null);
+      setPickingEnd(false);
+      if (onPickRange) onPickRange(step.start, step.end, step.end !== null);
       else onPick(step.start);
       return;
     }
     setDraftStart(null);
-    if (allowRange && onPickRange) onPickRange(day, null);
+    setPickingEnd(false);
+    if (allowRange && onPickRange) onPickRange(day, null, false);
     else onPick(day);
   };
 
+  const handleDragRange = (start: string, end: string) => {
+    setDraftStart(null);
+    setPickingEnd(false);
+    if (onPickRange) onPickRange(start, end, true);
+    else onPick(start);
+  };
+
+  const showSingleChips = (!allowRange || mode === "single") && Boolean(quick?.length);
+  const showRangeChips = allowRange && mode === "range" && effRangeQuick.length > 0;
+  const activeDraftStart = allowRange && (mode === "range" || pickingEnd) ? draftStart : null;
+  const canDragMulti = allowRange && mode === "single" && !pickingEnd;
+  const multiActive = allowRange && hasRangeVal && isMultiDay;
+
   const cls = [
     "ns-datepick",
-    (float || anchored) && "float",
-    anchored && "anchored",
+    (float || portaled) && "float",
+    portaled && "anchored",
     !quick?.length && !effRangeQuick.length && !allowRange && "bare",
     className,
   ]
     .filter(Boolean)
     .join(" ");
-  const style: CSSProperties | undefined = anchored
+  const style: CSSProperties | undefined = portaled
     ? { position: "fixed", top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? undefined : "hidden" }
     : undefined;
   const card = (
@@ -297,39 +345,47 @@ export function DatePicker({
             value={mode}
             onChange={(next) => {
               setMode(next);
+              setPickingEnd(false);
               setDraftStart(null);
             }}
-            aria-label="單日或期間區間"
+            aria-label="乘車日或期間自由券"
           />
         </div>
       ) : (
         <div className="ns-datepick-label">{label}</div>
       )}
-      <div className="ns-datepick-chips">
-        {quick?.map((q) => {
-          const on = markValue && !hasRangeVal && value === q.day;
-          return (
-            <button
-              key={q.label}
-              type="button"
-              className={"ns-datepick-chip" + (on ? " on" : "")}
-              aria-pressed={markValue ? on : undefined}
-              onClick={() => {
-                setDraftStart(null);
-                if (allowRange && onPickRange) onPickRange(q.day, null);
-                else onPick(q.day);
-              }}
-            >
-              {q.label}
-              <span className="sub">{shortDayKey(q.day)}</span>
-            </button>
-          );
-        })}
-      </div>
-      {effRangeQuick.length > 0 && (
-        <div className="ns-datepick-chips" role="group" aria-label="期間區間快選">
+      {showSingleChips && (
+        <div className="ns-datepick-chips">
+          {quick!.map((q) => {
+            const on = q.day !== "" && markValue && !hasRangeVal && value === q.day;
+            return (
+              <button
+                key={q.label}
+                type="button"
+                className={"ns-datepick-chip" + (on ? " on" : "")}
+                aria-pressed={markValue && q.day !== "" ? on : undefined}
+                onClick={() => {
+                  setDraftStart(null);
+                  setPickingEnd(false);
+                  if (q.day === "") {
+                    onPick("");
+                    return;
+                  }
+                  if (allowRange && onPickRange) onPickRange(q.day, null, false);
+                  else onPick(q.day);
+                }}
+              >
+                {q.label}
+                {q.day && <span className="sub">{shortDayKey(q.day)}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {showRangeChips && (
+        <div className="ns-datepick-chips" role="group" aria-label="期間自由券快選">
           {effRangeQuick.map((rq) => {
-            const on = value === rq.from && endValue === rq.to;
+            const on = !isMultiDay && value === rq.from && endValue === rq.to;
             return (
               <button
                 key={rq.label}
@@ -338,7 +394,8 @@ export function DatePicker({
                 aria-pressed={on}
                 onClick={() => {
                   setDraftStart(null);
-                  if (onPickRange) onPickRange(rq.from, rq.to);
+                  setPickingEnd(false);
+                  if (onPickRange) onPickRange(rq.from, rq.to, false);
                   else onPick(rq.from);
                 }}
               >
@@ -349,12 +406,34 @@ export function DatePicker({
           })}
         </div>
       )}
+      {allowRange && mode === "single" && (
+        <div className="ns-datepick-multibar">
+          <span className="ns-datepick-multihint" aria-live="polite">
+            {pickingEnd
+              ? draftStart
+                ? `起日 ${shortDayKey(draftStart)} — 請點訖日（可換月）`
+                : "先點起日，再點訖日（可換月）"
+              : multiActive && value && endValue
+                ? `多日 ${formatDateRangeBadge(value, endValue)}（點單日轉單日）`
+                : "單點設單日・按住拖曳設多日"}
+          </span>
+          <button
+            type="button"
+            className={"ns-datepick-endbtn" + (pickingEnd ? " is-on" : "")}
+            aria-pressed={pickingEnd}
+            title={pickingEnd ? "取消挑選訖日" : "跨月或點選設定多日乘車日訖日"}
+            onClick={togglePickEnd}
+          >
+            {pickingEnd ? "取消" : multiActive ? "改訖日" : "＋ 訖日"}
+          </button>
+        </div>
+      )}
       {allowRange && mode === "range" && (
         <div className="ns-datepick-rangehint" aria-live="polite">
           {draftStart
             ? `已選起日 ${shortDayKey(draftStart)} — 請點訖日（再點同日＝單日）`
-            : hasRangeVal && value && endValue
-              ? `目前區間：${formatDateRangeBadge(value, endValue)}（點任一日重選起訖）`
+            : hasRangeVal && !isMultiDay && value && endValue
+              ? `目前期間：${formatDateRangeBadge(value, endValue)}（點任一日重選起訖）`
               : "先點起日，再點訖日"}
         </div>
       )}
@@ -362,7 +441,7 @@ export function DatePicker({
         variant="desk"
         value={value}
         endValue={allowRange ? endValue : null}
-        draftStart={allowRange && mode === "range" ? draftStart : null}
+        draftStart={activeDraftStart}
         today={effToday}
         min={min}
         max={max}
@@ -370,6 +449,8 @@ export function DatePicker({
         marksLabel={marksLabel}
         onMonthChange={onMonthChange}
         onPick={handleDayPick}
+        allowDragRange={canDragMulti}
+        onDragRange={canDragMulti ? handleDragRange : undefined}
       />
       {onClear && (
         <div className="ns-datepick-foot">
@@ -380,5 +461,5 @@ export function DatePicker({
       )}
     </div>
   );
-  return anchored ? createPortal(card, document.body) : card;
+  return portaled ? createPortal(card, document.body) : card;
 }

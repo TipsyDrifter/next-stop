@@ -37,7 +37,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { describeRule, parseRule, type NodeRow, type NodeStatus } from "../../domain";
-import { formatDateRangeBadge, isRangeTicket, rangeRemainingDays } from "../../domain/dateRange";
+import {
+  formatDateRangeBadge,
+  formatMultiDayLabel,
+  hasDateSpan,
+  isMultiDayTicket,
+  rangeRemainingDays,
+} from "../../domain/dateRange";
 import type { TodayRow as TodayRowData } from "../../data";
 import { effectiveEstimateMin, isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
 import { isClockPast } from "../../lib/date";
@@ -315,10 +321,11 @@ export function TodayRow({
   const due = row.bucket === "due";
   const paused = row.status === "paused" && !settled;
   /**
-   * 這一列在講的那一天（分區與「原定 M/D」的取法；期間自由券過期時以 scheduled_end 作為原定訖日）。
+   * 這一列在講的那一天（分區與「原定 M/D」的取法；跨日票過期時以 scheduled_end 作為原定訖日）。
    */
-  const isRange = !rule && isRangeTicket(row);
-  const railDate = row.occurrence?.due_on ?? (late && isRange ? row.scheduled_end : row.scheduled_on);
+  const hasSpan = !rule && hasDateSpan(row);
+  const isMulti = !rule && isMultiDayTicket(row);
+  const railDate = row.occurrence?.due_on ?? (late && hasSpan ? row.scheduled_end : row.scheduled_on);
   const effEst = effectiveEstimateMin(row);
   const canSeatHere = !rangeDrawer && !row.seated_into && canActAsSeatSlot(row, settled) && Boolean(railDate);
 
@@ -410,7 +417,7 @@ export function TodayRow({
     <QuickDueChip
       nodeId={row.id}
       dueOn={row.due_on}
-      scheduledOn={chipDate}
+      scheduledOn={row.scheduled_end ?? chipDate}
       today={dateKey}
       className={"chip chip-btn" + (lateChip ? " late" : "")}
       title="點擊修改締切日"
@@ -527,7 +534,7 @@ export function TodayRow({
                 actions.openDefer(row.id, e.currentTarget);
               }}
             >
-              原定 {isRange && row.scheduled_on ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end) : railDate ? mmdd(railDate) : "—"}
+              原定 {hasSpan && row.scheduled_on ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end) : railDate ? mmdd(railDate) : "—"}
             </button>,
             row.due_on ? dueChip(dueLate) : null,
           ]
@@ -544,7 +551,7 @@ export function TodayRow({
                 actions.openDefer(row.id, e.currentTarget);
               }}
             >
-              原定 {isRange && row.scheduled_on ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end) : railDate ? mmdd(railDate) : "—"}
+              原定 {hasSpan && row.scheduled_on ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end) : railDate ? mmdd(railDate) : "—"}
             </button>,
             railDate ? <LateNote days={diffDays(dateKey, railDate)} /> : null,
             carsItem,
@@ -595,7 +602,11 @@ export function TodayRow({
                 ✎ 填入內容…
               </button>
             ) : null,
-            chipDate && chipDate !== dateKey ? deferChip(`執行 ${mmdd(chipDate)}`, false) : null,
+            isMulti && row.scheduled_on && row.scheduled_end
+              ? deferChip(formatMultiDayLabel(row.scheduled_on, row.scheduled_end, dateKey), false)
+              : chipDate && chipDate !== dateKey
+                ? deferChip(`執行 ${mmdd(chipDate)}`, false)
+                : null,
             row.due_on ? dueChip(dueLate) : null,
           ];
 
@@ -816,8 +827,8 @@ export function TodayRow({
             )}
             {/* 原型沒有的控件：締切段的「＋乘車日」（T 鍵才是主要入口），hover／選中才現身；有結局時不畫 */}
             {due && !settled && <span className="meta-hover">{deferChip("＋乘車日", false)}</span>}
-            {/* 原型沒有的控件：與頁首日期重複的那一枚乘車日 chip，hover／選中才現身 */}
-            {!rangeDrawer && !late && !due && (!chipDate || chipDate === dateKey) && (
+            {/* 原型沒有的控件：與頁首日期重複的那一枚乘車日 chip，hover／選中才現身（多日乘車日已常駐顯示進度牌，不重複） */}
+            {!rangeDrawer && !late && !due && !isMulti && (!chipDate || chipDate === dateKey) && (
               <span className="meta-hover">
                 {deferChip(chipDate ? `執行 ${mmdd(chipDate)}` : "＋乘車日", false)}
               </span>
@@ -829,7 +840,7 @@ export function TodayRow({
                   <QuickDueChip
                     nodeId={row.id}
                     dueOn={null}
-                    scheduledOn={chipDate}
+                    scheduledOn={row.scheduled_end ?? chipDate}
                     today={dateKey}
                     className="chip chip-btn"
                     title="排締切日"

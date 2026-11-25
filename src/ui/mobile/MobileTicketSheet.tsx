@@ -79,7 +79,7 @@ import type { AttachKind } from "../notes/useAttachOptions";
 import "../common/moveTo.css";
 import { MobileDatePicker } from "../common/MobileDatePicker";
 import { dateRangeQuickSet } from "../common/DatePicker";
-import { dateQuickSet } from "../common/DateChip";
+import { scheduledQuickSet } from "../common/datePickRules";
 import { MSheet, MSheetItem } from "../common/MSheet";
 import { MobileSeatSheet, canActAsSeatSlot, releaseSeatedFlow } from "../common/seating";
 import { formatDateRangeBadge } from "../../domain/dateRange";
@@ -105,11 +105,13 @@ function md(key: string): string {
 
 export interface MobileTicketSheetProps {
   card: TicketCardModel;
+  /** v1.37 2A-2：是否為多日乘車日（省略時自動從 nodeStore 查詢） */
+  isMultiDay?: boolean;
   today: string;
   /** null＝清除乘車日 */
   onDefer(day: string | null): void;
-  /** 區間改期（4B 期間自由券）；省略時退回單日 onDefer(start) */
-  onDeferRange?(start: string | null, end: string | null): void;
+  /** 區間改期（isMultiDay=true 表多日乘車日，false 表期間自由券）；省略時退回單日 onDefer(start) */
+  onDeferRange?(start: string | null, end: string | null, isMultiDay?: boolean): void;
   /** 定期券版：本班運休（true）／取消運休（false） */
   onSkip(skip: boolean): void;
   /** 每班／單發票的時刻（＋預計）；time=null＝不排時刻；estimateMin 為 undefined＝預計沒變（主線②） */
@@ -159,6 +161,7 @@ export interface MobileTicketSheetProps {
 
 export function MobileTicketSheet({
   card,
+  isMultiDay: isMultiDayProp,
   today,
   onDefer,
   onDeferRange,
@@ -205,6 +208,11 @@ export function MobileTicketSheet({
   /** 「車站…」按下去：子面板要用的節點與路線樹 */
   const [stationPick, setStationPick] = useState<{ node: NodeRow; byId?: Record<string, NodeRow> } | null>(null);
   const allStations = useNodeStore((s) => s.stations);
+  const storeMultiDay = useNodeStore((s) => {
+    const n = s.today.byId[card.nodeId] ?? s.tree.byId[card.nodeId] ?? s.calendar.nodes[card.nodeId];
+    return Boolean(n && n.scheduled_on && n.scheduled_end && n.scheduled_end > n.scheduled_on && n.is_multi_day === 1);
+  });
+  const effMultiDay = isMultiDayProp ?? storeMultiDay;
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const weekStart = useUiStore((s) => s.weekStart);
   const now = useMinuteTick();
@@ -416,7 +424,7 @@ export function MobileTicketSheet({
         value={card.railDate}
         min={today}
         today={today}
-        quick={dateQuickSet("forward", today)}
+        quick={scheduledQuickSet(today, weekStart)}
         onPick={(d) => {
           onClose();
           if (d !== card.railDate) onDefer(d);
@@ -430,21 +438,22 @@ export function MobileTicketSheet({
   if (picking) {
     return (
       <MobileDatePicker
-        title="選乘車日／區間"
+        title="乘車日"
         value={card.scheduledOn}
         endValue={card.scheduledEnd ?? null}
+        isMultiDay={effMultiDay}
         allowRange
         rangeQuick={dateRangeQuickSet(today, weekStart)}
         today={today}
-        quick={dateQuickSet("backward", today)}
+        quick={scheduledQuickSet(today, weekStart)}
         onPick={(d) => {
           onClose();
-          // 挑回現值不動（若原本是區間票，改單日需照送以清掉 scheduled_end）
+          // 挑回現值不動（若原本是跨日票，改單日需照送以清掉 scheduled_end）
           if (d !== card.scheduledOn || Boolean(card.scheduledEnd)) onDefer(d);
         }}
-        onPickRange={(s, e) => {
+        onPickRange={(s, e, multi) => {
           onClose();
-          if (onDeferRange) onDeferRange(s, e);
+          if (onDeferRange) onDeferRange(s, e, multi);
           else onDefer(s);
         }}
         // 清除乘車日（第二輪 #9）：收進日期面板的 foot（同桌機 DatePicker 的「清除」）；本來就沒排就不給
@@ -591,7 +600,7 @@ export function MobileTicketSheet({
             card.ruleTime !== null ? `幾點，目前 ${card.ruleTime}${est !== null ? `・${est} 分` : ""}` : "幾點，目前未排",
           )}
         </div>
-        {card.scheduledEnd && (
+        {card.scheduledEnd && !effMultiDay && (
           <MSheetItem onClick={run(() => onDefer(today))}>
             排今天（轉單日）
             {aside(md(today))}

@@ -18,9 +18,9 @@
  *
  * 樣式在 `./datepicker.css`：桌機 `.ns-datepick-grid*`、手機 `.ns-mdatepick-grid*`（掛 `[data-shell="mobile"]`）。
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useUiStore } from "../../store/uiStore";
-import { dayRangeRole } from "./datePickRules";
+import { dayRangeRole, normalizeDragRange } from "./datePickRules";
 import {
   canShowMonth,
   focusDayOf,
@@ -52,6 +52,10 @@ export interface DayGridProps {
   /** 掛上時一次、之後每次換月：YYYY-MM */
   onMonthChange?(month: string): void;
   onPick(day: string): void;
+  /** 是否允許在月格上按住滑過多格直接拖出多日乘車日（v1.37 2A-2） */
+  allowDragRange?: boolean;
+  /** 按住滑過多格放開後（起訖不同日）提交多日區間 */
+  onDragRange?(start: string, end: string): void;
   /** desk＝桌機小浮層裡（.ns-datepick-grid*）；mobile＝手機底部面板裡（.ns-mdatepick-grid*，格高 44px） */
   variant: "desk" | "mobile";
 }
@@ -70,6 +74,8 @@ export function DayGrid({
   marksLabel,
   onMonthChange,
   onPick,
+  allowDragRange = false,
+  onDragRange,
   variant,
 }: DayGridProps) {
   const weekStart = useUiStore((s) => s.weekStart);
@@ -77,6 +83,20 @@ export function DayGrid({
   /** 鍵盤焦點日（只在 month 裡才有意義；換月時重算） */
   const [focusDay, setFocusDay] = useState(() => focusDayOf(month, value, today, min, max));
   const [hoverDay, setHoverDay] = useState<string | null>(null);
+  /** Pointer Drag 跨格選多日之即時預覽 */
+  const [dragPreview, setDragPreview] = useState<{ start: string; end: string } | null>(null);
+  const dragRef = useRef<{
+    active: boolean;
+    pointerId: number;
+    anchor: string;
+    current: string;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+  const onDragRangeRef = useRef(onDragRange);
+  onDragRangeRef.current = onDragRange;
+  const boundsRef = useRef({ min, max });
+  boundsRef.current = { min, max };
   /** 方向鍵換月後要把真正的 DOM 焦點搬到新格（點箭頭換月時不搬，焦點留在箭頭上） */
   const moveDom = useRef(false);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -92,6 +112,75 @@ export function DayGrid({
     moveDom.current = false;
     gridRef.current?.querySelector<HTMLElement>(`[data-day="${focusDay}"]`)?.focus({ preventScroll: true });
   }, [focusDay, month]);
+
+  // 停用拖曳或切換狀態時清除殘留拖曳狀態
+  useEffect(() => {
+    if (!allowDragRange) {
+      dragRef.current = null;
+      setDragPreview(null);
+    }
+  }, [allowDragRange]);
+
+  useEffect(() => {
+    if (!allowDragRange) return;
+    const updateToDay = (dayKey: string | null) => {
+      const d = dragRef.current;
+      if (!d || !d.active || !dayKey) return;
+      const { min: lo, max: hi } = boundsRef.current;
+      if (!inRange(dayKey, lo, hi)) return;
+      if (dayKey === d.current) return;
+      d.current = dayKey;
+      if (dayKey !== d.anchor) {
+        d.moved = true;
+        const norm = normalizeDragRange(d.anchor, dayKey);
+        if (norm.end) setDragPreview({ start: norm.start, end: norm.end });
+      } else if (d.moved) {
+        setDragPreview({ start: d.anchor, end: d.anchor });
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d || !d.active || e.pointerId !== d.pointerId) return;
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      const btn = hit instanceof Element ? hit.closest<HTMLButtonElement>("button[data-day]") : null;
+      if (!btn || btn.disabled) return;
+      if (gridRef.current && !gridRef.current.contains(btn)) return;
+      updateToDay(btn.dataset.day ?? null);
+    };
+    const finish = (e: PointerEvent, commit: boolean) => {
+      const d = dragRef.current;
+      if (!d || !d.active || e.pointerId !== d.pointerId) return;
+      dragRef.current = null;
+      setDragPreview(null);
+      if (commit && d.moved && d.current !== d.anchor) {
+        const norm = normalizeDragRange(d.anchor, d.current);
+        if (norm.end) {
+          suppressClickRef.current = true;
+          window.setTimeout(() => {
+            suppressClickRef.current = false;
+          }, 0);
+          onDragRangeRef.current?.(norm.start, norm.end);
+        }
+      }
+    };
+    const onUp = (e: PointerEvent) => finish(e, true);
+    const onCancel = (e: PointerEvent) => finish(e, false);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    };
+  }, [allowDragRange]);
+
+  const startDrag = (key: string, pickable: boolean, e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!allowDragRange || !pickable) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    dragRef.current = { active: true, pointerId: e.pointerId, anchor: key, current: key, moved: false };
+    setDragPreview(null);
+  };
 
   const p = variant === "desk" ? "ns-datepick" : "ns-mdatepick";
   const prev = shiftMonth(month, -1);
@@ -122,20 +211,26 @@ export function DayGrid({
   };
 
   const what = marksLabel ?? "有記號";
-  const effStart = draftStart
-    ? hoverDay && hoverDay !== draftStart
-      ? hoverDay < draftStart
-        ? hoverDay
+  const effStart = dragPreview
+    ? dragPreview.start
+    : draftStart
+      ? hoverDay && hoverDay !== draftStart
+        ? hoverDay < draftStart
+          ? hoverDay
+          : draftStart
         : draftStart
-      : draftStart
-    : (value ?? null);
-  const effEnd = draftStart
-    ? hoverDay && hoverDay !== draftStart
-      ? hoverDay < draftStart
-        ? draftStart
-        : hoverDay
+      : (value ?? null);
+  const effEnd = dragPreview
+    ? dragPreview.end !== dragPreview.start
+      ? dragPreview.end
       : null
-    : (endValue ?? null);
+    : draftStart
+      ? hoverDay && hoverDay !== draftStart
+        ? hoverDay < draftStart
+          ? draftStart
+          : hoverDay
+        : null
+      : (endValue ?? null);
 
   return (
     <div className={`${p}-grid`}>
@@ -170,7 +265,7 @@ export function DayGrid({
       </div>
       <div
         ref={gridRef}
-        className={`${p}-days`}
+        className={`${p}-days${allowDragRange ? " can-drag" : ""}`}
         role="group"
         aria-label={`${monthTitle(month)}，方向鍵移動、Enter 選取`}
         onKeyDown={onGridKey}
@@ -214,10 +309,30 @@ export function DayGrid({
               aria-pressed={isSel}
               aria-current={key === today ? "date" : undefined}
               onFocus={() => setFocusDay(key)}
+              onPointerDown={(e) => startDrag(key, pickable, e)}
+              onPointerEnter={() => {
+                const d = dragRef.current;
+                if (d && d.active && pickable && key !== d.current) {
+                  d.current = key;
+                  if (key !== d.anchor) {
+                    d.moved = true;
+                    const norm = normalizeDragRange(d.anchor, key);
+                    if (norm.end) setDragPreview({ start: norm.start, end: norm.end });
+                  } else if (d.moved) {
+                    setDragPreview({ start: d.anchor, end: d.anchor });
+                  }
+                }
+              }}
               onMouseEnter={() => {
                 if (draftStart && pickable) setHoverDay(key);
               }}
-              onClick={() => onPick(key)}
+              onClick={() => {
+                if (suppressClickRef.current) {
+                  suppressClickRef.current = false;
+                  return;
+                }
+                onPick(key);
+              }}
             >
               {n}
               {marked && <i className="dot" aria-hidden />}

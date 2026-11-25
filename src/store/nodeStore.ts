@@ -298,7 +298,7 @@ interface NodeStore {
   /** 臨時車票掛／卸路線標籤（同步寫 line_id） */
   setRouteTag: (ticketId: string, routeId: string | null) => Promise<ActionResult>;
   /** 改執行日的唯一入口：推遲／T／Shift+T／日期 chip／清除執行日；順帶寫繰越、清今日序 */
-  reschedule: (id: string, date: string | null, opts?: { scheduledEnd?: string | null }) => Promise<void>;
+  reschedule: (id: string, date: string | null, opts?: { scheduledEnd?: string | null; isMultiDay?: boolean | number | null }) => Promise<void>;
   /** 把期間自由券拉進今日清單（收斂為單日今日票，清除 scheduled_end） */
   pullRangeTicketToToday: (id: string, todayKey?: string) => Promise<ActionResult>;
   refresh: () => Promise<void>;
@@ -592,7 +592,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   async pullRangeTicketToToday(id, todayKeyArg) {
     const key = todayKeyArg ?? currentDateKey();
     try {
-      await nodeRepo.reschedule(id, key, key, { scheduledEnd: null });
+      await nodeRepo.reschedule(id, key, key, { scheduledEnd: null, isMultiDay: false });
       await get().refresh();
       return { ok: true };
     } catch (e) {
@@ -651,20 +651,24 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     // 執行日一律改道 reschedule：繰越（carried_from）與今日序清空的規則只留一份，
     // 側板日期 chip／T／Shift+T／推遲 popover 走哪條路進來都一樣。
     // repeat_rule 同理改道 setRepeatRule（身分驗證＋掛規則後立刻算目前班次日只留一份，M3 ④）。
-    const { scheduled_on, scheduled_end, repeat_rule, ...rest } = patch;
-    if ("scheduled_on" in patch || "scheduled_end" in patch) {
+    const { scheduled_on, scheduled_end, is_multi_day, repeat_rule, ...rest } = patch;
+    if ("scheduled_on" in patch || "scheduled_end" in patch || "is_multi_day" in patch) {
       // 定期券在這裡會被 repository throw 掉（D-④-3）。那不是「壞掉」而是一句指路：
       // 走 toast＋ActionResult，不寫 error 欄位（紅字橫幅是常駐的，要等下一次成功 refresh 才清）。
       try {
         // 磨光⑦（D-主-67）：日期欄親手選了今天以前 ⇒ 補記（repository 判條件、同一個交易裡済在那一天）
-        const needBefore = opts?.backfill || !("scheduled_on" in patch);
+        const needBefore = opts?.backfill || !("scheduled_on" in patch) || !("scheduled_end" in patch);
         const before = needBefore ? await nodeRepo.getNode(id) : null;
         const targetStart = "scheduled_on" in patch ? (scheduled_on ?? null) : (before?.scheduled_on ?? null);
-        const targetEnd = "scheduled_end" in patch ? (scheduled_end ?? null) : undefined;
+        const targetEnd = "scheduled_end" in patch
+          ? (scheduled_end ?? null)
+          : ("scheduled_on" in patch ? undefined : (before?.scheduled_end ?? null));
+        const targetMultiDay = "is_multi_day" in patch ? (is_multi_day ? 1 : null) : undefined;
         const r = await nodeRepo.reschedule(id, targetStart, currentDateKey(), {
           backfill: opts?.backfill === true && "scheduled_on" in patch,
           dayStartHour: dayStart(),
           scheduledEnd: targetEnd,
+          isMultiDay: targetMultiDay,
         });
         if (r.backfilled && before && scheduled_on) showBackfillToast(id, scheduled_on, before);
       } catch (e) {

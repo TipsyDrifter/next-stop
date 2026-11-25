@@ -13,7 +13,7 @@ import type { Priority } from "../../../domain";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { DatePicker, dateRangeQuickSet } from "../DatePicker";
-import { dateQuickSet } from "../DateChip";
+import { dueQuickSet, scheduledQuickSet } from "../datePickRules";
 import { PopMenu } from "../PopMenu";
 import { PRIORITY_TEXT } from "./quickAddModel";
 import { StopBubble } from "./reattach";
@@ -109,15 +109,12 @@ export function QuickDueChip({
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const weekStart = useUiStore((s) => s.weekStart);
   const close = () => {
     setOpen(false);
     onDone?.();
   };
-  const forward = dateQuickSet("forward", today);
-  const quick =
-    scheduledOn && !forward.some((q) => q.day === scheduledOn)
-      ? [{ label: "＝同乘車日", day: scheduledOn }, ...forward]
-      : forward;
+  const quick = dueQuickSet(today, { scheduledOn, weekStart });
   return (
     <>
       <button
@@ -174,6 +171,7 @@ export function QuickExecChip({
   nodeId,
   scheduledOn,
   scheduledEnd = null,
+  isMultiDay = false,
   today,
   className,
   title = "點擊設定或修改乘車日",
@@ -183,6 +181,7 @@ export function QuickExecChip({
   nodeId: string;
   scheduledOn: string | null;
   scheduledEnd?: string | null;
+  isMultiDay?: boolean;
   today: string;
   className: string;
   title?: string;
@@ -223,22 +222,34 @@ export function QuickExecChip({
             label="乘車日"
             value={scheduledOn}
             endValue={scheduledEnd}
+            isMultiDay={isMultiDay}
             allowRange
             rangeQuick={dateRangeQuickSet(today, weekStart)}
             markValue={Boolean(scheduledOn)}
             today={today}
-            quick={dateQuickSet("forward", today)}
+            quick={scheduledQuickSet(today, weekStart)}
             onPick={(d) => {
               setOpen(false);
-              if (d !== scheduledOn || scheduledEnd !== null) {
-                if (d < today) void useNodeStore.getState().updateNode(nodeId, { scheduled_on: d, scheduled_end: null }, { backfill: true });
-                else void useNodeStore.getState().reschedule(nodeId, d);
+              if (d !== scheduledOn || scheduledEnd !== null || isMultiDay) {
+                if (d < today) {
+                  void useNodeStore
+                    .getState()
+                    .updateNode(nodeId, { scheduled_on: d, scheduled_end: null, is_multi_day: null }, { backfill: true });
+                } else {
+                  void useNodeStore.getState().reschedule(nodeId, d, { scheduledEnd: null, isMultiDay: false });
+                }
               }
               onDone?.();
             }}
-            onPickRange={(s, e) => {
+            onPickRange={(s, e, multi) => {
               setOpen(false);
-              void useNodeStore.getState().reschedule(nodeId, s, { scheduledEnd: e });
+              if (!e && s < today) {
+                void useNodeStore
+                  .getState()
+                  .updateNode(nodeId, { scheduled_on: s, scheduled_end: null, is_multi_day: null }, { backfill: true });
+              } else {
+                void useNodeStore.getState().reschedule(nodeId, s, { scheduledEnd: e, isMultiDay: Boolean(multi) });
+              }
               onDone?.();
             }}
             onClear={

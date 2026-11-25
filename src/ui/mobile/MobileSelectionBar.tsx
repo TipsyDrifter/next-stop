@@ -35,7 +35,7 @@ import { useTagStore } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
 import { routeStations } from "../board/useRouteBoard";
 import { ClockInput } from "../common/ClockInput";
-import { dateQuickSet } from "../common/DateChip";
+import { dueQuickSet, scheduledQuickSet } from "../common/datePickRules";
 import { DurationPicker } from "../common/DurationPicker";
 import { MSheet, MSheetItem } from "../common/MSheet";
 import { MobileAttachPicker } from "../common/MobileAttachPicker";
@@ -158,6 +158,7 @@ export function MobileSelectionBar({ scope, lookup = nodeOf }: { scope: Selectio
     if (!active) setSheet(null);
   }, [active]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
 
   const treeVer = useNodeStore((s) => s.tree);
   const todayVer = useNodeStore((s) => s.today);
@@ -433,7 +434,7 @@ export function MobileSelectionBar({ scope, lookup = nodeOf }: { scope: Selectio
           title={`改乘車日・${count} 張`}
           value={sameDay}
           today={today}
-          quick={dateQuickSet("forward", today)}
+          quick={scheduledQuickSet(today, weekStart)}
           onPick={(d) => run((cur) => batchSetDate(cur, d))()}
           onClear={run((cur) => batchSetDate(cur, null))}
           clearLabel="清除乘車日"
@@ -447,10 +448,7 @@ export function MobileSelectionBar({ scope, lookup = nodeOf }: { scope: Selectio
           title={`改締切日・${count} 張`}
           value={sameDue}
           today={today}
-          quick={[
-            ...(anyHasScheduled ? [{ label: "＝同乘車日", day: "" }] : []),
-            ...dateQuickSet("forward", today),
-          ]}
+          quick={dueQuickSet(today, { dynamicSync: anyHasScheduled, weekStart })}
           onPick={(d) => run((cur) => batchSetDue(cur, d === "" ? "sync" : d))()}
           onClear={anyHasDue ? run((cur) => batchSetDue(cur, null)) : undefined}
           clearLabel="清除締切日"
@@ -946,7 +944,7 @@ function MobileBatchRepeatSheet({
           value={datePick === "start" ? draft.start : draft.until}
           min={datePick === "until" ? draft.start : undefined}
           today={today}
-          quick={dateQuickSet("forward", today)}
+          quick={scheduledQuickSet(today, useUiStore.getState().weekStart)}
           backId={REPEAT_DATE_LAYER}
           backKind="dialog"
           onPick={(d) => {

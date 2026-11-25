@@ -18,8 +18,31 @@ import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 
 export type MobileSub = "today" | "schedule";
-/** 手機行程表子頁的版面：串流（清單）或 3 天時段（主線② D-主-11） */
-export type MobileLayout = "stream" | "time";
+/** 手機行程表子頁的版面：串流（清單）、精練週見開き或 3 天時段（v1.37 2A-3 補齊週檢視） */
+export type MobileLayout = "stream" | "week" | "time";
+
+const MOBILE_LAYOUT_KEY = "ns.mobile.scheduleLayout";
+
+function readPersistedMobileLayout(): MobileLayout {
+  if (typeof window === "undefined") return "stream";
+  try {
+    const raw = window.localStorage.getItem(MOBILE_LAYOUT_KEY);
+    if (raw === "week" || raw === "stream") return raw;
+  } catch {
+    // 忽略隱私模式或儲存不可用
+  }
+  return "stream";
+}
+
+function writePersistedMobileLayout(v: MobileLayout): void {
+  if (typeof window === "undefined") return;
+  if (v !== "stream" && v !== "week") return;
+  try {
+    window.localStorage.setItem(MOBILE_LAYOUT_KEY, v);
+  } catch {
+    // 忽略儲存錯誤
+  }
+}
 
 export interface ScheduleUiState {
   /** 手機今日 tab 的子頁（P4：同一次開啟期間記住；冷啟動＝"today"） */
@@ -67,15 +90,18 @@ function detectInitialSub(): MobileSub {
   }
 }
 
-/** dev／mock 專用：`?layout=time` 讓手機行程表直接落在 3 天時段（與 `?sub=` 同款自讀；正式打包不生效） */
+/** dev／mock 專用：`?layout=week|time|stream` 覆蓋手機行程表初始版面；正式打包讀取持久化設定 */
 function detectInitialLayout(): MobileLayout {
-  if (!import.meta.env.DEV && !MOCK_MODE) return "stream";
   if (typeof window === "undefined") return "stream";
-  try {
-    return new URLSearchParams(window.location.search).get("layout") === "time" ? "time" : "stream";
-  } catch {
-    return "stream";
+  if (import.meta.env.DEV || MOCK_MODE) {
+    try {
+      const q = new URLSearchParams(window.location.search).get("layout");
+      if (q === "time" || q === "week" || q === "stream") return q;
+    } catch {
+      // ignore
+    }
   }
+  return readPersistedMobileLayout();
 }
 
 export const useScheduleUiStore: UseBoundStore<StoreApi<ScheduleUiState>> = create<ScheduleUiState>()((set, get) => ({
@@ -121,7 +147,10 @@ export const useScheduleUiStore: UseBoundStore<StoreApi<ScheduleUiState>> = crea
   },
 
   mobileLayout: detectInitialLayout(),
-  setMobileLayout: (v) => set({ mobileLayout: v }),
+  setMobileLayout: (v) => {
+    writePersistedMobileLayout(v);
+    set({ mobileLayout: v });
+  },
 
   streamEmpty: false,
   setStreamEmpty: (v) => {

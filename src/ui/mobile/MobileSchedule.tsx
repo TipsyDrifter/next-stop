@@ -43,17 +43,27 @@
  *   - 滑動手勢：右滑＝蓋済（同検印 actions.stamp）、左滑＝⋯ 第一格（明天／晚一天；定期券＝本班運休）。
  *   - 每天各有自己的清單容器（DragList）：共用元件把「清單自己裡面的落點」當縫不當外部落點，所以容器不能是整條串流。
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import type { NodeRow } from "../../domain";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { isTaskKind, WEEKDAY_LABEL, type NodeRow } from "../../domain";
+import {
+  compareRangeDrawerRows,
+  formatDateRangeBadge,
+  hasDateSpan,
+  isFlexibleRangeTicket,
+  isMultiDayTicket,
+} from "../../domain/dateRange";
+import { effectiveEstimateMin } from "../../domain/scheduledTime";
 import { dayCount, dayCountParts } from "../../domain/dayCount";
-import { REPEAT_RESCHEDULE_MSG, type DueEntry } from "../../data";
+import { REPEAT_RESCHEDULE_MSG, type DueEntry, type ScheduleEntry } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { useWeekAimStore } from "../../store/weekAimStore";
 import { addDays } from "../../lib/date";
 import { dayRowModel, mmdd } from "../calendar/DayRow";
-import { addMonths, monthEnd, monthStart } from "../calendar/useCalendarController";
+import { formatEstHours } from "../calendar/multiDayRibbon";
+import { addMonths, dateOf, monthEnd, monthStart, weekStart } from "../calendar/useCalendarController";
 import { useStream } from "../schedule/useStream";
-import { useScheduleUiStore } from "../schedule/scheduleUiStore";
+import { useScheduleUiStore, type MobileLayout } from "../schedule/scheduleUiStore";
 import { mdw, type StreamDaySection, type StreamEdgeSection, type StreamGapSection } from "../schedule/streamModel";
 import { cardFromDayRow, cardFromDue, type TicketCardModel } from "../schedule/ticketCard";
 import { makeScheduleActions, type ScheduleTarget } from "../schedule/scheduleActions";
@@ -66,7 +76,7 @@ import { MobileTicketSheet } from "./MobileTicketSheet";
 import { NodeCrumb } from "../common/NodeCrumb";
 import { EntityTagPills } from "../common/TagPills";
 import { moveNodeTo } from "../common/moveTo";
-import { moveRunFlow } from "../outline/nodeFlows";
+import { moveRunFlow, toggleStopoverFlow } from "../outline/nodeFlows";
 import { useSubSwipe } from "./MobileSegmentedBar";
 import { useBackLayer } from "./backStack";
 import { logTicket, renameTicket } from "./useMobileToday";
@@ -79,13 +89,15 @@ import { SETTLED_DEFER_MSG } from "./useMobileToday";
 import { MobileSelectionBar } from "./MobileSelectionBar";
 import { dismissSelectionOnBlankClick } from "../common/selection/desktopSelection";
 import { isSelecting, pressSelect, tapSelect, usePressedSwipe, usePruneSelection, useScopeSelection, type SwipePair } from "./mobileSelect";
-import { IconChevron, IconPlus } from "../common/icons";
+import { IconBack, IconChevron, IconPlus } from "../common/icons";
 import { MobileQuickAdd, NO_DEST, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import "../schedule/schedule-mobile.css";
 import { MobileWeekAims } from "../weekAims/MobileWeekAims";
-import { StationMark } from "../weekAims/parts";
+import { AimStamp, StationMark } from "../weekAims/parts";
 import { useStationCard } from "../weekAims/StationCard";
-import { periodOfKey, periodRangeOf, stationDayMarks, type AimPeriod, type StationDayMark } from "../../domain/weekAims";
+import { useAimView } from "../weekAims/useWeekAims";
+import { WeekAimsEditorHost } from "../weekAims/WeekAimsEditor";
+import { aimNumeral, periodOfKey, periodRangeOf, stationDayMarks, weekOnOf, type AimPeriod, type StationDayMark } from "../../domain/weekAims";
 import { useAimLanding } from "../search/aimLanding";
 import { compareSiblings } from "../../domain/nodeOrder";
 import { MobileAimsLine } from "../weekAims/MobileAimsLine";
@@ -184,15 +196,27 @@ export function MobileSchedule() {
   const layout = useScheduleUiStore((s) => s.mobileLayout);
   const now = useMinuteTick();
 
-  /* ───────── 時段排法（主線②）：頁、切換、對齊串流 ───────── */
+  /* ───────── 時段排法（主線②）與精練週檢視（v1.37 2A-3）：頁、切換、對齊串流 ───────── */
   const timeRef = useRef<MobileTimeDaysHandle | null>(null);
   /** 時段那一頁的第一天（從今天對齊）；切進時段時由串流的 focusDay 換算 */
   const [tgPage, setTgPage] = useState(() => pageStartOf(useScheduleUiStore.getState().focusDay ?? today, today));
+  /** 精練週見開き目前看的錨點日 */
+  const [weekAnchor, setWeekAnchor] = useState(() => useScheduleUiStore.getState().focusDay ?? today);
+  const weekMovedRef = useRef(false);
   /** 在時段裡換過頁 ⇒ 切回清單時要把串流對齊過去 */
   const tgMovedRef = useRef(false);
   const isTime = layout === "time";
-  /** 週條／月曆的「目前這天」：時段排法吃頁首、清單吃 scroll-spy */
-  const shownFocus = isTime ? tgPage : focusDay;
+  const isWeek = layout === "week";
+  const underStream = isTime || isWeek;
+  /** 週條／月曆的「目前這天」：時段吃頁首、週見開き吃錨點日、清單吃 scroll-spy */
+  const shownFocus = isTime ? tgPage : isWeek ? weekAnchor : focusDay;
+  const activeWeekStart = useMemo(() => weekStart(weekAnchor, firstDow), [weekAnchor, firstDow]);
+
+  // 週見開き切週時確保整週 7 天資料皆在切片內
+  useEffect(() => {
+    if (!isWeek) return;
+    ensureLoaded(activeWeekStart, addDays(activeWeekStart, 6));
+  }, [isWeek, activeWeekStart, ensureLoaded]);
 
   const actions = useMemo(() => makeScheduleActions("mobile"), []);
   const [freshKey, setFreshKey] = useState<string | null>(null);
@@ -264,11 +288,20 @@ export function MobileSchedule() {
   const onWeekSettle = useCallback(
     (first: string) => {
       const last = addDays(first, 6);
+      if (isWeek) {
+        if (weekAnchor < first || weekAnchor > last) {
+          weekMovedRef.current = true;
+          setWeekAnchor(first);
+        }
+        if (!calOpen) setLabel(ymOf(addDays(first, 3)));
+        ensureLoaded(first, last);
+        return;
+      }
       const focus = isTime ? tgPage : (useScheduleUiStore.getState().focusDay ?? today);
       if (!calOpen && (focus < first || focus > last)) setLabel(ymOf(addDays(first, 3)));
       ensureLoaded(first, last);
     },
-    [calOpen, ensureLoaded, today, isTime, tgPage],
+    [calOpen, ensureLoaded, today, isTime, isWeek, tgPage, weekAnchor],
   );
 
   const showMonth = useCallback(
@@ -302,17 +335,23 @@ export function MobileSchedule() {
     },
     [label, showMonth],
   );
-  /** 跳到某天：清單＝串流 goTo；時段＝捲到含那天的頁 */
+  /** 跳到某天：清單＝串流 goTo；週見開き＝對齊該日所在週；時段＝捲到含那天的頁 */
   const goDay = useCallback(
     (day: string) => {
-      if (useScheduleUiStore.getState().mobileLayout === "time") {
+      const curLayout = useScheduleUiStore.getState().mobileLayout;
+      if (curLayout === "time") {
         // 時段排法也夾到資料下界（同 jump）：週條往回捲很遠時不落在沒有資料的空白頁，兩種排法落點一致
         const b = api.bounds;
         tgMovedRef.current = true;
         timeRef.current?.goToDay(b && b.earliest !== null && day < b.earliest ? b.earliest : day);
+      } else if (curLayout === "week") {
+        weekMovedRef.current = true;
+        setWeekAnchor(day);
+        const ws = weekStart(day, firstDow);
+        ensureLoaded(ws, addDays(ws, 6));
       } else jump(day);
     },
-    [jump, api.bounds],
+    [jump, api.bounds, firstDow, ensureLoaded],
   );
   const pickFromCal = useCallback(
     (day: string) => {
@@ -323,30 +362,45 @@ export function MobileSchedule() {
   );
   const onToday = useCallback(() => {
     if (calOpen) closeCal();
-    if (useScheduleUiStore.getState().mobileLayout === "time") {
+    const curLayout = useScheduleUiStore.getState().mobileLayout;
+    if (curLayout === "time") {
       tgMovedRef.current = true;
       timeRef.current?.goToday();
+    } else if (curLayout === "week") {
+      weekMovedRef.current = true;
+      setWeekAnchor(today);
     } else goToday();
-  }, [calOpen, closeCal, goToday]);
+  }, [calOpen, closeCal, goToday, today]);
 
   /** 切回清單時要把串流對齊到的那一天（null＝不動） */
   const streamAlignRef = useRef<string | null>(null);
   const onLayout = useCallback(
-    (v: "stream" | "time") => {
+    (v: MobileLayout) => {
       const ui = useScheduleUiStore.getState();
       if (v === ui.mobileLayout) return;
       if (v === "time") {
         // 進時段：落在含串流目前那天的頁（從今天對齊）
         tgMovedRef.current = false;
         setTgPage(pageStartOf(ui.focusDay ?? today, today));
-      } else if (tgMovedRef.current) {
+      } else if (v === "week") {
+        weekMovedRef.current = false;
+        const base = ui.mobileLayout === "time" ? tgPage : (ui.focusDay ?? today);
+        setWeekAnchor(base);
+      } else if (ui.mobileLayout === "time" && tgMovedRef.current) {
         // 回清單：在時段裡換過頁才把串流對齊過去（沒動就留在原本的位置）；等串流露出來（下面的 effect）再捲
         streamAlignRef.current = tgPage;
+      } else if (ui.mobileLayout === "week" && weekMovedRef.current) {
+        streamAlignRef.current = weekAnchor;
       }
       ui.setMobileLayout(v);
     },
-    [today, tgPage],
+    [today, tgPage, weekAnchor],
   );
+  /** 從手機精練週見開き點任一天：切回串流並定位到那一天 */
+  const openDayFromWeek = useCallback((day: string) => {
+    streamAlignRef.current = day;
+    useScheduleUiStore.getState().setMobileLayout("stream");
+  }, []);
   useEffect(() => {
     if (layout !== "stream" || !streamAlignRef.current) return;
     const day = streamAlignRef.current;
@@ -559,18 +613,22 @@ export function MobileSchedule() {
         onLayout={onLayout}
         visibleDays={isTime ? tgVisible : null}
       />
-      {/* 方針（戊 D-主-262；辛 §7）：週條下方一行，看週條那一週；展開月曆時看月曆翻到的那個月 */}
-      {calOpen ? <MobileAimsLine aimKey={`M${label.y}-${String(label.m + 1).padStart(2, "0")}`} /> : <MobileWeekAims day={shownFocus ?? today} />}
+      {/* 方針（戊 D-主-262；辛 §7）：串流看週條那一週；展開月曆看月曆翻到的那個月；週見開き已內嵌於第 8 卡，不重複顯示 */}
+      {calOpen ? (
+        <MobileAimsLine aimKey={`M${label.y}-${String(label.m + 1).padStart(2, "0")}`} />
+      ) : !isWeek ? (
+        <MobileWeekAims day={shownFocus ?? today} />
+      ) : null}
       <div className="m-sch-main">
         <div
-          className={"m-sch-stream" + (isTime ? " is-under" : "")}
+          className={"m-sch-stream" + (underStream ? " is-under" : "")}
           ref={streamRef}
           onScroll={onScroll}
           onClick={dismissSelectionOnBlankClick}
           tabIndex={-1}
           aria-label="行程表列表"
-          aria-hidden={isTime || undefined}
-          inert={isTime || undefined}
+          aria-hidden={underStream || undefined}
+          inert={underStream || undefined}
         >
           {sections.map((sec) => {
             if (sec.kind === "edge" && sec.side === "before") {
@@ -618,6 +676,23 @@ export function MobileSchedule() {
             ・・・
           </div>
         </div>
+        {isWeek && (
+          <MobileWeekSpread
+            weekStart={activeWeekStart}
+            today={today}
+            firstDow={firstDow}
+            entries={calendar.entries}
+            dues={calendar.dues}
+            nodes={calendar.nodes}
+            routeById={routeById}
+            onShiftWeek={(delta) => {
+              weekMovedRef.current = true;
+              setWeekAnchor((cur) => addDays(cur, delta * 7));
+            }}
+            onOpenDay={openDayFromWeek}
+            onOpenTicket={openSheet}
+          />
+        )}
         {isTime && (
           <MobileTimeDays
             handleRef={timeRef}
@@ -1050,6 +1125,399 @@ function DayQuickAdd({
   return (
     <div ref={wrapRef} className="m-sch-draft m-sch-qawrap">
       <MobileQuickAdd defaults={defaults} here={here} placeholder={`在 ${mmdd(day)} 新增車票…`} onClose={onClose} />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 手機行程表精練週檢視（v1.37 2A-3）：雙欄跨頁 7 日卡 ＋ 第 8 張「本週總覽」卡
+ * ═══════════════════════════════════════════════════════ */
+
+const MOBILE_WEEK_MAX_ITEMS = 4;
+
+type MobileCssVars = CSSProperties & Record<`--${string}`, string>;
+
+function MobileWeekSpread({
+  weekStart: ws,
+  today,
+  firstDow,
+  entries,
+  dues,
+  nodes,
+  routeById,
+  onShiftWeek,
+  onOpenDay,
+  onOpenTicket,
+}: {
+  weekStart: string;
+  today: string;
+  firstDow: 0 | 1;
+  entries: readonly ScheduleEntry[];
+  dues: readonly DueEntry[];
+  nodes: Record<string, NodeRow>;
+  routeById: ReadonlyMap<string, NodeRow>;
+  onShiftWeek(delta: -1 | 1): void;
+  onOpenDay(day: string): void;
+  onOpenTicket(ref: SheetRef): void;
+}) {
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(ws, i)), [ws]);
+  const weekEnd = days[6];
+  const weekAimKey = weekOnOf(ws, firstDow);
+  const aimView = useAimView(weekAimKey);
+  const openWorkbench = () => useWeekAimStore.getState().openEditor(weekAimKey);
+
+  const allNodes = useMemo(() => Object.values(nodes), [nodes]);
+
+  // 本週多日乘車日票（依起始日排序）
+  const multiDayTickets = useMemo(
+    () =>
+      allNodes
+        .filter(
+          (n) =>
+            n.deleted_at === null &&
+            isMultiDayTicket(n) &&
+            n.scheduled_on !== null &&
+            n.scheduled_end !== null &&
+            n.scheduled_on <= weekEnd &&
+            n.scheduled_end >= ws,
+        )
+        .sort((a, b) => (a.scheduled_on ?? "").localeCompare(b.scheduled_on ?? "") || a.id.localeCompare(b.id)),
+    [allNodes, ws, weekEnd],
+  );
+
+  // 本週期間自由券（未結案在前）
+  const flexTickets = useMemo(() => {
+    const list = allNodes.filter(
+      (n) =>
+        n.deleted_at === null &&
+        isFlexibleRangeTicket(n) &&
+        n.scheduled_on !== null &&
+        n.scheduled_end !== null &&
+        n.scheduled_on <= weekEnd &&
+        n.scheduled_end >= ws,
+    );
+    const unsettled = list.filter((n) => n.status !== "done" && n.status !== "paused").sort(compareRangeDrawerRows);
+    const settled = list.filter((n) => n.status === "done" || n.status === "paused").sort(compareRangeDrawerRows);
+    return [...unsettled, ...settled];
+  }, [allNodes, ws, weekEnd]);
+
+  // 依日分組（班次、締切、預估分鐘、統計）
+  const weekData = useMemo(() => {
+    const entriesByDay = new Map<string, ScheduleEntry[]>();
+    const duesByDay = new Map<string, DueEntry[]>();
+    const estByDay = new Map<string, number>();
+    let total = 0;
+    let done = 0;
+    let totalEstMin = 0;
+    let totalDues = 0;
+
+    for (const e of entries) {
+      if (e.date < ws || e.date > weekEnd) continue;
+      total++;
+      if (e.is_done) done++;
+      const node = nodes[e.node_id];
+      if (node && (isMultiDayTicket(node) || isFlexibleRangeTicket(node))) continue;
+      const list = entriesByDay.get(e.date) ?? [];
+      list.push(e);
+      entriesByDay.set(e.date, list);
+      if (e.occurrence_status !== "skipped" && node && node.status !== "paused" && !hasDateSpan(node)) {
+        const est = effectiveEstimateMin({ estimate_min: node.estimate_min, seated_into: e.seated_into ?? null });
+        if (est && est > 0) {
+          estByDay.set(e.date, (estByDay.get(e.date) ?? 0) + est);
+          totalEstMin += est;
+        }
+      }
+    }
+
+    for (const d of dues) {
+      if (d.date < ws || d.date > weekEnd) continue;
+      totalDues++;
+      const list = duesByDay.get(d.date) ?? [];
+      list.push(d);
+      duesByDay.set(d.date, list);
+    }
+
+    return { entriesByDay, duesByDay, estByDay, total, done, totalEstMin, totalDues };
+  }, [entries, dues, nodes, ws, weekEnd]);
+
+  const toggleFlexDone = (node: NodeRow) => {
+    if (node.status === "paused") {
+      void toggleStopoverFlow(node.id);
+      return;
+    }
+    const next = node.status !== "done";
+    void useNodeStore.getState().setCompleted(node.id, next);
+    const ui = useUiStore.getState();
+    if (next && (isTaskKind(node.kind) || node.kind === "ticket")) ui.setCompleteCardFor(node.id);
+    else if (!next && ui.completeCardFor === node.id) ui.setCompleteCardFor(null);
+  };
+
+  const rangeHeading = formatDateRangeBadge(ws, weekEnd);
+  const weekEstLabel = formatEstHours(weekData.totalEstMin);
+
+  return (
+    <div className="m-wk-spread" aria-label="本週精練見開き">
+      {/* 週區間翻頁列 */}
+      <div className="m-wk-bar">
+        <button
+          type="button"
+          className="m-wk-navbtn"
+          aria-label="上一週"
+          onClick={() => onShiftWeek(-1)}
+        >
+          <IconBack size={16} />
+        </button>
+        <span className="m-wk-range-title">{rangeHeading}</span>
+        <button
+          type="button"
+          className="m-wk-navbtn"
+          aria-label="下一週"
+          onClick={() => onShiftWeek(1)}
+        >
+          <IconChevron size={16} />
+        </button>
+      </div>
+
+      {/* 本週多日乘車日色帶區 */}
+      {multiDayTickets.length > 0 && (
+        <div className="m-wk-ribbons" aria-label="本週多日行程">
+          {multiDayTickets.map((node) => {
+            const route = node.route_id ? routeById.get(node.route_id) : undefined;
+            const range = node.scheduled_on ? formatDateRangeBadge(node.scheduled_on, node.scheduled_end) : "";
+            const firstInWeek = node.scheduled_on && node.scheduled_on > ws ? node.scheduled_on : ws;
+            const done = node.status === "done";
+            const paused = node.status === "paused";
+            const late = !done && !paused && node.scheduled_end !== null && node.scheduled_end < today;
+            return (
+              <button
+                key={node.id}
+                type="button"
+                className={
+                  "m-wk-ribbon" + (done ? " is-done" : "") + (paused ? " is-paused" : "") + (late ? " is-late" : "")
+                }
+                style={{ "--ribbon-c": route?.color ?? "var(--route-none)" } as MobileCssVars}
+                onClick={() => onOpenTicket({ kind: "entry", nodeId: node.id, date: firstInWeek })}
+              >
+                <span className="m-wk-ribbon-name">{node.name}</span>
+                {range && <span className="m-wk-ribbon-range">{range}</span>}
+                {done && <span className="m-wk-ribbon-seal">済</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 雙欄精練跨頁：7 日卡 ＋ 第 8 張本週總覽 */}
+      <div className="m-wk-grid">
+        {days.map((day, idx) => {
+          const d = dateOf(day);
+          const dow = d.getDay();
+          const isToday = day === today;
+          const isPast = day < today;
+          const dayEntries = weekData.entriesByDay.get(day) ?? [];
+          const dayDues = weekData.duesByDay.get(day) ?? [];
+          const estLabel = formatEstHours(weekData.estByDay.get(day) ?? 0);
+          const coveredMulti = multiDayTickets.filter(
+            (n) => n.scheduled_on !== null && n.scheduled_end !== null && n.scheduled_on <= day && day <= n.scheduled_end,
+          );
+          const shown = dayEntries.slice(0, MOBILE_WEEK_MAX_ITEMS);
+          const rest = dayEntries.length - shown.length;
+          const numText = idx === 0 || day.endsWith("-01") ? `${d.getMonth() + 1}/${d.getDate()}` : `${d.getDate()}`;
+
+          return (
+            <article
+              key={day}
+              className={"m-wk-day" + (isToday ? " is-today" : "") + (isPast ? " is-past" : "")}
+            >
+              {coveredMulti.length > 0 && (
+                <div className="m-wk-day-bands" aria-hidden>
+                  {coveredMulti.slice(0, 3).map((n) => {
+                    const rt = n.route_id ? routeById.get(n.route_id) : undefined;
+                    return (
+                      <span
+                        key={n.id}
+                        className="m-wk-day-band"
+                        style={{ background: rt?.color ?? "var(--route-none)" }}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="m-wk-day-head"
+                aria-label={`${d.getMonth() + 1}月${d.getDate()}日 週${WEEKDAY_LABEL[dow]}，切換到串流檢視`}
+                onClick={() => onOpenDay(day)}
+              >
+                <span className="m-wk-day-date">
+                  <span className="m-wk-day-wd">{WEEKDAY_LABEL[dow]}</span>
+                  <span className="m-wk-day-num">{numText}</span>
+                </span>
+                <span className="m-wk-day-meta">
+                  {estLabel && <span className="m-wk-day-est">{estLabel}</span>}
+                  {dayEntries.length > 0 && <span className="m-wk-day-cnt">{dayEntries.length}</span>}
+                  {dayDues.length > 0 && <span className="m-wk-day-due">〆{dayDues.length > 1 ? dayDues.length : ""}</span>}
+                </span>
+              </button>
+
+              <div className="m-wk-day-body">
+                {shown.length === 0 && dayDues.length === 0 ? (
+                  <button
+                    type="button"
+                    className="m-wk-empty"
+                    onClick={() => onOpenDay(day)}
+                  >
+                    —
+                  </button>
+                ) : (
+                  <>
+                    {shown.map((e) => {
+                      const node = nodes[e.node_id];
+                      const rt = node?.route_id ? routeById.get(node.route_id) : undefined;
+                      const paused = node?.status === "paused" && !e.is_done && e.occurrence_status !== "skipped";
+                      return (
+                        <button
+                          key={`${e.date}-${e.node_id}`}
+                          type="button"
+                          className={
+                            "m-wk-item" +
+                            (e.is_done ? " is-done" : "") +
+                            (e.occurrence_status === "skipped" || paused ? " is-muted" : "") +
+                            (e.is_late && !paused ? " is-late" : "")
+                          }
+                          onClick={() => onOpenTicket({ kind: "entry", nodeId: e.node_id, date: e.date })}
+                        >
+                          <i
+                            className="m-wk-item-dot"
+                            style={{ background: rt?.color ?? "var(--route-none)" }}
+                            aria-hidden
+                          />
+                          {e.time && <span className="m-wk-item-tm">{e.time}</span>}
+                          <span className="m-wk-item-nm">{e.custom_title || node?.name || ""}</span>
+                        </button>
+                      );
+                    })}
+                    {rest > 0 && (
+                      <button type="button" className="m-wk-more" onClick={() => onOpenDay(day)}>
+                        ＋{rest} 張
+                      </button>
+                    )}
+                    {dayDues.slice(0, 2).map((due) => {
+                      const node = nodes[due.node_id];
+                      if (!node) return null;
+                      return (
+                        <button
+                          key={`due-${due.date}-${due.node_id}`}
+                          type="button"
+                          className="m-wk-due-row"
+                          onClick={() =>
+                            node.scheduled_on
+                              ? onOpenDay(node.scheduled_on)
+                              : onOpenTicket({ kind: "due", nodeId: node.id, date: due.date })
+                          }
+                        >
+                          <span className="m-wk-due-mk" aria-hidden>
+                            〆
+                          </span>
+                          <span className="m-wk-due-nm">{node.name}</span>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            </article>
+          );
+        })}
+
+        {/* 第 8 張卡：本週總覽（方針・期間自由券・本週小結） */}
+        <article className="m-wk-summary" aria-label="本週總覽">
+          <div className="m-wk-sum-head">
+            <span className="m-wk-sum-ttl">本週總覽</span>
+            <button type="button" className="m-wk-sum-edit" onClick={openWorkbench}>
+              {aimView.aims.length > 0 ? "改方針" : "寫方針"}
+            </button>
+          </div>
+
+          <div className="m-wk-sum-sec">
+            <div className="m-wk-sum-k">
+              方針
+              {aimView.count.total > 0 && (
+                <span>
+                  {" "}
+                  済 {aimView.count.done}/{aimView.count.total}
+                </span>
+              )}
+            </div>
+            {aimView.aims.length === 0 ? (
+              <p className="m-wk-sum-empty">還沒寫本週方針</p>
+            ) : (
+              <ol className="m-wk-aim-list">
+                {aimView.aims.slice(0, 4).map((aim, i) => (
+                  <li key={aim.id} className={"m-wk-aim-row" + (aim.done_at ? " is-done" : "")}>
+                    <span className="m-wk-aim-num">{aimNumeral(i)}</span>
+                    <span className="m-wk-aim-txt">{aim.text}</span>
+                    <AimStamp aim={aim} />
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          <div className="m-wk-sum-sec">
+            <div className="m-wk-sum-k">
+              期間自由券{flexTickets.length > 0 ? ` · ${flexTickets.length}` : ""}
+            </div>
+            {flexTickets.length === 0 ? (
+              <p className="m-wk-sum-empty">本週無期間自由券</p>
+            ) : (
+              <ul className="m-wk-flex-list">
+                {flexTickets.slice(0, 4).map((node) => {
+                  const done = node.status === "done";
+                  const range = node.scheduled_on ? formatDateRangeBadge(node.scheduled_on, node.scheduled_end) : "";
+                  const firstInWeek = node.scheduled_on && node.scheduled_on > ws ? node.scheduled_on : ws;
+                  return (
+                    <li key={node.id} className={"m-wk-flex-row" + (done ? " is-done" : "")}>
+                      <button
+                        type="button"
+                        className="m-wk-flex-st"
+                        aria-pressed={done}
+                        aria-label={done ? `取消完成：${node.name}` : `蓋章完成：${node.name}`}
+                        onClick={() => toggleFlexDone(node)}
+                      >
+                        {done ? "済" : ""}
+                      </button>
+                      <button
+                        type="button"
+                        className="m-wk-flex-nm"
+                        onClick={() => onOpenTicket({ kind: "entry", nodeId: node.id, date: firstInWeek })}
+                      >
+                        {node.name}
+                      </button>
+                      {range && <span className="m-wk-flex-rg">{range}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <div className="m-wk-sum-stats">
+            <span>
+              済 <b>{weekData.done}</b>/{weekData.total}
+            </span>
+            <span>{weekEstLabel || "—"}</span>
+            <span className={weekData.totalDues > 0 ? "is-due" : undefined}>〆 {weekData.totalDues}</span>
+          </div>
+
+          <button type="button" className="m-wk-sum-bookbtn" onClick={openWorkbench}>
+            行路企劃書 ›
+          </button>
+        </article>
+      </div>
+
+      <WeekAimsEditorHost today={today} weekStart={firstDow} />
     </div>
   );
 }

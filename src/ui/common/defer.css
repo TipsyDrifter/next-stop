@@ -22,7 +22,7 @@
   padding: 12px 0 0;
   /* 形制與材質全部來自 .techo-card；這裡只補圓角以外的尺寸 */
 }
-.ns-defer.is-picking { width: 292px; }
+.ns-defer.is-picking { width: 312px; }
 .ns-defer-ranges {
   display: flex; flex-wrap: wrap; gap: var(--sp-1);
   padding: 4px 14px 6px;

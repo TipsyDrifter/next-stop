@@ -23,13 +23,13 @@ import "../stamps";
 // 外框（焦點進出、Esc、關閉叉）丙-5 搬到 common/SidePanelFrame（售票口大票同殼；panel.css 仍由本檔載入）
 import { SidePanelFrame } from "../common/SidePanelFrame";
 
-export function DetailPanel() {
+export function DetailPanel({ narrow = false }: { narrow?: boolean } = {}) {
   const panelOpen = useUiStore((s) => s.panelOpen);
   if (!panelOpen) return null;
-  return <PanelShell />;
+  return <PanelShell narrow={narrow} />;
 }
 
-function PanelShell() {
+function PanelShell({ narrow }: { narrow: boolean }) {
   const setPanelOpen = useUiStore((s) => s.setPanelOpen);
   const selectedId = useUiStore((s) => s.selectedId);
   // 今日視圖的列多半不在當前路線樹裡：tree 找不到就找 today（M3 ③ WP1 接縫）
@@ -75,16 +75,45 @@ function PanelShell() {
   // 用 display:none 收而不是 return null：外框保持掛載，回到今日頁時不會重掛、不會把焦點從頁面搶進側板。
   const hidden = !node && !NODE_PAGES.has(page);
 
+  // 窄視窗抽屜模式：即使焦點不在側板內，按 Esc 也能收起覆蓋層抽屜（讓開更高層對話框、選單、日期／時間浮層與開啟中的左側書封抽屜）
+  useEffect(() => {
+    if (!narrow || hidden) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
+      if (document.querySelector('.ns-app[data-sidebar-drawer="open"]')) return;
+      if (
+        document.querySelector(
+          '[role="dialog"], [role="alertdialog"], [role="menu"], .ns-dialog, .ns-popmenu, .ns-datepick, .ns-timepick, .ns-select-pop',
+        )
+      ) {
+        return;
+      }
+      e.preventDefault();
+      setPanelOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [narrow, hidden, setPanelOpen]);
+
   return (
-    <SidePanelFrame hidden={hidden} onClose={() => setPanelOpen(false)}>
-      {node ? (
-        <NodePanel key={node.id} node={node} />
-      ) : route ? (
-        <RoutePanel key={route.id} route={route} />
-      ) : (
-        <EmptyHint />
+    <>
+      {narrow && !hidden && (
+        <div
+          className="ns-narrow-backdrop is-panel"
+          aria-hidden="true"
+          onMouseDown={() => setPanelOpen(false)}
+        />
       )}
-    </SidePanelFrame>
+      <SidePanelFrame hidden={hidden} onClose={() => setPanelOpen(false)}>
+        {node ? (
+          <NodePanel key={node.id} node={node} />
+        ) : route ? (
+          <RoutePanel key={route.id} route={route} />
+        ) : (
+          <EmptyHint />
+        )}
+      </SidePanelFrame>
+    </>
   );
 }
 

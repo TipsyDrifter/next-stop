@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { KIND_LABEL, WORK_LOG_EVENT_LABEL, describeConflict, isTaskKind, parseRule, type NodeKind, type NodeRow } from "../../../domain";
 import { REPEATABLE_KINDS, nodeRepo } from "../../../data";
+import { isMultiDayTicket } from "../../../domain/dateRange";
 import { effectiveTime, isTimeOverridden } from "../../../domain/scheduledTime";
 import { currentDest, moveTargetRule } from "../../../domain/moveTo";
 import type { AttachTarget } from "../../../domain/notes";
@@ -25,7 +26,8 @@ import { MSheet, MSheetItem } from "../../common/MSheet";
 import { MobileAttachPicker, RouteRoundel } from "../../common/MobileAttachPicker";
 import type { AttachKind } from "../../notes/useAttachOptions";
 import { MobileDatePicker, type DateQuick } from "../../common/MobileDatePicker";
-import { dateChipRangeText, dateQuickSet } from "../../common/DateChip";
+import { dateChipRangeText } from "../../common/DateChip";
+import { dueQuickSet, scheduledQuickSet } from "../../common/datePickRules";
 import { MobileSeatSheet, canActAsSeatSlot, releaseSeatedFlow } from "../../common/seating";
 import "../../common/seating/flexible-seating.css";
 import { IconClose } from "../../common/icons";
@@ -120,12 +122,13 @@ type Sub =
       title: string;
       value: string | null;
       endValue?: string | null;
+      isMultiDay?: boolean;
       allowRange?: boolean;
       quick: readonly DateQuick[];
       min?: string;
       max?: string;
       onPick(day: string): void;
-      onPickRange?(start: string, end: string | null): void;
+      onPickRange?(start: string, end: string | null, isMultiDay?: boolean): void;
     }
   | { kind: "time" }
   | { kind: "end" }
@@ -310,6 +313,7 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
           title={sub.title}
           value={sub.value}
           endValue={sub.endValue}
+          isMultiDay={sub.isMultiDay}
           allowRange={sub.allowRange}
           min={sub.min}
           max={sub.max}
@@ -317,13 +321,15 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
           quick={sub.quick}
           onPick={(d) => {
             closeSub();
-            if (d !== sub.value || sub.endValue) sub.onPick(d);
+            if (d !== sub.value || sub.endValue || sub.isMultiDay) sub.onPick(d);
           }}
           onPickRange={
             sub.onPickRange
-              ? (s, e) => {
+              ? (s, e, multi) => {
                   closeSub();
-                  if (s !== sub.value || (e ?? null) !== (sub.endValue ?? null)) sub.onPickRange?.(s, e);
+                  if (s !== sub.value || (e ?? null) !== (sub.endValue ?? null) || Boolean(multi) !== Boolean(sub.isMultiDay)) {
+                    sub.onPickRange?.(s, e, multi);
+                  }
                 }
               : undefined
           }
@@ -572,6 +578,7 @@ function TaskFields({
 }) {
   const updateNode = useNodeStore((s) => s.updateNode);
   const runOverrides = useNodeStore((s) => s.runOverrides);
+  const weekStart = useUiStore((s) => s.weekStart);
   const repeatable = REPEATABLE_KINDS.includes(node.kind);
   const { draft, push } = repeat;
   const { teiki, retired } = teikiState(node);
@@ -597,7 +604,14 @@ function TaskFields({
     value: string | null,
     quick: readonly DateQuick[],
     onPick: (d: string) => void,
-    range?: { min?: string; max?: string; endValue?: string | null; allowRange?: boolean; onPickRange?(s: string, e: string | null): void },
+    range?: {
+      min?: string;
+      max?: string;
+      endValue?: string | null;
+      isMultiDay?: boolean;
+      allowRange?: boolean;
+      onPickRange?(s: string, e: string | null, isMultiDay?: boolean): void;
+    },
   ) => setSub({ kind: "date", title, value, quick, onPick, ...range });
 
   return (
@@ -665,36 +679,45 @@ function TaskFields({
               <DatePick
                 value={node.scheduled_on}
                 endValue={node.scheduled_end}
+                isMultiDay={isMultiDayTicket(node)}
                 empty="沒排日期"
                 label="乘車日"
                 onOpen={() =>
                   pickDate(
                     "乘車日",
                     node.scheduled_on,
-                    dateQuickSet("backward", today),
+                    scheduledQuickSet(today, weekStart),
                     (d) => {
                       const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
                       void updateNode(
                         node.id,
-                        syncDue ? { scheduled_on: d, scheduled_end: null, due_on: d } : { scheduled_on: d, scheduled_end: null },
+                        syncDue
+                          ? { scheduled_on: d, scheduled_end: null, is_multi_day: null, due_on: d }
+                          : { scheduled_on: d, scheduled_end: null, is_multi_day: null },
                         { backfill: true },
                       );
                     },
                     {
                       endValue: node.scheduled_end,
+                      isMultiDay: isMultiDayTicket(node),
                       allowRange: true,
-                      onPickRange: (s, e) => {
+                      onPickRange: (s, e, multi) => {
                         const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
+                        const nextMulti = e && multi ? 1 : null;
                         void updateNode(
                           node.id,
-                          syncDue ? { scheduled_on: s, scheduled_end: e, due_on: e ?? s } : { scheduled_on: s, scheduled_end: e },
+                          syncDue
+                            ? { scheduled_on: s, scheduled_end: e, is_multi_day: nextMulti, due_on: e ?? s }
+                            : { scheduled_on: s, scheduled_end: e, is_multi_day: nextMulti },
                           { backfill: !e },
                         );
                       },
                     },
                   )
                 }
-                onClear={() => void updateNode(node.id, { scheduled_on: null, scheduled_end: null }, { backfill: true })}
+                onClear={() =>
+                  void updateNode(node.id, { scheduled_on: null, scheduled_end: null, is_multi_day: null }, { backfill: true })
+                }
               />
             )}
           </Row>
@@ -729,9 +752,7 @@ function TaskFields({
                   pickDate(
                     "締切日",
                     node.due_on,
-                    syncDueTarget
-                      ? [{ label: "＝同乘車日", day: syncDueTarget }, ...dateQuickSet("forward", today)]
-                      : dateQuickSet("forward", today),
+                    dueQuickSet(today, { scheduledOn: syncDueTarget, weekStart }),
                     (d) => void updateNode(node.id, { due_on: d }),
                   )
                 }
@@ -778,7 +799,7 @@ function TaskFields({
               }}
               onRunDate={(railDate) => {
                 const { min, max } = runDateBounds(parseRule(node.repeat_rule), today);
-                const quick = dateQuickSet("forward", today).filter((q) => q.day >= min && (!max || q.day <= max));
+                const quick = scheduledQuickSet(today, weekStart).filter((q) => q.day >= min && (!max || q.day <= max));
                 pickDate(
                   "本班日期",
                   railDate,
@@ -849,6 +870,7 @@ function BranchFootprintMobile({ node }: { node: NodeRow }) {
 function DatePick({
   value,
   endValue,
+  isMultiDay = false,
   empty,
   label,
   onOpen,
@@ -856,12 +878,17 @@ function DatePick({
 }: {
   value: string | null;
   endValue?: string | null;
+  isMultiDay?: boolean;
   empty: string;
   label: string;
   onOpen(): void;
   onClear(): void;
 }) {
-  const shown = value ? (endValue && endValue > value ? dateChipRangeText(value, endValue) : mdwText(value)) : null;
+  const shown = value
+    ? endValue && endValue > value
+      ? dateChipRangeText(value, endValue, isMultiDay)
+      : mdwText(value)
+    : null;
   return (
     <div className={"m-dt-datepick" + (value ? " has-clear" : "")}>
       <button type="button" className="m-dt-pick" aria-label={`${label}：${shown ?? empty}`} onClick={onOpen}>

@@ -1,52 +1,895 @@
 /* ─────────────────────────────────────────────────────
- * week.css — 週視圖（M3 ⑤ WP4）。
+ * week.css — 行程表週視圖「2×4 八分割・週間見開き」（v1.37 2A-3）。
  *
- * 週沒有像素定稿（原型只有線框 :731-765／:925-940）→ 規則是 D-⑤-1 甲：**週＝月格元件換排列，禁止另畫**。
- * 所以本檔**只寫三條差異**，其餘（月卡材質、格內清單、右上記號群與〆、今天、hover、焦點環）一律繼承
- * calendar.css 的月格規則與共用 DayCell（common/datefield.css）：
+ * 結構語意（預留給 2B-Resp 窄視窗銜接）：
+ *   .ns-calendar.is-week        撐滿主欄高度之 flex 容器
+ *   .wk-spread                  2×4 見開き雙排框架（繼承 .month-card 霧面／月光票紙材質）
+ *   .wk-row-band (.wk-row-top / .wk-row-bot)  每一排（上排 4 天／下排 3 天＋總覽）
+ *   .wk-row-grid                四欄均分格線
+ *   .wk-ribbons / .wk-ribbon    跨格多日乘車日色帶層（位於格頭下方、格內票卡上方）
+ *   .wk-day                     每日大格（格頭・可捲動票卡＋締切・格底快捷建票）
+ *   .wk-summary                 第 8 格本週總覽專欄（方針・期間自由券・本週小結）
  *
- *   ① 格高不設 96px 下限 → `min-height:0`，自然撐開（同列七欄由 grid 拉齊到最高那一欄，欄線才通到底）
- *   ② 清單不截斷不出「＋N 張」→ 由 `WeekGrid` 的 `truncate={false}` 出（CSS 無事）
- *   ③ 沒有 wk-head 那一列 → 日數前補星期字「一 10」（線框 `.wd` :735-741）
- *
- * UI 丙-3 D4：格換共用 DayCell 之後 ③ 的掛法換了——星期字＝`.ns-daycell-num::after` 的 `content: var(--wd-N)`
- *   （`::before` 是今天的赭菱形），用 flex `order:-1` 排到數字前；變數由 WeekGrid 從 `WEEKDAY_LABEL` 寫進
- *   `.wk-row` 的 inline style（CSS 不抄第二份星期字）。〆 與月格一樣在格右上的 `.cal-corner`，不再轉 grid-template-areas。
- *
- * ⚠ 注入順序：本檔由 WeekGrid.tsx import（在 CalendarView import calendar.css 之前）→ 同權重會輸，
- *   所以每條都比月格多一級（`.ns-calendar .wk-row …`），不靠順序取勝。
+ * 紀律：全 token，零裸色碼；朱紅 --color-seal 僅限「済」；圓角嚴守 --radius-ctl / --radius-card / 50%。
+ * ⚠ 注入順序：由 WeekGrid.tsx import（早於 calendar.css），凡競爭規則一律帶 `.ns-calendar` 前綴。
  * ───────────────────────────────────────────────────── */
 
-/* 七欄一列。欄線沿用月格的右框（直線通到底＝同一張紙），最後一欄與下緣去邊。 */
-.ns-calendar .wk-row {
+/* ═══ 撐滿視窗主欄高度（同 .is-time，矮視窗由 min-height 兜底自然捲動） ═══ */
+.ns-calendar.is-week {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.ns-calendar.is-week .sheet {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--sp-4);
+}
+.ns-calendar.is-week .ns-cal-head {
+  flex: none;
+  margin-bottom: var(--sp-3);
+}
+.ns-calendar.is-week .ns-cal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ns-calendar.is-week .page-foot {
+  flex: none;
+  margin-top: var(--sp-3);
+}
+
+/* ═══ 2×4 八分割見開き總框 ═══ */
+.ns-calendar .wk-spread {
+  flex: 1 1 auto;
+  min-height: 540px;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: minmax(250px, 1fr) minmax(250px, 1fr);
+  overflow: hidden;
 }
 
-.ns-calendar .wk-row .cal-cell {
-  min-height: 0; /* ① 自然撐開 */
-  /* 沒有 wk-head 那一列了→上緣的呼吸由格自己補（月：wk-head 11+9 ＋格 8；週：13／16） */
-  padding: 13px 10px 16px;
-  border-bottom: 0; /* 單列＝最後一列 */
+.ns-calendar .wk-row-band {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
-.ns-calendar .wk-row .cal-cell:nth-child(7) { border-right: 0; }
+.ns-calendar .wk-row-top {
+  border-bottom: 1px solid var(--color-line);
+}
 
-/* ③ 星期字「一 10」：字距沿線框 .wd（.14em），字級收進字階 */
-.ns-calendar .wk-row .ns-daycell-num::after {
-  order: -1;
-  font-family: var(--font-body); font-weight: 400; font-size: var(--fs-micro);
-  letter-spacing: .14em;
+.ns-calendar .wk-row-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* ═══ 跨格多日乘車色帶層（位於 36px 格頭正下方） ═══ */
+.ns-calendar .wk-row-band.has-ribbons {
+  --wk-ribbon-h: 22px;
+  --wk-ribbon-gap: 3px;
+  --wk-ribbon-space: calc(var(--wk-ribbon-lanes, 0) * (var(--wk-ribbon-h) + var(--wk-ribbon-gap)) + 6px);
+}
+.ns-calendar .wk-row-band.has-ribbons .wk-day .wk-day-body {
+  padding-top: calc(var(--sp-2) + var(--wk-ribbon-space));
+}
+
+.ns-calendar .wk-ribbons {
+  position: absolute;
+  top: 39px;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: var(--wk-ribbon-h, 22px);
+  row-gap: var(--wk-ribbon-gap, 3px);
+}
+
+.ns-calendar .wk-ribbon {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  margin: 0 6px;
+  padding: 0 8px 0 7px;
+  border-left: 3px solid var(--ribbon-c, var(--route-none));
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--ribbon-c, var(--route-none)) 18%, var(--color-paper-high));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ribbon-c, var(--route-none)) 30%, transparent);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: .02em;
+  cursor: grab;
+  user-select: none;
+  transition: background-color var(--dur-fast) var(--ease-soft), box-shadow var(--dur-fast) var(--ease-soft), opacity var(--dur-fast) var(--ease-soft);
+}
+[data-theme="dark"] .ns-calendar .wk-ribbon {
+  background: color-mix(in srgb, var(--ribbon-c, var(--route-none)) 24%, var(--color-paper-high));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ribbon-c, var(--route-none)) 40%, transparent);
+}
+.ns-calendar .wk-ribbon:hover {
+  background: color-mix(in srgb, var(--ribbon-c, var(--route-none)) 28%, var(--color-paper-high));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ribbon-c, var(--route-none)) 54%, transparent);
+}
+.ns-calendar .wk-ribbon:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.ns-calendar .wk-ribbon.is-cont-l {
+  margin-left: 0;
+  padding-left: 6px;
+  border-left: 1px dashed color-mix(in srgb, var(--ribbon-c, var(--route-none)) 55%, transparent);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.ns-calendar .wk-ribbon.is-cont-r {
+  margin-right: 0;
+  padding-right: 6px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.ns-calendar .wk-ribbon-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ns-calendar .wk-ribbon-range {
+  flex: none;
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+  opacity: .84;
+}
+.ns-calendar .wk-ribbon-cont {
+  flex: none;
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+}
+.ns-calendar .wk-ribbon-seal {
+  flex: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  color: var(--color-seal);
+}
+.ns-calendar .wk-ribbon.is-done { opacity: .64; }
+.ns-calendar .wk-ribbon.is-done .wk-ribbon-name { text-decoration: line-through 1px; color: var(--color-ink-faint); }
+.ns-calendar .wk-ribbon.is-paused { opacity: .58; color: var(--color-ink-faint); }
+.ns-calendar .wk-ribbon.is-late {
+  color: var(--color-late);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-late) 48%, transparent);
+}
+
+/* ═══ 每日大格（7 格） ═══ */
+.ns-calendar .wk-day {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-line);
+  transition: background-color var(--dur-fast) var(--ease-soft), box-shadow var(--dur-fast) var(--ease-soft);
+}
+.ns-calendar .wk-row-grid > :last-child {
+  border-right: 0;
+}
+.ns-calendar .wk-day.is-today {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.ns-calendar .wk-day.is-on {
+  background: var(--sel-bg);
+}
+.ns-calendar .wk-day[data-drop-over="true"] {
+  background: var(--sel-bg);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* 格頭（高度固定 36px，讓跨格色帶層穩定對齊） */
+.ns-calendar .wk-day-head {
+  flex: none;
+  height: 36px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-1);
+  padding: 0 10px;
+  border-bottom: 1px dashed var(--color-line);
+}
+.ns-calendar .wk-day-datebtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 3px 5px 3px 2px;
+  margin-left: -2px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-ink);
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-calendar .wk-day-datebtn:hover {
+  background: var(--hover-bg);
+}
+.ns-calendar .wk-day-datebtn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.ns-calendar .wk-day-wd {
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .12em;
   color: var(--color-ink-soft);
 }
-.ns-calendar .wk-row .cal-cell:nth-child(1) .ns-daycell-num::after { content: var(--wd-1); }
-.ns-calendar .wk-row .cal-cell:nth-child(2) .ns-daycell-num::after { content: var(--wd-2); }
-.ns-calendar .wk-row .cal-cell:nth-child(3) .ns-daycell-num::after { content: var(--wd-3); }
-.ns-calendar .wk-row .cal-cell:nth-child(4) .ns-daycell-num::after { content: var(--wd-4); }
-.ns-calendar .wk-row .cal-cell:nth-child(5) .ns-daycell-num::after { content: var(--wd-5); }
-.ns-calendar .wk-row .cal-cell:nth-child(6) .ns-daycell-num::after { content: var(--wd-6); }
-.ns-calendar .wk-row .cal-cell:nth-child(7) .ns-daycell-num::after { content: var(--wd-7); }
-/* 週末淡（＝月格 wk-head 的 .we）：週首週一＝第 6／7 欄是六・日；週首週日（data-week-start="0"）＝第 1／7 欄 */
-.ns-calendar .wk-row:not([data-week-start="0"]) .cal-cell:nth-child(6) .ns-daycell-num::after,
-.ns-calendar .wk-row:not([data-week-start="0"]) .cal-cell:nth-child(7) .ns-daycell-num::after,
-.ns-calendar .wk-row[data-week-start="0"] .cal-cell:nth-child(1) .ns-daycell-num::after,
-.ns-calendar .wk-row[data-week-start="0"] .cal-cell:nth-child(7) .ns-daycell-num::after { color: var(--color-ink-faint); }
+.ns-calendar .wk-day.is-we .wk-day-wd {
+  color: var(--color-ink-faint);
+}
+.ns-calendar .wk-day-num {
+  font-family: var(--font-latin);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--color-ink);
+}
+.ns-calendar .wk-day.is-past:not(.is-today) .wk-day-num {
+  color: var(--color-ink-soft);
+}
+.ns-calendar .wk-day.is-today .wk-day-num {
+  color: var(--color-late);
+}
+.ns-calendar .wk-day.is-today .wk-day-wd::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  vertical-align: 1px;
+  background: var(--color-late);
+  transform: rotate(45deg);
+}
+.ns-calendar .wk-day-today-tag {
+  padding: 1px 5px 1px 6px;
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-late) 12%, transparent);
+  color: var(--color-late);
+  font-family: var(--font-display);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: .14em;
+  line-height: 1.3;
+}
+
+.ns-calendar .wk-day-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ns-calendar .wk-day-diary {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-gold-soft);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-ink) 20%, transparent);
+}
+.ns-calendar .wk-day-est {
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-faint);
+  padding: 1px 4px;
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+}
+.ns-calendar .wk-day-due-badge {
+  cursor: default;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  color: var(--color-late);
+  transform: rotate(-6deg);
+}
+.ns-calendar .wk-day-due-badge .n {
+  font-family: var(--font-latin);
+  font-size: 9px; /* 印章角標微字 */
+  vertical-align: 2px;
+  margin-left: 1px;
+}
+
+/* 格內捲動清單 */
+.ns-calendar .wk-day-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--sp-2) 8px var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ns-calendar .wk-day-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* ═══ 格內互動車票小卡 ═══ */
+.ns-calendar .wk-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 6px 6px 6px 8px;
+  border: 1px solid var(--color-line);
+  border-left: 3px solid var(--wk-route-c, var(--route-none));
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-high) 76%, transparent);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), box-shadow var(--dur-fast) var(--ease-soft);
+}
+[data-theme="dark"] .ns-calendar .wk-card {
+  background: color-mix(in srgb, var(--color-paper-used) 85%, transparent);
+}
+.ns-calendar .wk-card:hover {
+  background: var(--color-paper-high);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--color-line));
+  border-left-color: var(--wk-route-c, var(--route-none));
+  box-shadow: var(--shadow-card);
+}
+.ns-calendar .wk-card.is-done {
+  background: var(--color-paper-used);
+  opacity: .74;
+}
+.ns-calendar .wk-card.is-skipped,
+.ns-calendar .wk-card.is-paused {
+  opacity: .68;
+}
+.ns-calendar .wk-card.is-late {
+  border-color: color-mix(in srgb, var(--color-late) 40%, var(--color-line));
+  border-left-color: var(--wk-route-c, var(--route-none));
+}
+
+/* 原地検印欄（朱紅 --color-seal 僅用於済） */
+.ns-calendar .wk-card-stamp {
+  flex: none;
+  position: relative;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1.4px dashed var(--color-dash);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--color-ink-faint);
+  transition: border-color var(--dur-fast) var(--ease-soft), transform var(--dur-fast) var(--ease-soft);
+}
+.ns-calendar .wk-card-stamp:hover {
+  border-color: var(--accent);
+  transform: rotate(-6deg);
+}
+.ns-calendar .wk-card-stamp:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.ns-calendar .wk-card-stamp.is-locked {
+  cursor: default;
+  opacity: var(--disabled);
+}
+.ns-calendar .wk-card-stamp.is-locked:hover {
+  border-color: var(--color-dash);
+  transform: none;
+}
+
+.ns-calendar .wk-seal-s {
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1.6px solid var(--color-seal);
+  color: var(--color-seal);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1;
+  background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--color-seal) 12%, transparent), transparent 64%);
+  transform: rotate(-8deg);
+  opacity: 0;
+  pointer-events: none;
+}
+.ns-calendar .wk-card.is-done .wk-seal-s { opacity: .95; }
+.ns-calendar .wk-card.is-done .wk-card-stamp,
+.ns-calendar .wk-card.is-skipped .wk-card-stamp,
+.ns-calendar .wk-card.is-paused .wk-card-stamp { border-color: transparent; }
+.ns-calendar .wk-card.is-fresh .wk-seal-s {
+  animation: stampIn .4s var(--ease-spring);
+}
+.ns-calendar .wk-susp-slot {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: unsafe center;
+}
+.ns-calendar .wk-susp-slot .ns-imp { --ns-zoom: .52; }
+.ns-calendar .wk-susp-slot.is-stopover .ns-imp { --ns-zoom: .42; }
+
+/* 卡片內容 */
+.ns-calendar .wk-card-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ns-calendar .wk-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  line-height: 1.2;
+}
+.ns-calendar .wk-card-time {
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+}
+.ns-calendar .wk-card-time.is-past { color: var(--color-late); }
+.ns-calendar .wk-card.is-done .wk-card-time { color: var(--color-ink-faint); }
+.ns-calendar .wk-card-est {
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-faint);
+}
+.ns-calendar .wk-card-rep {
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+}
+.ns-calendar .wk-card-title {
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.38;
+  letter-spacing: .02em;
+  color: var(--color-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.ns-calendar .wk-card.is-done .wk-card-title {
+  color: var(--color-ink-faint);
+  text-decoration: line-through 1px;
+}
+.ns-calendar .wk-card.is-skipped .wk-card-title {
+  color: var(--color-ink-soft);
+}
+.ns-calendar .wk-card.is-paused .wk-card-title {
+  color: var(--color-ink-faint);
+}
+.ns-calendar .wk-card.is-late .wk-card-title {
+  color: var(--color-late);
+}
+
+/* 常駐淡態 ⋯ 動作鈕 */
+.ns-calendar .wk-card-more {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  color: var(--color-ink-soft);
+  opacity: var(--dim);
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.ns-calendar .wk-card:hover .wk-card-more,
+.ns-calendar .wk-card:focus-within .wk-card-more,
+.ns-calendar .wk-card-more[aria-expanded="true"] {
+  opacity: 1;
+}
+.ns-calendar .wk-card-more:hover,
+.ns-calendar .wk-card-more[aria-expanded="true"] {
+  background: var(--hover-bg);
+  color: var(--color-ink);
+}
+.ns-calendar .wk-card-more:focus-visible {
+  opacity: 1;
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* 當日未完成締切小列 */
+.ns-calendar .wk-day-dues {
+  margin-top: auto;
+  padding-top: 5px;
+  border-top: 1px dashed color-mix(in srgb, var(--color-late) 30%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ns-calendar .wk-due-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-late);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-calendar .wk-due-line:hover {
+  background: color-mix(in srgb, var(--color-late) 8%, transparent);
+}
+.ns-calendar .wk-due-line:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.ns-calendar .wk-due-mark {
+  flex: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-xs);
+}
+.ns-calendar .wk-due-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 格底快捷建票 */
+.ns-calendar .wk-day-foot {
+  flex: none;
+  padding: 4px 8px 6px;
+  border-top: 1px dashed color-mix(in srgb, var(--color-line) 70%, transparent);
+}
+.ns-calendar .wk-day-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--ctl-h-sm);
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-faint);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  letter-spacing: .1em;
+  cursor: pointer;
+  opacity: .72;
+  transition: opacity var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-calendar .wk-day:hover .wk-day-add,
+.ns-calendar .wk-day-add:focus-visible {
+  opacity: 1;
+}
+.ns-calendar .wk-day-add:hover {
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+.ns-calendar .wk-day-add:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.ns-calendar .wk-draft-qa {
+  margin: 0;
+}
+
+/* ═══ 第 8 格：本週總覽專欄（方針・期間自由券・本週小結） ═══ */
+.ns-calendar .wk-summary {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--color-ink) 2.5%, transparent);
+}
+.ns-calendar .wk-sum-head {
+  flex: none;
+  height: 36px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-bottom: 1px dashed var(--color-dash);
+}
+.ns-calendar .wk-sum-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  letter-spacing: .16em;
+  color: var(--color-ink);
+}
+.ns-calendar .wk-sum-latin {
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  letter-spacing: .16em;
+  color: var(--color-ink-faint);
+}
+.ns-calendar .wk-sum-planbtn {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  padding: 0 4px;
+}
+
+.ns-calendar .wk-summary-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--sp-2) 10px var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ns-calendar .wk-sum-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ns-calendar .wk-sum-sec + .wk-sum-sec {
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-line);
+}
+.ns-calendar .wk-sum-sechead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ns-calendar .wk-sum-sechead h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  letter-spacing: .18em;
+  color: var(--color-ink-soft);
+}
+.ns-calendar .wk-sum-count {
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ns-calendar .wk-sum-count b {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.ns-calendar .wk-sum-act {
+  margin-left: auto;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-micro);
+  letter-spacing: .08em;
+  color: var(--accent);
+  cursor: pointer;
+}
+.ns-calendar .wk-sum-act:hover { text-decoration: underline; }
+.ns-calendar .wk-sum-act:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-calendar .wk-sum-empty {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: .06em;
+}
+
+/* 1. 方針清單 */
+.ns-calendar .wk-aim-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ns-calendar .wk-aim-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 2px 0;
+}
+.ns-calendar .wk-aim-num {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  line-height: 1.5;
+}
+.ns-calendar .wk-aim-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ns-calendar .wk-aim-text {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--color-ink);
+  word-break: break-word;
+}
+.ns-calendar .wk-aim-row.is-done .wk-aim-text {
+  color: var(--color-ink-faint);
+  text-decoration: line-through 1px;
+}
+
+/* 2. 期間自由券清單 */
+.ns-calendar .wk-flex-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ns-calendar .wk-flex-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-paper-high) 55%, transparent);
+}
+.ns-calendar .wk-flex-row.is-done { opacity: .66; }
+.ns-calendar .wk-flex-row.is-paused { opacity: .6; }
+.ns-calendar .wk-flex-stamp {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1.3px dashed var(--color-dash);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-calendar .wk-flex-stamp:hover { border-color: var(--accent); }
+.ns-calendar .wk-flex-stamp:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-calendar .wk-flex-row.is-done .wk-flex-stamp { border-color: var(--color-seal); }
+.ns-calendar .wk-flex-seal {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-seal);
+}
+.ns-calendar .wk-flex-pause {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--color-ink-faint);
+}
+.ns-calendar .wk-flex-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+}
+.ns-calendar .wk-flex-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.ns-calendar .wk-flex-name:hover { color: var(--accent); }
+.ns-calendar .wk-flex-row.is-done .wk-flex-name {
+  color: var(--color-ink-faint);
+  text-decoration: line-through 1px;
+}
+.ns-calendar .wk-flex-badge {
+  flex: none;
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-faint);
+}
+
+/* 3. 本週小結 */
+.ns-calendar .wk-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.ns-calendar .wk-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 4px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-paper-high) 60%, transparent);
+}
+.ns-calendar .wk-stat-k {
+  font-size: var(--fs-micro);
+  letter-spacing: .12em;
+  color: var(--color-ink-faint);
+}
+.ns-calendar .wk-stat-v {
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+}
+.ns-calendar .wk-stat-v b { font-weight: 700; }
+.ns-calendar .wk-stat-item.is-due .wk-stat-v { color: var(--color-late); }
+.ns-calendar .wk-sum-openbook {
+  width: 100%;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-calendar .wk-ribbon,
+  .ns-calendar .wk-day,
+  .ns-calendar .wk-card,
+  .ns-calendar .wk-card-stamp,
+  .ns-calendar .wk-card-more,
+  .ns-calendar .wk-day-add {
+    transition: none;
+  }
+  .ns-calendar .wk-card.is-fresh .wk-seal-s {
+    animation: none;
+  }
+}

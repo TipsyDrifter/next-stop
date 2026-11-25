@@ -16,7 +16,7 @@ import { dayCount, lateCount } from "../../domain/dayCount";
 import { todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
-import { dayCountItem } from "../today/useTodayController";
+import { dayCountItemOn } from "../today/useTodayController";
 import "./navcount.css";
 
 export function NavCount({ n, late = false, label, shell }: { n: number; late?: boolean; label: string; shell: "desktop" | "mobile" }) {
@@ -53,8 +53,12 @@ export function useTodayCount(): TodayCount {
   }, [dayStartHour]);
   return useMemo(() => {
     if (!today.dateKey) return { left: 0, late: 0 };
+    const dateKey = today.dateKey;
     const todayRows = today.rows.filter((r) => r.bucket === "today");
-    return { left: dayCount(todayRows.map(dayCountItem)).left, late: lateCount(today.rows, today.dateKey).count };
+    return {
+      left: dayCount(todayRows.map((r) => dayCountItemOn(r, dateKey))).left,
+      late: lateCount(today.rows, dateKey).count,
+    };
   }, [today]);
 }
 

@@ -28,6 +28,7 @@ import { addDays } from "../../lib/date";
 import { jumpToTimetableSchedule } from "../../store/timetableScheduleStore";
 import { DateNav } from "../common/DateNav";
 import { dateOf, weekStart } from "../calendar/useCalendarController";
+import type { MobileLayout } from "./scheduleUiStore";
 
 /** 一天在週條／月曆上的記號（MobileSchedule 從 calendar 切片算；color＝路線色字串，無路線＝var(--route-none)） */
 export interface DayMark {
@@ -89,9 +90,9 @@ export interface WeekStripProps {
   onToday(): void;
   /** 停在某一週（first＝該週週首） */
   onWeekSettle(first: string): void;
-  /** 行程表排法：清單（串流）／時段（3 天）；主線② */
-  layout: "stream" | "time";
-  onLayout(v: "stream" | "time"): void;
+  /** 行程表排法：串流／精練週見開き／時段（v1.37 2A-3 補齊週檢視） */
+  layout: MobileLayout;
+  onLayout(v: MobileLayout): void;
   /** 時段那一頁的幾天（畫週格底線）；null＝不畫 */
   visibleDays: readonly string[] | null;
 }
@@ -164,7 +165,7 @@ export function WeekStrip({
   onToday,
   onWeekSettle,
   layout,
-  onLayout: _onLayout,
+  onLayout,
   visibleDays,
 }: WeekStripProps) {
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -341,6 +342,28 @@ export function WeekStrip({
               ▾
             </span>
           </button>
+        )}
+        {!calOpen && (
+          <div className="m-sch-wk-mode" role="radiogroup" aria-label="行程表檢視">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={layout === "stream"}
+              className={layout === "stream" ? "on" : undefined}
+              onClick={() => onLayout("stream")}
+            >
+              串流
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={layout === "week"}
+              className={layout === "week" ? "on" : undefined}
+              onClick={() => onLayout("week")}
+            >
+              週
+            </button>
+          </div>
         )}
         {!calOpen && (
           <button

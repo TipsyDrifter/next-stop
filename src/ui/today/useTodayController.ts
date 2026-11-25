@@ -30,7 +30,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { capsOfHotkey } from "../shell/hotkeys";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
-import { isRangeTicket } from "../../domain/dateRange";
+import { isNonFinalMultiDay, isRangeTicket } from "../../domain/dateRange";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { dayCount, type DayCountItem } from "../../domain/dayCount";
 import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
@@ -113,9 +113,15 @@ export function isSettledRow(row: TodayRow): boolean {
   return row.occurrence !== null || row.status === "done" || row.status === "paused";
 }
 
-/** 今日列 → 完成數的一格（磨光⑤ N11；桌機今日與手機今日共用，domain/dayCount 吃這個形狀） */
+/** 今日列 → 完成數的一格（磨光⑤ N11；單參數簽名保留供既有 `.map(dayCountItem)` 呼叫端相容） */
 export function dayCountItem(row: TodayRow): DayCountItem {
   return { done: isDoneRow(row), settled: isSettledRow(row) };
+}
+
+/** 今日列 → 完成數的一格（v1.37 2A-2：非最後一日的多日乘車日不計入今日未完成催辦數，不卡單日清零） */
+export function dayCountItemOn(row: TodayRow, dateKey: string): DayCountItem {
+  const nonFinalMulti = isNonFinalMultiDay(row, dateKey);
+  return { done: isDoneRow(row), settled: isSettledRow(row) || nonFinalMulti };
 }
 
 /** 「M/D（週X）」——改期收據用；不經 Date.parse，避免 date-only 被當 UTC 而跨日 */
@@ -778,10 +784,13 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
 
     moveTo,
 
-    // 磨光⑤ N11：數字走 domain/dayCount（桌機、手機今日、串流、手機行程表同一把尺）
+    // 磨光⑤ N11：數字走 domain/dayCount（桌機、手機今日、串流、手機行程表同一把尺）；非最後一日多日票不卡未完成數與清零慶祝
     stats: {
-      ...dayCount(todayRows.map(dayCountItem)),
-      allDone: rows.length > 0 && rows.every(isSettledRow),
+      ...dayCount(todayRows.map((r) => dayCountItemOn(r, dateKey))),
+      allDone:
+        rows.length > 0 &&
+        rows.some(isSettledRow) &&
+        rows.every((r) => isSettledRow(r) || isNonFinalMultiDay(r, dateKey)),
     },
 
     freshId,

@@ -111,6 +111,7 @@ export function CalendarView() {
   const containerRef = useRef<HTMLElement>(null);
   const c = useCalendarController(containerRef);
   const stream = c.view === "stream";
+  const weekView = c.view === "week";
   /** 時段（主線②）：週的另一種排法——頁首／‹ ›／統計全照週 */
   const timeView = c.view === "time";
   // 串流時格層表只剩 Esc（StreamView 自己吃 daylist 那張表）
@@ -122,11 +123,11 @@ export function CalendarView() {
   const monthEn = MONTH_EN[cur.getMonth()];
   // 頁首三段：月視圖＝月／年／英文月名；週視圖＝日期區間／年／latin 區間（標題仍是 MonthJump 的觸發鈕，
   // 小卡的「目前月」照舊由 cursor（週視圖＝該週週一；串流＝focusDay 的月）決定，契約不動）
-  const week = c.view === "week" || timeView ? weekHeading(c.cursor) : null;
+  const week = weekView || timeView ? weekHeading(c.cursor) : null;
   /** 頁首「« »」換年鈕只在月、週（磨光⑤ K4） */
-  const yearCtl = c.view === "month" || c.view === "week";
-  /** 空狀態（D3）：月／週／時段＝控制器載入完的區間；串流＝StreamView 查到的邊界 */
-  const empty = stream ? streamEmpty : c.empty;
+  const yearCtl = c.view === "month" || weekView;
+  /** 空狀態（D3）：月／時段＝控制器載入完的區間；週視圖（2×4 見開き）自帶第 8 格總覽與每日快捷建票，不壓蓋空卡；串流＝StreamView 查到的邊界 */
+  const empty = stream ? streamEmpty : weekView ? false : c.empty;
   /** 「今天」chip 的 title 用：目前看的區間含今天（串流＝捲到的那天就是今天） */
   const atToday = stream ? (focusDay ?? c.today) === c.today : c.today >= c.range.from && c.today <= c.range.to;
 
@@ -159,7 +160,15 @@ export function CalendarView() {
         if (c.tipTarget) c.hideTip();
       }}
       aria-label="行程表"
-      className={stream ? "page ns-calendar is-stream" : timeView ? "page ns-calendar is-time" : "page ns-calendar"}
+      className={
+        stream
+          ? "page ns-calendar is-stream"
+          : timeView
+            ? "page ns-calendar is-time"
+            : weekView
+              ? "page ns-calendar is-week"
+              : "page ns-calendar"
+      }
     >
       <CalendarProvider value={c}>
         <div className="sheet">
@@ -217,9 +226,8 @@ export function CalendarView() {
             search={{ onOpen: openSearch, title: `搜尋（${hotkeyCaps("global.quickjump")}）` }}
           />
 
-          {/* 方針（戊 D-主-262；辛 §7）：月＝畫面那個月、週＝畫面那一週、時段＝同一週但固定收合（D-主-379）；串流跨很多週，不放 */}
+          {/* 方針（戊 D-主-262；辛 §7）：月＝畫面那個月、時段＝那一週固定收合（D-主-379）；週視圖已內嵌於 2×4 第 8 格本週總覽專欄，頂部不重複顯示 */}
           {c.view === "month" && <AimsBand aimKey={monthKeyOf(c.cursor)} wide />}
-          {c.view === "week" && <WeekAimsBand day={c.cursor} wide />}
           {timeView && <WeekAimsBand day={c.cursor} wide pinFolded />}
 
           {/* ═══ 月間頁／週視圖／時段／串流 ═══ */}
@@ -229,13 +237,13 @@ export function CalendarView() {
             <div className="ns-cal-body">
               {timeView ? (
                 <WeekTimeGrid />
-              ) : c.view === "week" ? (
+              ) : weekView ? (
                 <WeekGrid weekStart={c.cursor} days={c.days} />
               ) : (
                 <MonthGrid />
               )}
-              {/* D3：載入完、整個區間空 ⇒ 內容區中央（格照畫、卡片浮在上面；只有卡片本身吃滑鼠，其餘點得到格） */}
-              {c.empty && (
+              {/* D3：載入完、整個區間空 ⇒ 內容區中央（週見開き第 8 格與每日快捷建票常駐，不壓空卡） */}
+              {c.empty && !weekView && (
                 <div className="ns-cal-empty">
                   <EmptyState
                     className="techo-card"

@@ -251,6 +251,12 @@
   padding: 1px 4px 1px 6px;
 }
 .ns-daypop .due-tag { flex: none; font-size: var(--fs-micro); letter-spacing: .2em; text-indent: .2em; color: var(--color-late); }
+.ns-daypop .ns-ph-tag.is-multiday {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: var(--sel-bg);
+  color: var(--accent);
+}
 .ns-daypop .empty-note { font-size: var(--fs-sm); color: var(--color-ink-faint); letter-spacing: .08em; padding: 8px 0 4px; }
 
 /* ═══ 草稿列（UI 丙-3 P4＝B 底端；原型 ui-c3 .c3-draft 逐值，字級換 token）＝緊湊票的虛線版 ═══ */

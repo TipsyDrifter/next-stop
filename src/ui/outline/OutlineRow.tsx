@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type SyntheticEvent } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { KIND_LABEL, describeRule, parseRule, type NodeKind, type NodeRow, type NodeStatus } from "../../domain";
-import { isRangeTicket } from "../../domain/dateRange";
+import { hasDateSpan, isMultiDayTicket } from "../../domain/dateRange";
 import type { CurrentOccurrence } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { SealStopover, SealSuspended } from "../stamps";
@@ -159,7 +159,10 @@ function RowDate({
   prefix,
   date,
   endDate,
+  isMultiDay = false,
   allowRange = false,
+  preset,
+  syncScheduledOn,
   flag,
   label,
   emptyText,
@@ -173,7 +176,10 @@ function RowDate({
   prefix?: string;
   date: string | null;
   endDate?: string | null;
+  isMultiDay?: boolean;
   allowRange?: boolean;
+  preset?: "scheduled" | "due";
+  syncScheduledOn?: string | null;
   flag?: "late" | "backfill";
   label: string;
   emptyText?: string;
@@ -181,7 +187,7 @@ function RowDate({
   run?: boolean;
   disabled?: boolean;
   onPick(date: string | null): void;
-  onPickRange?(start: string | null, end: string | null): void;
+  onPickRange?(start: string | null, end: string | null, isMultiDay?: boolean): void;
   onFocusBack(): void;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -210,7 +216,10 @@ function RowDate({
       <DateChip
         date={date}
         endDate={endDate}
+        isMultiDay={isMultiDay}
         allowRange={allowRange}
+        preset={preset}
+        syncScheduledOn={syncScheduledOn}
         onPick={onPick}
         onPickRange={onPickRange}
         allowPast={!run}
@@ -423,9 +432,10 @@ export function OutlineRow({
     if (selected) ref.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
-  /** 這一班在講的那一天（期間自由券以 scheduled_end 判過期；其餘看 occurrence?.due_on ?? scheduled_on） */
-  const isRange = !rule && isRangeTicket(node);
-  const railDate = occurrence?.due_on ?? (isRange ? node.scheduled_end : node.scheduled_on);
+  /** 這一班在講的那一天（跨日票以 scheduled_end 判過期；其餘看 occurrence?.due_on ?? scheduled_on） */
+  const hasSpan = !rule && hasDateSpan(node);
+  const isMulti = !rule && isMultiDayTicket(node);
+  const railDate = occurrence?.due_on ?? (hasSpan ? node.scheduled_end : node.scheduled_on);
   const pastRun = !!railDate && railDate < today;
   /** 過期且還沒有結局（暖光底＋赭「原定」＋誤點註記） */
   const schedLate = !settled && pastRun;
@@ -438,9 +448,20 @@ export function OutlineRow({
   const lateSeal = pastRun && (!settled || settledToday);
   const dueLate = !settled && !!node.due_on && node.due_on < today;
   /**
-   * 執行日 chip 印的日子：期間自由券一律印起日（搭配 endDate 畫出區間）；過期單日／定期券講 railDate，其餘講 scheduled_on。
+   * 執行日 chip 印的日子：跨日票一律印起日（搭配 endDate 畫出區間）；過期單日／定期券講 railDate，其餘講 scheduled_on。
    */
-  const chipDate = isRange ? node.scheduled_on : schedLate ? railDate : node.scheduled_on;
+  const chipDate = hasSpan ? node.scheduled_on : schedLate ? railDate : node.scheduled_on;
+  const pickScheduledRange = (s: string | null, e: string | null, multi?: boolean) => {
+    const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
+    const nextMulti = e && multi ? 1 : null;
+    void useNodeStore.getState().updateNode(
+      node.id,
+      syncDue && s
+        ? { scheduled_on: s, scheduled_end: e, is_multi_day: nextMulti, due_on: e ?? s }
+        : { scheduled_on: s, scheduled_end: e, is_multi_day: nextMulti },
+      { backfill: !e },
+    );
+  };
   /**
    * 定期券 chip 的前綴（M3 ④ 評審 should-2）：本班已交代（occurrence 非 null＝済／運休）時
    * `scheduled_on` 已被引擎推到**下一班**，前綴就得跟著說「下一班」——沿用 QuickJump 的同一個字，
@@ -502,6 +523,7 @@ export function OutlineRow({
         <RowDate
           prefix={railPrefix}
           date={chipDate}
+          preset="scheduled"
           flag={schedLate ? "late" : undefined}
           label="這一班改到"
           today={today}
@@ -513,26 +535,19 @@ export function OutlineRow({
           onFocusBack={actions.focusContainer}
         />
       ) : (
-        // 延着那一張（含今天才補済的）印「原定」＋赭；其餘印「執行」＋補記旗（選到今天以前＝補記）
+        // 延着那一張（含今天才補済的）印「原定」＋赭；多日票直接印「10/2–10/4」、自由券由 DateChip 印「期間 10/2–10/4」；其餘印「執行」＋補記旗
         <RowDate
-          prefix={lateSeal ? "原定" : isRange ? "期間" : "執行"}
+          prefix={lateSeal ? "原定" : hasSpan ? undefined : "執行"}
           date={chipDate}
           endDate={node.scheduled_end}
+          isMultiDay={isMulti}
           allowRange
+          preset="scheduled"
           flag={lateSeal ? "late" : "backfill"}
           label="乘車日"
           today={today}
           onPick={(v) => actions.setDate(node.id, "scheduled_on", v)}
-          onPickRange={(s, e) => {
-            const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
-            void useNodeStore.getState().updateNode(
-              node.id,
-              syncDue && s
-                ? { scheduled_on: s, scheduled_end: e, due_on: e ?? s }
-                : { scheduled_on: s, scheduled_end: e },
-              { backfill: !e },
-            );
-          }}
+          onPickRange={pickScheduledRange}
           onFocusBack={actions.focusContainer}
         />
       )
@@ -543,6 +558,8 @@ export function OutlineRow({
       <RowDate
         prefix="締切"
         date={node.due_on}
+        preset="due"
+        syncScheduledOn={node.scheduled_end ?? node.scheduled_on}
         flag={dueLate ? "late" : undefined}
         label="締切日"
         today={today}
@@ -822,17 +839,22 @@ export function OutlineRow({
                 {!chipDate && !rule && (
                   <RowDate
                     date={null}
+                    allowRange
+                    preset="scheduled"
                     flag="backfill"
                     label="乘車日"
                     emptyText="＋乘車日"
                     today={today}
                     onPick={(v) => actions.setDate(node.id, "scheduled_on", v)}
+                    onPickRange={pickScheduledRange}
                     onFocusBack={actions.focusContainer}
                   />
                 )}
                 {!node.due_on && (
                   <RowDate
                     date={null}
+                    preset="due"
+                    syncScheduledOn={node.scheduled_end ?? node.scheduled_on}
                     label="締切日"
                     emptyText="＋締切"
                     today={today}

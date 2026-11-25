@@ -59,7 +59,8 @@ import {
 import { capsOfHotkey } from "../../shell/hotkeys";
 import { AttachPicker } from "../AttachPicker";
 import { ClockInput } from "../ClockInput";
-import { DateChip, dateQuickSet } from "../DateChip";
+import { DateChip } from "../DateChip";
+import { dueQuickSet, scheduledQuickSet } from "../datePickRules";
 import { DatePicker } from "../DatePicker";
 import { DurationPicker } from "../DurationPicker";
 import { OverlineText } from "../PageHeader";
@@ -138,6 +139,7 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
   const ids = useSelectionStore((s) => (s.scope === scope ? s.ids : null));
   const clear = useSelectionStore((s) => s.clear);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
   const treeVer = useNodeStore((s) => s.tree);
   const todayVer = useNodeStore((s) => s.today);
   const stations = useNodeStore((s) => s.stations);
@@ -394,7 +396,7 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
           anchor={btns.current.date ?? null}
           value={sameDay}
           markValue
-          quick={dateQuickSet("forward", today)}
+          quick={scheduledQuickSet(today, weekStart)}
           today={today}
           onPick={(d) => {
             closePop();
@@ -415,10 +417,7 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
           anchor={btns.current.due ?? null}
           value={sameDue}
           markValue
-          quick={[
-            ...(anyHasScheduled ? [{ label: "＝同乘車日", day: "" }] : []),
-            ...dateQuickSet("forward", today),
-          ]}
+          quick={dueQuickSet(today, { dynamicSync: anyHasScheduled, weekStart })}
           today={today}
           onPick={(d) => {
             closePop();

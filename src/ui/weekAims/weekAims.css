@@ -405,13 +405,6 @@
   min-height: 400px;
 }
 
-@media (max-width: 920px) {
-  .wa-wb-grid {
-    grid-template-columns: repeat(3, minmax(290px, 1fr));
-    overflow-x: auto;
-  }
-}
-
 .wa-wb-col {
   display: flex;
   flex-direction: column;
@@ -524,6 +517,66 @@
   min-height: 0;
   overflow-y: auto;
   padding: 12px 18px 18px;
+}
+
+/* v1.37 2B：1140px 行路企劃書窄視窗自適應——置於 .wa-wb-col-head / .wa-wb-col-body 之後確保覆寫生效，零水平捲軸與零巢狀雙捲軸 */
+@media (max-width: 1180px) {
+  .ns-dialog:has(.wa-wb-grid) {
+    width: min(96vw, 1140px) !important;
+    max-width: 96vw !important;
+  }
+  .wa-wb-col-head {
+    padding: 10px 14px 8px;
+  }
+  .wa-wb-col-body {
+    padding: 10px 14px 14px;
+  }
+}
+
+@media (max-width: 960px) {
+  .wa-wb-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
+    min-height: 0;
+    max-height: 74vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .wa-wb-col:nth-child(3) {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px dashed var(--color-dash);
+  }
+  .wa-wb-col-body {
+    overflow-y: visible;
+  }
+  .wa-head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .wa.is-wide .wa-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .wa.is-wide .wa-row:nth-child(odd) {
+    border-left: 0;
+    padding-left: 4px;
+  }
+  .wa.is-wide .wa-row:nth-child(n + 3) {
+    border-top: 1px dashed var(--color-line);
+  }
+  .wa-rv .c-n {
+    width: 72px;
+  }
+}
+
+@media (max-width: 720px) {
+  .wa-wb-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wa-wb-col + .wa-wb-col {
+    border-left: 0;
+    border-top: 1px dashed var(--color-dash);
+  }
 }
 
 /* 雙層方針編輯列：上層全寬多行句子輸入框，下層路線標＋跨欄引流鈕 */

@@ -72,10 +72,12 @@ export interface NodeRow extends SyncFields {
    * 讀寫只經 domain/scheduledTime.ts 與 repository 的 setRunTime／clearRunTime（UI 不准讀改寫 JSON）；整欄 LWW。
    */
   time_overrides: string | null;
-  /** 期間自由券訖日 'YYYY-MM-DD'（第四梯 0024）；NULL＝單日票；有值且 > scheduled_on＝閉區間 [scheduled_on, scheduled_end] */
+  /** 期間訖日 'YYYY-MM-DD'（0024）；NULL＝單日票；有值且 > scheduled_on＝閉區間 [scheduled_on, scheduled_end] */
   scheduled_end: string | null;
   /** 預留席車票（第四梯 0024）：1＝預留席（虛線框，支援無標題建票），NULL/0＝一般車票 */
   is_placeholder: number | null;
+  /** 多日乘車日旗標（第八本第二梯 0026）：1＝連續多日乘車日（直列今日主清單與月／週跨日色帶），NULL/0＝期間自由券（今日抽屜備選） */
+  is_multi_day: number | null;
 }
 
 export interface WorkLog extends SyncFields {
@@ -210,6 +212,8 @@ export const CONFLICT_COL_LABEL: Record<string, string> = {
   description: "說明",
   status: "狀態",
   scheduled_on: "日期",
+  scheduled_end: "訖日",
+  is_multi_day: "多日乘車日",
   due_on: "截止",
   priority: "優先",
   mood: "心情",

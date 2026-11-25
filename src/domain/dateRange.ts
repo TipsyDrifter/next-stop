@@ -28,25 +28,85 @@ export function normalizeDateRange(
   return e < s ? { scheduledOn: e, scheduledEnd: s } : { scheduledOn: s, scheduledEnd: e };
 }
 
-/** 是否為有效的期間自由券（有起日、有訖日且訖日嚴格大於起日） */
-export function isRangeTicket(n: { scheduled_on: string | null; scheduled_end: string | null }): boolean {
+/** 是否具備有效的跨日閉區間（`scheduled_on < scheduled_end`，包含多日乘車日與期間自由券） */
+export function hasDateSpan(n: { scheduled_on: string | null; scheduled_end: string | null }): boolean {
   return n.scheduled_on !== null && n.scheduled_end !== null && n.scheduled_end > n.scheduled_on;
 }
 
-/** 此期間自由券的閉區間是否涵蓋 `dayKey` */
+/** 是否為「多日乘車日」票（有跨日閉區間且 `is_multi_day === 1`；如出差三天、週末旅行） */
+export function isMultiDayTicket(n: {
+  scheduled_on: string | null;
+  scheduled_end: string | null;
+  is_multi_day?: number | null;
+}): boolean {
+  return hasDateSpan(n) && n.is_multi_day === 1;
+}
+
+/** 是否為「期間自由券」（有跨日閉區間且非多日乘車日；收納於今日抽屜備選） */
+export function isFlexibleRangeTicket(n: {
+  scheduled_on: string | null;
+  scheduled_end: string | null;
+  is_multi_day?: number | null;
+}): boolean {
+  return hasDateSpan(n) && !n.is_multi_day;
+}
+
+/** 是否為有效的期間自由券（等同 `isFlexibleRangeTicket`，相容既有名稱） */
+export function isRangeTicket(n: {
+  scheduled_on: string | null;
+  scheduled_end: string | null;
+  is_multi_day?: number | null;
+}): boolean {
+  return isFlexibleRangeTicket(n);
+}
+
+/** 此跨日票（多日乘車日或期間自由券）的閉區間是否涵蓋 `dayKey` */
 export function isRangeCoveringDay(
   n: { scheduled_on: string | null; scheduled_end: string | null },
   dayKey: string,
 ): boolean {
-  return isRangeTicket(n) && n.scheduled_on! <= dayKey && dayKey <= n.scheduled_end!;
+  return hasDateSpan(n) && n.scheduled_on! <= dayKey && dayKey <= n.scheduled_end!;
 }
 
-/** 期間自由券是否已過期進入誤點區（唯有 `dayKey > scheduled_end` 且未結案才算誤點） */
+/** 跨日票（多日乘車日或期間自由券）是否已過期進入誤點區（唯有 `dayKey > scheduled_end` 且未結案才算誤點） */
 export function isRangeOverdue(
   n: { scheduled_on: string | null; scheduled_end: string | null; status: string },
   dayKey: string,
 ): boolean {
-  return isRangeTicket(n) && n.status !== "done" && n.status !== "paused" && dayKey > n.scheduled_end!;
+  return hasDateSpan(n) && n.status !== "done" && n.status !== "paused" && dayKey > n.scheduled_end!;
+}
+
+/** 計算多日乘車日在 `dayKey` 當天屬於「第幾日 / 共幾日」（1-based；若不在區間內回 null） */
+export function multiDayProgress(
+  scheduledOn: string | null,
+  scheduledEnd: string | null,
+  dayKey: string,
+): { dayIndex: number; totalDays: number; isLastDay: boolean } | null {
+  if (!scheduledOn || !scheduledEnd || scheduledEnd <= scheduledOn) return null;
+  if (dayKey < scheduledOn || dayKey > scheduledEnd) return null;
+  const toUtc = (k: string) => Date.UTC(Number(k.slice(0, 4)), Number(k.slice(5, 7)) - 1, Number(k.slice(8, 10)));
+  const totalDays = Math.round((toUtc(scheduledEnd) - toUtc(scheduledOn)) / 86_400_000) + 1;
+  const dayIndex = Math.round((toUtc(dayKey) - toUtc(scheduledOn)) / 86_400_000) + 1;
+  return { dayIndex, totalDays, isLastDay: dayKey === scheduledEnd };
+}
+
+/** 多日乘車日於今日主清單的標示字（例 `"10/2–10/4 · 第 2/3 日"`；超出區間則僅回 `"10/2–10/4"`） */
+export function formatMultiDayLabel(
+  scheduledOn: string,
+  scheduledEnd: string | null,
+  dayKey: string,
+): string {
+  const base = formatDateRangeBadge(scheduledOn, scheduledEnd);
+  const prog = multiDayProgress(scheduledOn, scheduledEnd, dayKey);
+  return prog ? `${base} · 第 ${prog.dayIndex}/${prog.totalDays} 日` : base;
+}
+
+/** 是否為「尚在進行中、非最後一日」的多日乘車日（`today < scheduled_end`，今日未完成催辦數不計入） */
+export function isNonFinalMultiDay(
+  n: { scheduled_on: string | null; scheduled_end: string | null; is_multi_day?: number | null },
+  dayKey: string,
+): boolean {
+  return isMultiDayTicket(n) && n.scheduled_on! <= dayKey && dayKey < n.scheduled_end!;
 }
 
 export type DateRangePreset = "weekend" | "thisWeek" | "nextWeek" | "thisMonth";

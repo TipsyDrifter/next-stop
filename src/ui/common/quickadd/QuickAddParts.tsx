@@ -104,7 +104,7 @@ export function chipTexts(api: QuickAddApi, noDateLabel: boolean): Record<Exclud
   const on = v.on;
   const stName = v.stationId ? api.stationName(v.stationId) : null;
   const dateShown = v.scheduledOn
-    ? dateRangeChipText(v.scheduledOn, v.scheduledEnd, api.today)
+    ? dateRangeChipText(v.scheduledOn, v.scheduledEnd, api.today, v.isMultiDay)
     : on.has("date") || noDateLabel
       ? "無日期"
       : null;

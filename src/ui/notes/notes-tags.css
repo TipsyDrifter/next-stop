@@ -244,8 +244,12 @@
 }
 .ns-notes-tagmain .ns-notes-measure { max-width: none; }
 .ns-notes-tagmain .ns-errrow { margin-bottom: var(--sp-4); }
+.ns-notes .ns-notes-backrow {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px;
+  margin: -8px 0 14px -6px;
+}
 .ns-notes .ns-notes-backlink {
-  display: inline-flex; align-items: center; gap: 4px; margin: -8px 0 14px -6px; padding: 3px 8px 3px 4px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px; cursor: pointer;
   border: 0; border-radius: var(--radius-ctl); background: transparent;
   font-family: inherit; font-size: var(--fs-ui); letter-spacing: .08em; color: var(--color-ink-soft);
 }
@@ -377,7 +381,270 @@
 .ns-notes-donefold[open] > summary svg { transform: rotate(90deg); }
 .ns-notes-donefold > summary .n { font-family: var(--font-latin); }
 
+/* ═══ 六、鐵道行李牌（穿孔吊牌）索引卡牆（2A-4；未選中荷札時的總覽卡牆） ═══ */
+.nt-luggage-wall {
+  display: flex; flex-direction: column; gap: var(--sp-4);
+}
+/* 頂部搜尋篩選列：宣紙薄襯帶（水鏡鎌倉等實景主題下維持高可讀） */
+.nt-luggage-bar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4);
+  padding: 6px var(--sp-3);
+  background: var(--washi-strip-bg);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+}
+.nt-luggage-search {
+  flex: 1 1 220px; max-width: 360px; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 2px 2px 2px var(--sp-1);
+  border-bottom: 1px solid var(--color-dash);
+  color: var(--color-ink-faint);
+  transition: border-color var(--dur-fast), color var(--dur-fast);
+}
+.nt-luggage-search:focus-within {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+.nt-luggage-search input {
+  flex: 1; min-width: 0; height: var(--ctl-h-sm); padding: 0;
+  background: transparent; border: 0; outline: none;
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .04em; color: var(--color-ink);
+}
+.nt-luggage-search input::placeholder { color: var(--color-ink-faint); }
+.nt-luggage-clear {
+  flex: none; display: grid; place-items: center;
+  width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: var(--radius-ctl); background: transparent;
+  color: var(--color-ink-faint); cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.nt-luggage-clear:hover { background: var(--hover-bg); color: var(--color-ink); }
+.nt-luggage-clear:focus-visible { outline: var(--focus-ring); }
+.nt-luggage-summary {
+  flex: none;
+  font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft);
+}
+.nt-luggage-summary b {
+  font-family: var(--font-latin); font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+}
+
+/* 2～3 欄響應式索引卡牆 */
+.nt-luggage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--sp-4);
+  align-items: stretch;
+}
+
+/* 單張鐵道行李牌卡：和紙厚卡面＋左側穿孔耳帶＋雙環打孔護眼 */
+.nt-luggage-card {
+  position: relative;
+  display: flex; align-items: stretch;
+  min-width: 0;
+  border-radius: var(--radius-card);
+  background: var(--color-paper-high);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+  color: var(--color-ink);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+.nt-luggage-card::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: var(--ns-noise); opacity: .045; mix-blend-mode: multiply;
+  pointer-events: none;
+}
+[data-theme="dark"] .nt-luggage-card::after { display: none; }
+.nt-luggage-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--color-line));
+  box-shadow: var(--glass-hi), var(--shadow-card-hover);
+}
+.nt-luggage-card:focus-visible {
+  outline: var(--focus-ring); outline-offset: 2px;
+}
+
+/* 左側打孔穿繩耳帶 */
+.nt-luggage-ear {
+  position: relative; z-index: 1; flex: none;
+  width: 34px;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--color-paper-used) 45%, transparent);
+  border-right: 1px dashed var(--color-line);
+}
+/* 穿繩示意細線（從耳帶左緣牽入護眼環） */
+.nt-luggage-ear::before {
+  content: ""; position: absolute; left: 0; top: 50%;
+  width: 10px; height: 1.2px; margin-top: -0.6px;
+  background: var(--tag-line); opacity: .75;
+  pointer-events: none;
+}
+/* 精緻雙環打孔護眼（外金屬護眼圈＋內打孔透底） */
+.nt-luggage-eyelet {
+  position: relative;
+  display: grid; place-items: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--tag-eye);
+  background: color-mix(in srgb, var(--tag-eye) 16%, var(--color-paper-high));
+  box-shadow: inset 0 0 0 2px var(--color-paper-high);
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.nt-luggage-eyelet::after {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--tag-hole);
+  border: 1px solid var(--tag-eye);
+  box-shadow: inset 0 1px 1px color-mix(in srgb, var(--color-ink) 22%, transparent);
+}
+.nt-luggage-card:hover .nt-luggage-eyelet {
+  border-color: var(--accent);
+}
+.nt-luggage-card.is-virtual .nt-luggage-eyelet {
+  border-style: dashed;
+  background: transparent;
+}
+.nt-luggage-card.is-virtual .nt-luggage-eyelet::after {
+  border-style: dashed;
+  opacity: .75;
+}
+
+/* 右側卡面正文 */
+.nt-luggage-body {
+  position: relative; z-index: 1;
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4) var(--sp-3) 14px;
+}
+
+/* 卡頭：#母荷札大字 ＋ 右側總計數珠 */
+.nt-luggage-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-2);
+}
+.nt-luggage-name {
+  margin: 0; min-width: 0;
+  display: inline-flex; align-items: baseline; gap: 3px;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); line-height: 1.3;
+  letter-spacing: .04em; color: var(--color-ink);
+}
+.nt-luggage-name .hash {
+  flex: none; font-family: var(--font-latin); font-weight: 500; font-size: var(--fs-body);
+  color: var(--color-ink-faint);
+}
+.nt-luggage-name .txt {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nt-luggage-name .virt {
+  flex: none; margin-left: 3px; padding: 0 4px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  font-family: var(--font-body); font-weight: 400; font-size: var(--fs-micro);
+  letter-spacing: .1em; color: var(--color-ink-faint);
+}
+.nt-luggage-count {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 20px; padding: 0 7px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-paper-used) 65%, transparent);
+  font-family: var(--font-latin); font-weight: 600; font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums; line-height: 1;
+  color: var(--color-ink-soft);
+}
+
+/* 子荷札細框小牌列 */
+.nt-luggage-children {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+}
+.nt-luggage-child {
+  display: inline-flex; align-items: center; max-width: 100%;
+  height: 22px; padding: 0 7px;
+  border: 1px solid var(--tag-line); border-radius: var(--radius-ctl);
+  background: var(--tag-fill);
+  font-family: inherit; font-size: var(--fs-xs); line-height: 1; letter-spacing: .03em;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition: border-color var(--dur-fast), background var(--dur-fast), color var(--dur-fast);
+}
+.nt-luggage-child .sl { color: var(--color-ink-faint); margin-right: 1px; opacity: .8; }
+.nt-luggage-child .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-luggage-child:hover {
+  border-color: var(--accent);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+}
+.nt-luggage-child:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.nt-luggage-more {
+  display: inline-flex; align-items: center;
+  height: 22px; padding: 0 6px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  font-family: var(--font-latin); font-size: var(--fs-xs); font-variant-numeric: tabular-nums;
+  color: var(--color-ink-faint);
+}
+
+/* 跨模組掛載數列 */
+.nt-luggage-modules {
+  margin: 0;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 0;
+  font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-soft);
+}
+.nt-luggage-moditem .sep {
+  margin: 0 6px; color: var(--color-ink-faint); opacity: .75;
+}
+.nt-luggage-moditem b {
+  font-family: var(--font-latin); font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+}
+
+/* 最近 2 筆紀錄預覽（細虛線撕線分隔，貼底對齊） */
+.nt-luggage-previews {
+  margin-top: auto;
+  padding-top: var(--sp-2);
+  border-top: 1px dashed var(--color-dash);
+}
+.nt-luggage-plist {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.nt-luggage-prow {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  line-height: 1.4;
+}
+.nt-luggage-pmod {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-paper-used) 60%, transparent);
+  font-size: var(--fs-micro); letter-spacing: .08em; line-height: 1.25;
+  color: var(--ink-mid);
+}
+.nt-luggage-ptitle {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-sm); letter-spacing: .02em; color: var(--color-ink-soft);
+}
+.nt-luggage-pdate {
+  flex: none;
+  font-family: var(--font-latin); font-size: var(--fs-xs); font-variant-numeric: tabular-nums;
+  letter-spacing: .02em; color: var(--color-ink-faint);
+}
+.nt-luggage-empty {
+  margin: 0; padding: 2px 0;
+  font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-faint);
+  opacity: .8;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ns-notes-tag, .ns-notes-tag .ns-notes-tag-x, .ns-notes-sug, .ns-notes-notice, .ns-notes-mergepick,
-  .cover .ns-notes-wk, .cover .ns-notes-treerow .cr svg, .ns-notes-donefold > summary svg { transition: none; animation: none; }
+  .cover .ns-notes-wk, .cover .ns-notes-treerow .cr svg, .ns-notes-donefold > summary svg,
+  .nt-luggage-card, .nt-luggage-eyelet, .nt-luggage-child, .nt-luggage-search, .nt-luggage-clear { transition: none; animation: none; }
+  .nt-luggage-card:hover { transform: none; }
 }
