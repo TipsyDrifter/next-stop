@@ -36,6 +36,16 @@ export function openReport(shell: ReportShellKind): void {
   });
 }
 
+/** 跨模組直達指定營業日的「一日運行專頁」（例：日記頁頂部「運行實績 ›」按鈕） */
+export function openReportDaySpread(day: string, shell: ReportShellKind): void {
+  void runAtomicNav(() => {
+    const ui = useUiStore.getState();
+    if (shell === "desktop") ui.setPage("report");
+    else ui.setMobileTab("report");
+    useReportStore.getState().openDaySpread(day, shell);
+  });
+}
+
 export function goToday(shell: ReportShellKind): void {
   void runAtomicNav(() => {
     const ui = useUiStore.getState();

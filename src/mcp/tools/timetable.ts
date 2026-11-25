@@ -642,12 +642,21 @@ const updateTimeBlocks: McpTool = {
       const s0 = msOf(cur.started_at);
       const s = sameMinute(start, s0) ?? s0;
       if (cur.ended_at === null) {
-        // ＝BlockPanel 運行中模式（editRunning）：沒有到着欄；出發不晚於現在−1 分（repository 會夾）、最多往前一天；長塊照問、不寫 ack
+        // ＝BlockPanel 運行中模式（editRunning）：沒有到着欄；出發不晚於現在−1 分（repository 會夾）、最多往前一天；長塊照問、按「確定記這麼長」寫 ack
         if (end !== undefined) throw new McpUserError(`${where} 是運行中的那班，沒有結束時刻可改；要結束用 stop-time-block`);
         if (s > now) throw new McpUserError(`${where} 的 start 不能晚於現在`);
         if (s < s0 - 24 * 60 * MIN) throw new McpUserError(`${where} 運行中那班的 start 最多往前改 24 小時；更早的那段請用 add-time-blocks 補記`);
+        const ask = s !== s0 && now - s > LONG_BLOCK_MS;
         if (s !== s0) needLongConfirm(s, now, confirmLong, where);
-        plan.push({ id, running: true, categoryId: categoryId ?? cur.category_id, start: s, end: now, ...(note !== undefined ? { note } : {}) });
+        plan.push({
+          id,
+          running: true,
+          categoryId: categoryId ?? cur.category_id,
+          start: s,
+          end: now,
+          ...(ask && confirmLong ? { ack: true as const } : {}),
+          ...(note !== undefined ? { note } : {}),
+        });
         continue;
       }
       const e0 = msOf(cur.ended_at);
@@ -675,7 +684,7 @@ const updateTimeBlocks: McpTool = {
       const p = plan[i];
       const at = { index: i, key: "blocks" };
       const r = p.running
-        ? await guard(() => repo.editRunning(p.id, { categoryId: p.categoryId, startIso: isoOf(p.start), note: p.note }), at)
+        ? await guard(() => repo.editRunning(p.id, { categoryId: p.categoryId, startIso: isoOf(p.start), ack: p.ack, note: p.note }), at)
         : await guard(() => repo.editBlock(p.id, { categoryId: p.categoryId, startIso: isoOf(p.start), endIso: isoOf(p.end), ack: p.ack, note: p.note }), at);
       cover = addCover(cover, r);
     }

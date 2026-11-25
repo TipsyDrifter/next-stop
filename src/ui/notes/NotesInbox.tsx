@@ -26,6 +26,7 @@ import { AttachPicker } from "../common/AttachPicker";
 import { rowContextMenu } from "../common/contextMenu";
 import { DatePicker } from "../common/DatePicker";
 import { EmptyState } from "../common/EmptyState";
+import { EntityTagPills } from "../common/TagPills";
 import { IconDots, IconEdit } from "../common/icons";
 import { PageHeader } from "../common/PageHeader";
 import { PopMenu } from "../common/PopMenu";
@@ -447,6 +448,7 @@ function InboxRow({
                   </>
                 )}
               </div>
+              <EntityTagPills entityType="note" entityId={it.id} max={3} compact className="ns-notes-itags" />
             </div>
             {dest}
           </div>
@@ -492,6 +494,7 @@ function InboxRow({
                 {fmtShort(day)} {inboxSort === "updated" && t.updated_at !== t.created_at ? "修改" : "建立"}
               </span>
             </div>
+            <EntityTagPills entityType="node" entityId={it.id} max={3} compact className="ns-notes-itags" />
           </div>
           <div className="stamp-zone">
             <UketsukeSeal day={stampDay} />

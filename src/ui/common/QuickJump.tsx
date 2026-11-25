@@ -20,10 +20,13 @@ import { ancestorsOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useDepotStore } from "../../store/depotStore";
 import { useBoardStore } from "../../store/boardStore";
+import { useTagStore } from "../../store/tagStore";
 import { runAtomicNav } from "../../store/navHistoryStore";
 import { landOnBoard } from "../board/boardReveal";
 import { todayKey } from "../../lib/date";
 import { roundelStyle } from "./roundel";
+import { NodeCrumb } from "./NodeCrumb";
+import { EntityTagPills } from "./TagPills";
 import { lineQuickJumpProviders } from "../../lines/runtime";
 import type { QuickJumpHit, QuickJumpProviderSpec } from "../../lines/types";
 import { idealRepo } from "../../data/idealRepository";
@@ -308,6 +311,13 @@ function QuickJumpPanel() {
     });
   };
 
+  const onTagPick = (tagKey: string) => {
+    close(false);
+    void runAtomicNav(async () => {
+      useTagStore.getState().openTagPage(tagKey);
+    });
+  };
+
   const contextOf = (node: NodeRow): string => quickJumpContext(node, routes, lines);
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -399,6 +409,7 @@ function QuickJumpPanel() {
                       active={isActive}
                       onHover={() => setActive(i)}
                       onPick={() => choose(r)}
+                      onTagPick={onTagPick}
                     />
                   );
                 const node = r.node;
@@ -416,13 +427,17 @@ function QuickJumpPanel() {
                     className={`ns-qj-row flex items-center gap-3 pl-4 pr-5 py-[7px] cursor-pointer${isActive ? " is-active" : ""}`}
                   >
                     <ResultBadge node={node} done={done} />
-                    <span
-                      className={`min-w-0 flex-1 truncate font-display text-[14px] tracking-[0.02em] ${
-                        done ? "text-ink-faint line-through decoration-ink/35" : ""
-                      }`}
-                    >
-                      {node.name}
-                    </span>
+                    <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                      <NodeCrumb parentId={node.parent_id} compact />
+                      <span
+                        className={`min-w-0 truncate font-display text-[14px] tracking-[0.02em] ${
+                          done ? "text-ink-faint line-through decoration-ink/35" : ""
+                        }`}
+                      >
+                        {node.name}
+                      </span>
+                      <EntityTagPills entityType="node" entityId={node.id} max={3} compact onPick={onTagPick} />
+                    </div>
                     {done && (
                       <span className="shrink-0 font-display font-semibold text-[12px] text-seal" aria-label="已完成">
                         済
@@ -468,14 +483,17 @@ function HitRow({
   active,
   onHover,
   onPick,
+  onTagPick,
 }: {
   row: Extract<Row, { type: "hit" }>;
   id: string;
   active: boolean;
   onHover(): void;
   onPick(): void;
+  onTagPick(tagKey: string): void;
 }) {
   const { hit, group } = row;
+  const isNote = row.key.startsWith("notes.notes:") || row.key.startsWith("notes.diary:");
   return (
     <>
       {group && (
@@ -497,7 +515,10 @@ function HitRow({
             {hit.glyph.text}
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate font-display text-[14px] tracking-[0.02em]">{hit.label}</span>
+        <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+          <span className="min-w-0 truncate font-display text-[14px] tracking-[0.02em]">{hit.label}</span>
+          {isNote && <EntityTagPills entityType="note" entityId={hit.id} max={3} compact onPick={onTagPick} />}
+        </div>
         {hit.aside && <span className="shrink-0 max-w-[38%] truncate text-[11px] tracking-[0.06em] text-ink-faint">{hit.aside}</span>}
       </li>
     </>

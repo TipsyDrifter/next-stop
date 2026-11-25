@@ -23,6 +23,7 @@ import {
   type NodePatch,
   type RunOverrideRecord,
   type ScheduleEntry,
+  type TaskHolderRow,
   type TodayRow,
 } from "../data";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds } from "../domain/scheduledTime";
@@ -241,6 +242,8 @@ interface NodeStore {
   liveRoutes: NodeRow[];
   /** 每條路線的未完成末端項目數（回饋甲 D-主-130；側欄與手機路線清單列尾）。0 的路線不在表裡 */
   routeOpenCounts: Record<string, number>;
+  /** 全站裝票節點（支線／列車／車廂）索引，供抽離視圖零 N+1 拼上層脈絡（D-1.36-2） */
+  taskHolders: Record<string, TaskHolderRow>;
   routeId: string | null;
   tree: TreeIndex;
   /** 全站票號表（id →「MMDD-NN」）＝當日全域發券序；大綱票根與側板票頭讀它（serialOf） */
@@ -413,6 +416,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   liveLines: [],
   liveRoutes: [],
   routeOpenCounts: {},
+  taskHolders: {},
   routeId: null,
   tree: EMPTY_TREE,
   serials: {},
@@ -455,7 +459,13 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   async loadRouteOpenCounts() {
     try {
-      set({ routeOpenCounts: await nodeRepo.routeOpenCounts() });
+      const [routeOpenCounts, holderList] = await Promise.all([
+        nodeRepo.routeOpenCounts(),
+        nodeRepo.listTaskHolders().catch(() => [] as TaskHolderRow[]),
+      ]);
+      const taskHolders: Record<string, TaskHolderRow> = {};
+      for (const h of holderList) taskHolders[h.id] = h;
+      set({ routeOpenCounts, taskHolders });
     } catch (e) {
       console.warn("nodeStore.loadRouteOpenCounts 失敗", e); // 小標而已：留著舊數字，不掛紅字橫幅
     }

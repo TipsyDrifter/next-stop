@@ -66,7 +66,7 @@ export function RideBook({ routeId, shell, onBack }: RideBookProps) {
 
   if (!route) {
     return (
-      <div className="ns-depot-book">
+      <div className={`ns-depot-book${shell === "desktop" ? " ns-washi-card" : ""}`}>
         <EmptyState tone="first" stamp={null} title="找不到這條路線" desc="它可能已經刪除了。" action={{ label: "回車庫", onClick: onBack }} />
       </div>
     );
@@ -94,7 +94,7 @@ export function RideBook({ routeId, shell, onBack }: RideBookProps) {
   const pending = facts === null;
 
   return (
-    <div className="ns-depot-book" aria-busy={pending || undefined}>
+    <div className={`ns-depot-book${shell === "desktop" ? " ns-washi-card" : ""}`} aria-busy={pending || undefined}>
       {shell === "desktop" ? (
         <PageHeader
           variant="identity"

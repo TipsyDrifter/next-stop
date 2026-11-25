@@ -1,0 +1,40 @@
+/* ─────────────────────────────────────────────────────
+ * nodecrumb.css — 全站 5 大抽離視圖共用的精簡淡色上層脈絡（D-1.36-2）
+ * 顯示「支線 › 列車 › 車廂」（不重複印票根已有的路線名）
+ * ───────────────────────────────────────────────────── */
+
+.ns-nodecrumb {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  letter-spacing: 0.03em;
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ns-nodecrumb-seg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 14em;
+}
+
+.ns-nodecrumb-sep {
+  margin: 0 4px;
+  opacity: 0.65;
+  flex: none;
+}
+
+.ns-nodecrumb.is-compact {
+  font-size: var(--fs-micro);
+}
+
+.ns-nodecrumb.is-compact .ns-nodecrumb-sep {
+  margin: 0 3px;
+}

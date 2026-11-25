@@ -291,6 +291,8 @@ export interface NodeRepository {
   listTasks(): Promise<TaskRow[]>;
   /** 裝票的節點（支線、列車、車廂）的名字與父節點：卡上那行「單字 › 第 1 週」從這份接（⑫） */
   listTaskHolders(): Promise<TaskHolderRow[]>;
+  /** 查詢某父節點底下的存活直屬子項（依兄弟順序；供今日母列車微展開與詳情面板子票清單使用） */
+  listChildren(parentId: string): Promise<NodeRow[]>;
   /**
    * 全站票號表（id →「MMDD-NN」）＝當日全域發券序（規則見 buildSerialMap）。
    * 大綱票根與側板票頭吃這張表；今日列的 serial 也由同一張表蓋上去（四處同一把尺）。

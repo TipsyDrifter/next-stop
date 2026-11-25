@@ -1,0 +1,133 @@
+/* ─────────────────────────────────────────────────────
+ * tagpills.css — 全站票面與列表常駐顯影「素雅無底色 #荷札 細框小牌」（D-1.36-2）
+ * 設計紀律：
+ *   - 透明無底色、細框、方角 --radius-ctl (2px)，不搶票面主視覺
+ *   - 多層荷札票面僅印末段，hover 框與字轉 --accent
+ *   - 全面使用語意層 Token，零硬編碼色碼
+ * ───────────────────────────────────────────────────── */
+
+.ns-tagpills {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.ns-tagpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  max-width: 120px;
+  padding: 0 5px;
+  min-height: 18px;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 20%, transparent);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-tagpill:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--sel-bg);
+}
+
+.ns-tagpill:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-tagpill.is-static {
+  cursor: default;
+}
+
+.ns-tagpill.is-static:hover {
+  border-color: color-mix(in srgb, var(--color-ink) 20%, transparent);
+  color: var(--color-ink-soft);
+  background: transparent;
+}
+
+.ns-tagpill-hash {
+  color: var(--color-ink-faint);
+  margin-right: 1px;
+  flex: none;
+}
+
+.ns-tagpill:hover .ns-tagpill-hash {
+  color: var(--accent);
+}
+
+.ns-tagpill-txt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ns-tagpill-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  min-height: 18px;
+  border: 1px dashed color-mix(in srgb, var(--color-ink) 22%, transparent);
+  border-radius: var(--radius-ctl);
+  color: var(--color-ink-faint);
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex: none;
+}
+
+/* 緊湊變體（時刻表時間塊、行程表密集列、搜尋小列） */
+.ns-tagpills.is-compact {
+  gap: 3px;
+}
+
+.ns-tagpills.is-compact .ns-tagpill {
+  min-height: 16px;
+  padding: 0 4px;
+  font-size: var(--fs-micro);
+  max-width: 92px;
+}
+
+.ns-tagpills.is-compact .ns-tagpill-more {
+  min-height: 16px;
+  padding: 0 3px;
+}
+
+/* 時刻表窄時間塊濃縮 `#` 微記號 */
+.ns-tagdot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 2px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-ctl);
+  font-family: var(--font-latin);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.78;
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tagpill {
+    transition: none;
+  }
+}

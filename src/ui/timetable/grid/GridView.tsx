@@ -80,7 +80,7 @@ function GridNav({ day, read }: { day: GridDay; read: ReactNode }) {
   // 手機頂列橫向放不下「今天／昨天」小籤（‹ 日期 › ＋今天 chip ＋格子大小，360 寬量過）：日期留星期、小籤只在桌機
   const tag = !isDesk ? null : isToday ? TT_TEXT.schedToday : dayKey === addDays(todayKey, -1) ? SCHED_UI.yesterday : null;
   return (
-    <div className="ns-tt-grid-nav">
+    <div className="ns-tt-grid-nav ns-washi-strip">
       {/* UI 丙-4 D9：‹ 日期 › ＋「回到今天」膠囊換共用 DateNav（兩殼都有「今天」chip；手機原本「點日期回今天」的替身退役）。
           動作＝鍵盤 ←／→／T 的同一支 setDayKey；方眼照軸、不記未來 ⇒ 看今天時 › 停用 */}
       <DateNav

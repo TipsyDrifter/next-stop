@@ -14,7 +14,10 @@
 import { MOCK_MODE, nodeRepo } from "./index";
 import { noteRepo } from "./noteRepo";
 import { getDb } from "../lib/db";
-import { oneLine } from "../domain/report";
+import { MISSING_NODE_NAME, footprintLogs } from "../domain/notes";
+import { oneLine, type ReportWorkLogFact } from "../domain/report";
+
+export type ReportWorkLogRow = ReportWorkLogFact;
 
 export interface ReportDueFactRow {
   id: string;
@@ -42,6 +45,7 @@ export interface ReportQueries {
   diarySummariesIn(fromDay: string, toDay: string): Promise<Record<string, { id: string; text: string }>>;
   nodeMetaByIds(ids: readonly string[]): Promise<Record<string, ReportNodeMetaRow>>;
   firstNoteIn(fromIso: string, toIso: string): Promise<{ title: string | null; body: string } | null>;
+  workLogsIn(fromIso: string, toIso: string): Promise<ReportWorkLogRow[]>;
 }
 
 const SQL_CHUNK = 200;
@@ -142,6 +146,38 @@ class SqliteReportQueries implements ReportQueries {
     );
     return rows[0] ?? null;
   }
+
+  async workLogsIn(fromIso: string, toIso: string): Promise<ReportWorkLogRow[]> {
+    if (fromIso >= toIso) return [];
+    const db = await getDb();
+    const rows = await db.select<
+      {
+        id: string;
+        node_id: string;
+        body: string;
+        at: string;
+        node_name: string | null;
+        missing: number;
+      }[]
+    >(
+      `SELECT w.id, w.node_id, w.body, w.logged_at AS at, n.name AS node_name,
+              (n.id IS NULL OR n.deleted_at IS NOT NULL) AS missing
+       FROM work_logs w LEFT JOIN nodes n ON n.id = w.node_id
+       WHERE w.deleted_at IS NULL AND w.event IS NULL AND w.body != ''
+         AND w.logged_at >= $1 AND w.logged_at < $2
+         AND (n.id IS NULL OR n.deleted_at IS NULL)
+       ORDER BY w.logged_at ASC`,
+      [fromIso, toIso],
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      nodeId: r.node_id,
+      nodeName: r.node_name ?? MISSING_NODE_NAME,
+      body: r.body,
+      at: r.at,
+      nodeMissing: Boolean(r.missing) || r.node_name === null,
+    }));
+  }
 }
 
 /** mock：締切走 listCalendar；筆記／日記／節點走既有記憶體 repository */
@@ -216,6 +252,21 @@ class MemoryReportQueries implements ReportQueries {
       .filter((n) => n.noted_at >= fromIso && n.noted_at < toIso)
       .sort((a, b) => (a.noted_at < b.noted_at ? -1 : a.noted_at > b.noted_at ? 1 : 0))[0];
     return hit ? { title: hit.title, body: hit.body } : null;
+  }
+
+  async workLogsIn(fromIso: string, toIso: string): Promise<ReportWorkLogRow[]> {
+    if (fromIso >= toIso) return [];
+    const side = await nodeRepo.listSidebar();
+    const byId = new Map<string, Awaited<ReturnType<typeof nodeRepo.listRouteTree>>[number]>();
+    for (const n of [...side.lines, ...side.routes, ...side.stations]) byId.set(n.id, n);
+    for (const r of side.routes) {
+      for (const n of await nodeRepo.listRouteTree(r.id)) byId.set(n.id, n);
+    }
+    const nodes = [...byId.values()];
+    const logs = (await Promise.all(nodes.map((n) => nodeRepo.listWorkLogs(n.id)))).flat();
+    return footprintLogs({ start: fromIso, end: toIso }, logs, nodes).sort((a, b) =>
+      a.at < b.at ? -1 : a.at > b.at ? 1 : 0,
+    );
   }
 }
 

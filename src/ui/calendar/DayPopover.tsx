@@ -55,7 +55,7 @@ import { lineCalendarDayAux } from "../../lines/runtime";
 import { isEditableTarget, isGuideKey, resolveHotkey } from "../shell/hotkeys";
 import { DeferPopover, type DeferRow } from "../today/DeferPopover";
 import { showRescheduleToast } from "../today/useTodayController";
-import { moveRunFlow } from "../outline/nodeFlows";
+import { moveRunFlow, toggleStopoverFlow } from "../outline/nodeFlows";
 import { IconClose, IconPlus } from "../common/icons";
 import type { PopMenuItem } from "../common/PopMenu";
 import { makeScheduleActions, scheduleRowMenu } from "../schedule/scheduleActions";
@@ -278,6 +278,10 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
         .then((r) => {
           if (!r.ok && r.reason) toast(r.reason);
         });
+      return;
+    }
+    if (!row.done && node.status === "paused") {
+      void toggleStopoverFlow(node.id);
       return;
     }
     // 走到這裡必是目前班次（canStampRow 放行、又不是運休中）

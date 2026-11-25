@@ -82,7 +82,7 @@ import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { useBackLayer } from "./backStack";
 import { useRevealStore } from "./routeMapReveal";
 import "./mobile-polish.css";
-import { isDoneRow, isSettledRow } from "../today/useTodayController";
+import { isHideableDoneRow, isSettledRow } from "../today/useTodayController";
 import { DoneToggleChip, MobileQuickAdd, NO_DEST, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { cardFromTodayRow } from "../schedule/ticketCard";
@@ -153,8 +153,8 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   /* ───────── 已完成開關（回饋甲 D-主-131）：只藏「今天的列車」裡済的票，跟桌機同一個記住的狀態；頁首「完成 d/t」照舊算全部 ───────── */
   const todayHideDone = useUiStore((s) => s.todayHideDone);
   const toggleTodayHideDone = useUiStore((s) => s.toggleTodayHideDone);
-  const doneToday = c.todayRows.filter(isDoneRow).length;
-  const shownToday = todayHideDone ? c.todayRows.filter((r) => !isDoneRow(r)) : c.todayRows;
+  const doneToday = c.todayRows.filter(isHideableDoneRow).length;
+  const shownToday = todayHideDone ? c.todayRows.filter((r) => !isHideableDoneRow(r)) : c.todayRows;
 
   /* ───────── 建票列（回饋甲 D-主-127、128）：掛到＝無路線、乘車日＝今天；清掉乘車日＝無日期進收件匣 ───────── */
   const qaDefaults = useMemo<QuickDefaults>(() => ({ dest: NO_DEST, scheduledOn: c.dateKey, noDateLabel: true }), [c.dateKey]);
@@ -171,7 +171,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
     const hide = useUiStore.getState().todayHideDone;
     return [
       ...rows.filter((r) => r.bucket !== "today"),
-      ...rows.filter((r) => r.bucket === "today" && !(hide && isDoneRow(r))),
+      ...rows.filter((r) => r.bucket === "today" && !(hide && isHideableDoneRow(r))),
     ].map((r) => r.id);
   };
 
@@ -287,7 +287,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const allSettled =
     (c.todayRows.length > 0 || c.lateRows.length > 0) &&
     left === 0 &&
-    c.lateRows.every((r) => r.occurrence !== null || r.status === "done");
+    c.lateRows.every((r) => r.occurrence !== null || r.status === "done" || r.status === "paused");
 
   /* ───────── 時刻（主線②）：分群、現在線、下一班 ───────── */
   const railOf = (r: TodayRow) => r.occurrence?.due_on ?? r.scheduled_on ?? c.dateKey;

@@ -17,10 +17,14 @@
  */
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { MIN, categoryColorCss, fmtClock, fmtDur, isoOf, type AxisItem } from "../../../domain/timetable";
+import { focusBlockTags } from "../../../domain/timetableTags";
 import { timetableRepo } from "../../../data/timetableRepository";
+import { useTagStore } from "../../../store/tagStore";
 import type { WeekResult } from "../../../store/timetableStatsStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
+import { TagDotHint } from "../../common/TagPills";
+import { useTimetableTagMaps } from "../parts/TimetableTagChips";
 import "../blockNote.css";
 
 export type WeekBlockItem = Extract<AxisItem, { kind: "block" }>;
@@ -52,14 +56,19 @@ interface Tip {
   text: string;
   /** ⑦：這一塊的備註（tooltip 第二行） */
   note: string | null;
+  /** D-1.36-2：焦點荷札（tooltip 補列） */
+  tags: string | null;
   x: number;
   y: number;
   below: boolean;
 }
 
 export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
+  const categories = useTimetableStore((s) => s.categories);
   const catById = useTimetableStore((s) => s.catById);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const tagIndex = useTagStore((s) => s.index);
+  const tagMaps = useTimetableTagMaps();
   const isDesk = shell === "desktop";
   const hourPx = isDesk ? 20 : 28;
   const pending = new Set(week.pendingIds);
@@ -88,14 +97,14 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
     };
   }, [week, isDesk]);
 
-  const showTip = (el: HTMLElement, text: string, note: string | null): void => {
+  const showTip = (el: HTMLElement, text: string, note: string | null, tags: string | null): void => {
     const body = bodyRef.current;
     if (!isDesk || !body) return;
     const br = body.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     const x = Math.max(80, Math.min(br.width - 80, r.left + r.width / 2 - br.left));
     const top = r.top - br.top;
-    setTip(top < 40 ? { text, note, x, y: r.bottom - br.top, below: true } : { text, note, x, y: top, below: false });
+    setTip(top < 40 ? { text, note, tags, x, y: r.bottom - br.top, below: true } : { text, note, tags, x, y: top, below: false });
   };
 
   const hours: number[] = [];
@@ -163,8 +172,11 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
                 const hpx = ((to - it.from) / HOUR) * hourPx;
                 const label = T.blockTip(name, fmtClock(s.start), s.end === null ? T.running : fmtClock(s.end), fmtDur(whole), isPend, isTiny);
                 const note = notes[s.id] ?? null;
+                const focusTags = focusBlockTags({ id: s.id, categoryId: s.categoryId }, categories, tagMaps);
+                const tagLine = focusTags.length > 0 ? focusTags.map((k) => `#${tagIndex?.byKey[k]?.name ?? k}`).join("  ") : null;
                 const showName = hpx >= 15;
                 const tall = isDesk && hpx >= 34;
+                const aria = [label, tagLine, note].filter(Boolean).join("　");
                 const style = {
                   top: pct(at(it.from)),
                   height: pct((to - it.from) / D),
@@ -182,11 +194,16 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
                       (tall ? " is-tall" : "")
                     }
                     style={style}
-                    aria-label={note ? `${label}　${note}` : label}
-                    onPointerEnter={(e) => showTip(e.currentTarget, label, note)}
+                    aria-label={aria}
+                    onPointerEnter={(e) => showTip(e.currentTarget, label, note, tagLine)}
                     onClick={() => onBlock(d.dateKey, it)}
                   >
-                    {showName && <span>{isDesk ? name : (cat?.glyph ?? Array.from(name)[0])}</span>}
+                    {showName && (
+                      <span className="ns-tt-week-b-head">
+                        <span className="ns-tt-week-b-name">{isDesk ? name : (cat?.glyph ?? Array.from(name)[0])}</span>
+                        {focusTags.length > 0 && hpx >= 16 && <TagDotHint keys={focusTags} />}
+                      </span>
+                    )}
                     {tall && <small className="ns-tt-num">{fmtClock(s.start)}</small>}
                   </button>
                 );
@@ -208,6 +225,7 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
             aria-hidden="true"
           >
             {tip?.text}
+            {tip?.tags && <span className="ns-tt-week-tip-tags">{tip.tags}</span>}
             {tip?.note && <span className="ns-tt-week-tip-note">{tip.note}</span>}
           </div>
         )}

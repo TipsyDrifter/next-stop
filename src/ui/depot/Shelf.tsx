@@ -64,7 +64,7 @@ export function Shelf({ items, routeSeals, openedOn, onOpen }: ShelfProps) {
               spine(it.route)
             ) : (
               <div key={it.line.id} className="ns-depot-tgroup" role="group" aria-label={`幹線${it.line.name}`}>
-                <div className="ns-depot-tplate" title={`幹線「${it.line.name}」・${fmtZhMD(it.line.arrived_on)} 到站`}>
+                <div className="ns-depot-tplate ns-washi-strip" title={`幹線「${it.line.name}」・${fmtZhMD(it.line.arrived_on)} 到站`}>
                   <span>
                     <span className="k">幹線</span> {it.line.name}
                   </span>
@@ -91,7 +91,7 @@ export function Shelf({ items, routeSeals, openedOn, onOpen }: ShelfProps) {
                   {it.routes.length > 0 ? (
                     it.routes.map(spine)
                   ) : (
-                    <span className="ns-depot-tempty">無路線</span>
+                    <span className="ns-depot-tempty ns-washi-strip">無路線</span>
                   )}
                   <span className="ns-depot-bookend is-r" aria-hidden="true" />
                 </div>

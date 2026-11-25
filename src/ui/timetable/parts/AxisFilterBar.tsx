@@ -501,7 +501,7 @@ export function AxisFilterBar() {
   );
 
   return (
-    <div className="ns-tt-fbar" role="region" aria-label="時間塊篩選與排序">
+    <div className="ns-tt-fbar ns-washi-strip" role="region" aria-label="時間塊篩選與排序">
       <div className="ns-tt-fbar-filters">
         <button
           ref={catBtnRef}

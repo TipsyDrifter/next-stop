@@ -319,13 +319,15 @@ export interface NodeFieldSpec {
    */
   top?: boolean;
   /**
-   * 桌機任務側板畫在哪一段（接縫 #66；時刻表車次② 0-1）：預設 `"status"`（既有位置）；`"amount"`＝列車／車廂面板的「分量」段，
-   * 有任何一筆 amount 欄位時取代原本的「花費」那一列（只有列車／車廂面板畫，別的面板不出 amount 欄位）。
-   * `"schedule"`＝時段組（回饋甲 D-主-129）：畫在「時刻」段的時段組裡，**長度之後、締切日之前**（執行日 → 時段 → 長度 → 〔這裡〕→ 締切日）；
-   * 車票與列車／車廂面板都畫（看 `kinds`）；手機詳情頁（`MobileDetailHost`）也照 section 畫在同一個位置（長度列之後、締切日列之前）。
-   * 手機路線圖唯讀快看不分段。不填＝既有欄位位置不動。
+   * 詳情面板（桌機側板與手機詳情頁）畫在哪一段（接縫 #66；v1.36 三段式大硬券 D-1.36-6）：
+   * - `"meta"`      ＝第一段票頭歸屬帶（荷札）
+   * - `"status"`    ＝上半主段（預設相容）
+   * - `"schedule"`  ＝排程時段組（長度之後、締切日之前，例：時刻表⑦「其他時段」；回饋甲 D-主-129）
+   * - `"amount"`    ＝下半主段旅途足跡的投入時數（列車／車廂，取代手動「花費」列）
+   * - `"footprint"` ＝下半主段旅途足跡（時刻表累計時數、關聯旅客筆記）
+   * 路線面板（RoutePanel／MobileRouteBody）與手機路線圖唯讀快看會完整渲染所屬 kind 的欄位不遺漏。
    */
-  section?: "status" | "amount" | "schedule";
+  section?: "meta" | "status" | "schedule" | "amount" | "footprint";
 }
 
 /** Ctrl+P 的一列結果（`QuickJumpProviderSpec.search` 回傳） */

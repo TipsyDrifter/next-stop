@@ -825,6 +825,8 @@ export function planEditRunning(
     now: number;
     link?: BlockLink | null;
     curLink?: BlockLink;
+    /** D-1.36-1：true＝面板上按了「確定記這麼長」⇒ 寫入 ack: true（同 planEdit）；不給＝照舊（換分類歸 0） */
+    ack?: boolean;
     /** ⑦：備註（undefined＝不動；null／空白＝清掉）；`curNote`＝現值（Span 不帶，由 repository 從列上給；沒給＝當作不同） */
     note?: string | null;
     curNote?: string | null;
@@ -843,6 +845,10 @@ export function planEditRunning(
   if (input.categoryId !== s.categoryId) {
     patch.categoryId = input.categoryId;
     patch.ack = false;
+    changed = true;
+  }
+  if (input.ack === true && (patch.ack === false || !s.ack)) {
+    patch.ack = true;
     changed = true;
   }
   if (input.link !== undefined) {
@@ -1056,6 +1062,39 @@ export function runMarker(s: Span, th: Threshold | null, now: number): RunMarker
   if (dur <= th.min * MIN) return { kind: "none" };
   if (th.source === "estimate" || th.source === "task") return { kind: "late", overMs: dur - th.min * MIN, pending: !s.ack };
   return { kind: "long", pending: !s.ack };
+}
+
+/**
+ * D-1.36-1（1A-1）待確認攔截門檻與唯讀顯示印記解耦：
+ * - `!ended`（運行中）：完整 4 層（預估 → 任務預計 → 分類預設 → 全域上限）。
+ * - `ended && s.ack`（已結束且經使用者確認過）：完整 4 層唯讀保留（`pending` 固定 `false`，不卡統計）。
+ * - `ended && !s.ack`（已結束且未確認）：
+ *   - 待確認（`pending`）只看 `blockThresholdOf(true, ...)`（`estimateMin → globalMaxMin`，絕不讓分類預設把正常長紀錄踢出統計）；
+ *   - 若有 `estimateMin` 或 `taskEstimateMin` 且實際長度超過，仍顯示唯讀 `late`（`taskEstimateMin` 結束後 `pending: false`，僅超出 `globalMaxMin` 時 `pending: true`）；
+ *   - 其餘未超 `estimateMin`/`taskEstimateMin`/`globalMaxMin` 的已結束未確認塊不標記。
+ */
+export function blockRunMarker(
+  s: Span,
+  ended: boolean,
+  estimateMin: number | null,
+  cat: { default_min: number | null } | null,
+  globalMaxMin: number,
+  taskEstimateMin: number | null = null,
+  now: number = Date.now(),
+): RunMarker {
+  if (!ended || s.ack) {
+    return runMarker(s, thresholdOf(estimateMin, cat, globalMaxMin, taskEstimateMin), now);
+  }
+  const dur = durOf(s, now);
+  const pendingTh = blockThresholdOf(true, estimateMin, cat, globalMaxMin, taskEstimateMin);
+  const pending = pendingTh !== null && dur > pendingTh.min * MIN;
+  if (estimateMin !== null && estimateMin > 0) {
+    return dur > estimateMin * MIN ? { kind: "late", overMs: dur - estimateMin * MIN, pending } : { kind: "none" };
+  }
+  if (taskEstimateMin !== null && taskEstimateMin > 0 && dur > taskEstimateMin * MIN) {
+    return { kind: "late", overMs: dur - taskEstimateMin * MIN, pending };
+  }
+  return pending ? { kind: "long", pending: true } : { kind: "none" };
 }
 
 /** 「其實到幾點」的預設建議值：開始＋門檻，夾在 [開始+1 分, 上限−1 分]（＝原型） */

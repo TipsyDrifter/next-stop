@@ -129,8 +129,8 @@ export interface TimetableRepository {
     id: string,
     input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<CoverSummary>;
-  /** 磨光⑦（planEditRunning）：改運行中那一班的分類、出發時間、連結（link 不給＝不動）；已到站 ⇒ RangeError。⑦：note 同 editBlock */
-  editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null; note?: string | null }): Promise<CoverSummary>;
+  /** 磨光⑦（planEditRunning）：改運行中那一班的分類、出發時間、連結（link 不給＝不動）；已到站 ⇒ RangeError。D-1.36-1：ack；⑦：note 同 editBlock */
+  editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null }): Promise<CoverSummary>;
   /** 單點切開；at 不在 (開始, 結束或現在) 之內回 null */
   split(id: string, atIso: string, categoryId2: string): Promise<TimeBlockRow | null>;
   /** 「其實到幾點」三選一（§4.3 planResolveLongRun） */

@@ -32,8 +32,8 @@ import { notesReportJump } from "./notesReport";
  * 「筆記」＝掛在這個節點與底下的筆記（路線／支線／列車／車廂；車票不出）；`top`＝多列內容、標籤靠上對齊（接縫 #62）。
  */
 const NOTES_NODE_FIELDS: readonly NodeFieldSpec[] = [
-  { id: "notes.tags", label: "荷札", kinds: TAG_ENTITY_NODE_KINDS as readonly NodeKind[], Desktop: TagField, Mobile: MobileTagRow },
-  { id: "notes.notes", label: "筆記", kinds: NOTE_NODE_KINDS, top: true, Desktop: NoteField, Mobile: MobileNoteField },
+  { id: "notes.tags", label: "荷札", kinds: TAG_ENTITY_NODE_KINDS as readonly NodeKind[], section: "meta", Desktop: TagField, Mobile: MobileTagRow },
+  { id: "notes.notes", label: "筆記", kinds: NOTE_NODE_KINDS, top: true, section: "footprint", Desktop: NoteField, Mobile: MobileNoteField },
 ];
 
 /** 手機今日／行程表票卡 ⋯ 的「荷札…」（車次③ 0-3；渲染點在 MobileTicketSheet） */

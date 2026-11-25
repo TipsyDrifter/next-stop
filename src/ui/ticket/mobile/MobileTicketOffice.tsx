@@ -41,7 +41,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type RefObject } from "react";
 import { isTicketAmountMasked, isTicketManageTab, useTicketStore } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
-import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
+import { TK_TAG_ENTRY, TK_TAG_REPEAT, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
+import { TagPills, useMergedEntityTagKeys } from "../../common/TagPills";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
@@ -724,6 +725,24 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
   const openEntry = useTicketStore((s) => s.openEntry);
   const masked = useTicketStore(isTicketAmountMasked);
   const route = useNodeStore((s) => (e.route_id ? (s.routes.find((r) => r.id === e.route_id) ?? null) : null));
+  const tagRefs = useMemo(
+    () =>
+      e.repeat_id
+        ? ([
+            [TK_TAG_ENTRY, e.id],
+            [TK_TAG_REPEAT, e.repeat_id],
+          ] as const)
+        : ([[TK_TAG_ENTRY, e.id]] as const),
+    [e.id, e.repeat_id],
+  );
+  const tagKeys = useMergedEntityTagKeys(tagRefs);
+  const onPickTag = (key: string) => {
+    const st = useTicketStore.getState();
+    const cur = st.searchOpen ? st.filter.tagKeys : st.listFilter.tagKeys;
+    const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
+    if (st.searchOpen) void st.patchFilter({ tagKeys: next });
+    else void st.patchListFilter({ tagKeys: next });
+  };
 
   const mainCur = mainCurrencyOf(curByCode);
   const mainCode = mainCur.code;
@@ -770,11 +789,18 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
 
   return (
     <li>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         className={"ns-tk-mrow" + (selectedId === e.id ? " is-last" : "")}
         data-kind={e.kind}
         onClick={() => openEntry(e.id)}
+        onKeyDown={(ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            openEntry(e.id);
+          }
+        }}
       >
         <span className="sg">{SIGN[e.kind]}</span>
         <span className="main">
@@ -794,6 +820,9 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
               <span className="t">{e.note}</span>
             </span>
           )}
+          {tagKeys.length > 0 && (
+            <TagPills keys={tagKeys} max={3} compact onPick={onPickTag} className="ns-tk-mrtags" />
+          )}
         </span>
         <span className="a">
           <b>{masked ? maskedMoneyText(amt.currency) : moneyText(amt.minor, dec)}</b>
@@ -804,7 +833,7 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
             </span>
           )}
         </span>
-      </button>
+      </div>
     </li>
   );
 }

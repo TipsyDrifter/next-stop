@@ -7,11 +7,14 @@
  *   └ div.ns-tt-sched-rail                「差多少」欄（只有 layout="rail"）
  */
 import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { useTagStore } from "../../../store/tagStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { ADHOC_TEXT, SEG_TEXT, addSegNode, useTimetableScheduleStore, type SchedBlock } from "../../../store/timetableScheduleStore";
 import { segNumberOf } from "./routineModel";
 import { clockText, nextDayNote } from "../../../lib/date";
 import { fmtDur, MIN } from "../../../domain/timetable";
+import { NodeCrumb, useParentCrumb } from "../../common/NodeCrumb";
+import { TagDotHint, TagPills, useEntityTagKeys } from "../../common/TagPills";
 import { SCHED_UI, deltaFull, deltaLines, deltaShort, minFrac, pct, toneOf } from "./scheduleModel";
 import {
   PLACEHOLDER_UI,
@@ -62,17 +65,13 @@ export function PlanColumn({
     slots,
     adhocs,
     nodes,
-    routeById,
     cmp,
     dayStartHour,
     isPast,
-    canEdit,
     activeKey,
-    openKey,
     sel,
     picked,
     shell,
-    slotsByNode,
   } = page;
   const setHover = useTimetableScheduleStore((s) => s.setHover);
   const running = useTimetableStore((s) => s.running);
@@ -99,197 +98,22 @@ export function PlanColumn({
     else page.setSel(b.key);
   };
 
-  const cards = blocks.map((b) => {
-    const adhoc = b.slotId !== null ? adhocs[b.key] : undefined;
-    const slot = b.slotId !== null && !adhoc ? slots[b.key] : undefined;
-    const it = adhoc ?? slot ?? items[b.key];
-    if (!it) return null;
-    const c = cmp.cmp.get(b.key);
-    const node = nodes[it.nodeId];
-    const route = node?.route_id ? routeById[node.route_id] : undefined;
-    const adDisp = adhoc ? adhocDisplayOf(page, adhoc) : null;
-    const disp = !adhoc ? planItemDisplay(it, node, route?.name) : null;
-    const name = adDisp ? adDisp.name : disp ? disp.title : (node?.name ?? "？");
-    const rc = adDisp ? adDisp.color : routeColorOf(page, it.nodeId);
-
-    const segNo =
-      !adhoc && it.kind === "single"
-        ? segNumberOf(node, it.nodeId, slotsByNode[it.nodeId], slot ? slot.planId : "main")
-        : null;
-    const segTag = segNo && segNo.total > 1 ? SEG_TEXT.tag(segNo.n) : null;
-    const hpx = ((b.endMin - b.startMin) / 60) * hourPx;
-    const short = hpx < SHORT_PX[layout];
-    const tone = c ? toneOf(c) : "future";
-    const t = it.time ?? "";
-    const next = nextDayNote(t);
-    const movable = canEdit && !it.skipped;
-    const isLive =
-      c?.state === "running" || (!adhoc && !segTag && running?.node_id === it.nodeId && page.isToday);
-
-    const canQuickSeatHere =
-      canEdit &&
-      b.slotId === null &&
-      !!pickedCandidateItem &&
-      !!pickedCandidateNode &&
-      canSeatIntoSlot(it, node) &&
-      isEligibleSeatCandidate(pickedCandidateNode, it.nodeId);
-
-    const tag = adhoc ? (
-      <em className="ns-tt-sched-tag is-adhoc">{ADHOC_TEXT.tag}</em>
-    ) : it.skipped ? (
-      <em className="ns-tt-sched-tag is-cancel">{TT_TEXT.schedSkipped}</em>
-    ) : disp?.badgeKind === "placeholder" ? (
-      <em className="ns-tt-sched-tag is-placeholder">{PLACEHOLDER_UI.tag}</em>
-    ) : disp?.badgeKind === "seated" ? (
-      <em className="ns-tt-sched-tag is-seated">{disp.badgeText}</em>
-    ) : disp?.badgeKind === "filled" ? (
-      <em className="ns-tt-sched-tag is-filled">{disp.badgeText}</em>
-    ) : it.overridden ? (
-      <em className="ns-tt-sched-tag">{TT_TEXT.schedRun}</em>
-    ) : segTag ? (
-      <em className="ns-tt-sched-tag is-seg">{segTag}</em>
-    ) : null;
-
-    const inlineDelta =
-      layout === "inline" && c && !it.skipped ? deltaShort(it, c, isPast, TT_TEXT.schedSkipped) : null;
-    const full = c ? deltaFull(it, c, isPast, TT_TEXT.schedSkipped) : null;
-    const displayFullTitle = disp ? disp.fullTitle : name;
-    const title =
-      (adhoc
-        ? `${t}–${adhoc.end}${next ? `（${next}）` : ""}・${fmtDur((it.estimateMin ?? 0) * MIN)}　${name}${adDisp?.sub ? `（${adDisp.sub}）` : ""}`
-        : slot
-          ? `${t}–${slot.end}${next ? `（${next}）` : ""}・${fmtDur((it.estimateMin ?? 0) * MIN)}　${displayFullTitle}`
-          : `${TT_TEXT.schedDepart(t)}${next ? `（${next}）` : ""}・${it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate}　${displayFullTitle}`) +
-      (disp?.isPlaceholder ? `　${PLACEHOLDER_UI.tag}` : "") +
-      (it.overridden ? `　${TT_TEXT.schedRun}` : "") +
-      (segTag ? `　${segTag}` : "") +
-      (full ? `　${full}` : "");
-
-    const cls =
-      "ns-tt-sched-card" +
-      ` is-${layout}` +
-      (adhoc || disp?.isPlaceholder ? " is-adhoc is-placeholder" : "") +
-      (disp?.badgeKind === "seated" ? " is-seated" : "") +
-      (short ? " is-short" : "") +
-      (it.done ? " is-done" : "") +
-      (it.skipped ? " is-cancel" : "") +
-      (b.noEstimate ? " is-noest" : "") +
-      (isLive ? " is-live" : "") +
-      (c?.state === "notStarted" ? " is-overdue" : "") +
-      (activeKey === b.key ? " is-on" : "") +
-      (openKey === b.key ? " is-open" : "") +
-      (!desk && sel === b.key ? " is-sel" : "") +
-      (movable ? " is-movable" : "") +
-      (drag?.key === b.key ? " is-lifted" : "");
-
-    const style = {
-      "--rc": rc,
-      top: pct(minFrac(b.startMin, dayStartHour)),
-      height: pct((b.endMin - b.startMin) / 1440),
-      left: `calc(${(b.lane / b.lanes) * 100}% + 2px)`,
-      width: `calc(${100 / b.lanes}% - 4px)`,
-    } as CSSProperties;
-
-    const time = (
-      <span className="ns-tt-num ns-tt-sched-t">
-        {t}
-        {layout === "rail" && <span className="ns-tt-sched-hatsu">発</span>}
-      </span>
-    );
-    const nameEl = (
-      <span className="ns-tt-sched-cn">
-        <i className="ns-tt-sched-rdot" aria-hidden="true" />
-        {name}
-      </span>
-    );
-
-    return (
-      <button
-        type="button"
-        key={b.key}
-        className={cls}
-        style={style}
-        title={title}
-        aria-label={title}
-        data-key={b.key}
-        onPointerDown={movable ? onDragStart(b.key, "card") : undefined}
-        onPointerEnter={(e) => {
-          if (e.pointerType === "mouse" && !drag) setHover({ kind: "plan", id: b.key });
-        }}
-        onPointerLeave={(e) => {
-          if (e.pointerType === "mouse") setHover(null);
-        }}
-        onClick={(e) => onCardClick(b, e)}
-      >
-        {layout === "rail" ? (
-          <>
-            <span className="ns-tt-sched-ct">
-              {time}
-              {tag}
-              {next && !short && <small className="ns-tt-sched-next">{next}</small>}
-              {b.noEstimate && <i className="ns-tt-sched-noest">{TT_TEXT.schedNoEstimate}</i>}
-            </span>
-            {nameEl}
-          </>
-        ) : (
-          <>
-            <span className="ns-tt-sched-ct">
-              {time}
-              {short && tag}
-              {nameEl}
-              {short && inlineDelta && <span className={"ns-tt-sched-cd is-" + tone}>{inlineDelta}</span>}
-            </span>
-            {!short && (tag || inlineDelta) && (
-              <span className={"ns-tt-sched-cd is-" + tone}>
-                {tag}
-                {inlineDelta}
-              </span>
-            )}
-          </>
-        )}
-        {canQuickSeatHere && pickedCandidateItem && (
-          <span
-            className="ns-tt-seat-pill"
-            role="button"
-            tabIndex={0}
-            title={`讓「${pickedCandidateNode?.name ?? ""}」入座頂替此預留時段`}
-            onPointerDown={(ev) => ev.stopPropagation()}
-            onClick={(ev) => {
-              ev.stopPropagation();
-              void page.seatTicketInto(b.key, pickedCandidateItem.nodeId);
-            }}
-            onKeyDown={(ev) => {
-              if (ev.key === "Enter" || ev.key === " ") {
-                ev.preventDefault();
-                ev.stopPropagation();
-                void page.seatTicketInto(b.key, pickedCandidateItem.nodeId);
-              }
-            }}
-          >
-            ⇄ 入座此席
-          </span>
-        )}
-        {it.done && (
-          <span className="ns-tt-sched-seal" aria-hidden="true">
-            {TT_TEXT.schedDone}
-          </span>
-        )}
-        {!desk && sel === b.key && !canQuickSeatHere && (
-          <span
-            className="ns-tt-sched-open"
-            role="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              page.openPlan(b.key);
-            }}
-          >
-            <span className="ns-tt-sched-open-w">{SCHED_UI.openWord}</span>
-            {SCHED_UI.openMark}
-          </span>
-        )}
-      </button>
-    );
-  });
+  const cards = blocks.map((b) => (
+    <PlanCard
+      key={b.key}
+      b={b}
+      page={page}
+      layout={layout}
+      hourPx={hourPx}
+      drag={drag}
+      runningNodeId={running?.node_id ?? null}
+      pickedCandidateItem={pickedCandidateItem}
+      pickedCandidateNode={pickedCandidateNode}
+      onDragStart={onDragStart}
+      onCardClick={onCardClick}
+      setHover={setHover}
+    />
+  ));
 
   let rail: ReactNode = null;
   if (layout === "rail") {
@@ -392,5 +216,249 @@ function Ghost({
       <span className="ns-tt-num">{clockText(drag.min)}</span>
       <b>{ghostName}</b>
     </div>
+  );
+}
+
+function PlanCard({
+  b,
+  page,
+  layout,
+  hourPx,
+  drag,
+  runningNodeId,
+  pickedCandidateItem,
+  pickedCandidateNode,
+  onDragStart,
+  onCardClick,
+  setHover,
+}: {
+  b: SchedBlock;
+  page: SchedulePage;
+  layout: CardLayout;
+  hourPx: number;
+  drag: DragView | null;
+  runningNodeId: string | null;
+  pickedCandidateItem: SchedulePage["items"][string] | undefined;
+  pickedCandidateNode: SchedulePage["nodes"][string] | undefined;
+  onDragStart(key: string, src: DragSrc): (e: ReactPointerEvent<HTMLElement>) => void;
+  onCardClick(b: SchedBlock, e: ReactMouseEvent): void;
+  setHover: (h: { kind: "plan" | "block"; id: string } | null) => void;
+}) {
+  const { items, slots, adhocs, nodes, routeById, cmp, dayStartHour, isPast, canEdit, activeKey, openKey, sel, shell, slotsByNode } = page;
+  const desk = shell === "desktop";
+  const adhoc = b.slotId !== null ? adhocs[b.key] : undefined;
+  const slot = b.slotId !== null && !adhoc ? slots[b.key] : undefined;
+  const it = adhoc ?? slot ?? items[b.key];
+  const node = it ? nodes[it.nodeId] : undefined;
+  const tagKeys = useEntityTagKeys("node", node?.id);
+  const crumb = useParentCrumb(node?.parent_id);
+  const tagIndex = useTagStore((s) => s.index);
+
+  if (!it) return null;
+
+  const c = cmp.cmp.get(b.key);
+  const route = node?.route_id ? routeById[node.route_id] : undefined;
+  const adDisp = adhoc ? adhocDisplayOf(page, adhoc) : null;
+  const disp = !adhoc ? planItemDisplay(it, node, route?.name) : null;
+  const name = adDisp ? adDisp.name : disp ? disp.title : (node?.name ?? "？");
+  const rc = adDisp ? adDisp.color : routeColorOf(page, it.nodeId);
+
+  const segNo =
+    !adhoc && it.kind === "single"
+      ? segNumberOf(node, it.nodeId, slotsByNode[it.nodeId], slot ? slot.planId : "main")
+      : null;
+  const segTag = segNo && segNo.total > 1 ? SEG_TEXT.tag(segNo.n) : null;
+  const hpx = ((b.endMin - b.startMin) / 60) * hourPx;
+  const short = hpx < SHORT_PX[layout];
+  const tone = c ? toneOf(c) : "future";
+  const t = it.time ?? "";
+  const next = nextDayNote(t);
+  const movable = canEdit && !it.skipped;
+  const isLive =
+    c?.state === "running" || (!adhoc && !segTag && runningNodeId === it.nodeId && page.isToday);
+
+  const canQuickSeatHere =
+    canEdit &&
+    b.slotId === null &&
+    !!pickedCandidateItem &&
+    !!pickedCandidateNode &&
+    canSeatIntoSlot(it, node) &&
+    isEligibleSeatCandidate(pickedCandidateNode, it.nodeId);
+
+  const tag = adhoc ? (
+    <em className="ns-tt-sched-tag is-adhoc">{ADHOC_TEXT.tag}</em>
+  ) : it.skipped ? (
+    <em className="ns-tt-sched-tag is-cancel">{TT_TEXT.schedSkipped}</em>
+  ) : disp?.badgeKind === "placeholder" ? (
+    <em className="ns-tt-sched-tag is-placeholder">{PLACEHOLDER_UI.tag}</em>
+  ) : disp?.badgeKind === "seated" ? (
+    <em className="ns-tt-sched-tag is-seated">{disp.badgeText}</em>
+  ) : disp?.badgeKind === "filled" ? (
+    <em className="ns-tt-sched-tag is-filled">{disp.badgeText}</em>
+  ) : it.overridden ? (
+    <em className="ns-tt-sched-tag">{TT_TEXT.schedRun}</em>
+  ) : segTag ? (
+    <em className="ns-tt-sched-tag is-seg">{segTag}</em>
+  ) : null;
+
+  const inlineDelta =
+    layout === "inline" && c && !it.skipped ? deltaShort(it, c, isPast, TT_TEXT.schedSkipped) : null;
+  const full = c ? deltaFull(it, c, isPast, TT_TEXT.schedSkipped) : null;
+  const displayFullTitle = disp ? disp.fullTitle : name;
+  const crumbTip = crumb.length > 0 ? crumb.join(" › ") : null;
+  const tagsTip = tagKeys.length > 0 ? tagKeys.map((k) => `#${tagIndex?.byKey[k]?.name ?? k}`).join("  ") : null;
+  const title =
+    (adhoc
+      ? `${t}–${adhoc.end}${next ? `（${next}）` : ""}・${fmtDur((it.estimateMin ?? 0) * MIN)}　${name}${adDisp?.sub ? `（${adDisp.sub}）` : ""}`
+      : slot
+        ? `${t}–${slot.end}${next ? `（${next}）` : ""}・${fmtDur((it.estimateMin ?? 0) * MIN)}　${displayFullTitle}`
+        : `${TT_TEXT.schedDepart(t)}${next ? `（${next}）` : ""}・${it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate}　${displayFullTitle}`) +
+    (crumbTip ? `（${crumbTip}）` : "") +
+    (disp?.isPlaceholder ? `　${PLACEHOLDER_UI.tag}` : "") +
+    (it.overridden ? `　${TT_TEXT.schedRun}` : "") +
+    (segTag ? `　${segTag}` : "") +
+    (full ? `　${full}` : "") +
+    (tagsTip ? `　${tagsTip}` : "");
+
+  const showCrumb = !short && crumb.length > 0 && hpx >= (layout === "rail" ? 52 : 46);
+  const showFullTags = !short && tagKeys.length > 0 && hpx >= (layout === "rail" ? 68 : 60) && b.lanes === 1;
+  const showDotHint = tagKeys.length > 0 && !showFullTags;
+
+  const cls =
+    "ns-tt-sched-card" +
+    ` is-${layout}` +
+    (adhoc || disp?.isPlaceholder ? " is-adhoc is-placeholder" : "") +
+    (disp?.badgeKind === "seated" ? " is-seated" : "") +
+    (short ? " is-short" : "") +
+    (it.done ? " is-done" : "") +
+    (it.skipped ? " is-cancel" : "") +
+    (b.noEstimate ? " is-noest" : "") +
+    (isLive ? " is-live" : "") +
+    (c?.state === "notStarted" ? " is-overdue" : "") +
+    (activeKey === b.key ? " is-on" : "") +
+    (openKey === b.key ? " is-open" : "") +
+    (!desk && sel === b.key ? " is-sel" : "") +
+    (movable ? " is-movable" : "") +
+    (drag?.key === b.key ? " is-lifted" : "");
+
+  const style = {
+    "--rc": rc,
+    top: pct(minFrac(b.startMin, dayStartHour)),
+    height: pct((b.endMin - b.startMin) / 1440),
+    left: `calc(${(b.lane / b.lanes) * 100}% + 2px)`,
+    width: `calc(${100 / b.lanes}% - 4px)`,
+  } as CSSProperties;
+
+  const time = (
+    <span className="ns-tt-num ns-tt-sched-t">
+      {t}
+      {layout === "rail" && <span className="ns-tt-sched-hatsu">発</span>}
+    </span>
+  );
+  const nameEl = (
+    <span className="ns-tt-sched-cn">
+      <i className="ns-tt-sched-rdot" aria-hidden="true" />
+      {name}
+    </span>
+  );
+
+  return (
+    <button
+      type="button"
+      className={cls}
+      style={style}
+      title={title}
+      aria-label={title}
+      data-key={b.key}
+      onPointerDown={movable ? onDragStart(b.key, "card") : undefined}
+      onPointerEnter={(e) => {
+        if (e.pointerType === "mouse" && !drag) setHover({ kind: "plan", id: b.key });
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === "mouse") setHover(null);
+      }}
+      onClick={(e) => onCardClick(b, e)}
+    >
+      {layout === "rail" ? (
+        <>
+          <span className="ns-tt-sched-ct">
+            {time}
+            {tag}
+            {next && !short && <small className="ns-tt-sched-next">{next}</small>}
+            {b.noEstimate && <i className="ns-tt-sched-noest">{TT_TEXT.schedNoEstimate}</i>}
+            {showDotHint && <TagDotHint keys={tagKeys} />}
+          </span>
+          {nameEl}
+          {showCrumb && <NodeCrumb segments={crumb} compact className="ns-tt-sched-crumb" />}
+          {showFullTags && (
+            <span className="ns-tt-sched-card-tags">
+              <TagPills keys={tagKeys} max={2} compact onPick={false} />
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <span className="ns-tt-sched-ct">
+            {time}
+            {short && tag}
+            {nameEl}
+            {short && inlineDelta && <span className={"ns-tt-sched-cd is-" + tone}>{inlineDelta}</span>}
+            {showDotHint && <TagDotHint keys={tagKeys} />}
+          </span>
+          {!short && (tag || inlineDelta) && (
+            <span className={"ns-tt-sched-cd is-" + tone}>
+              {tag}
+              {inlineDelta}
+            </span>
+          )}
+          {showCrumb && <NodeCrumb segments={crumb} compact className="ns-tt-sched-crumb" />}
+          {showFullTags && (
+            <span className="ns-tt-sched-card-tags">
+              <TagPills keys={tagKeys} max={2} compact onPick={false} />
+            </span>
+          )}
+        </>
+      )}
+      {canQuickSeatHere && pickedCandidateItem && (
+        <span
+          className="ns-tt-seat-pill"
+          role="button"
+          tabIndex={0}
+          title={`讓「${pickedCandidateNode?.name ?? ""}」入座頂替此預留時段`}
+          onPointerDown={(ev) => ev.stopPropagation()}
+          onClick={(ev) => {
+            ev.stopPropagation();
+            void page.seatTicketInto(b.key, pickedCandidateItem.nodeId);
+          }}
+          onKeyDown={(ev) => {
+            if (ev.key === "Enter" || ev.key === " ") {
+              ev.preventDefault();
+              ev.stopPropagation();
+              void page.seatTicketInto(b.key, pickedCandidateItem.nodeId);
+            }
+          }}
+        >
+          ⇄ 入座此席
+        </span>
+      )}
+      {it.done && (
+        <span className="ns-tt-sched-seal" aria-hidden="true">
+          {TT_TEXT.schedDone}
+        </span>
+      )}
+      {!desk && sel === b.key && !canQuickSeatHere && (
+        <span
+          className="ns-tt-sched-open"
+          role="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            page.openPlan(b.key);
+          }}
+        >
+          <span className="ns-tt-sched-open-w">{SCHED_UI.openWord}</span>
+          {SCHED_UI.openMark}
+        </span>
+      )}
+    </button>
   );
 }

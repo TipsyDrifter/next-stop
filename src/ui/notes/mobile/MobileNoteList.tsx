@@ -27,6 +27,7 @@ import type { NodeRow } from "../../../domain";
 import type { NoteListItem } from "../../../data/noteRepository";
 import { RouteRoundel } from "../../common/MobileAttachPicker";
 import { EmptyState } from "../../common/EmptyState";
+import { EntityTagPills } from "../../common/TagPills";
 import { NotesFilterBar } from "../NotesFilterBar";
 import { shortDay } from "./dayKeys";
 
@@ -297,7 +298,18 @@ function Row({
   const nodeLabel = n.node_kind && n.node_kind !== "route" && n.node_name ? n.node_name : null;
   return (
     <li>
-      <button type="button" className="ns-notes-mrow" onClick={() => onOpen(n.id)}>
+      <div
+        role="button"
+        tabIndex={0}
+        className="ns-notes-mrow"
+        onClick={() => onOpen(n.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpen(n.id);
+          }
+        }}
+      >
         <span className="t">{highlight(noteTitle(n), q)}</span>
         {ex && <span className="x">{highlight(ex, q)}</span>}
         <span className="m">
@@ -317,7 +329,8 @@ function Row({
             <span>・無路線</span>
           )}
         </span>
-      </button>
+        <EntityTagPills entityType="note" entityId={n.id} max={3} compact className="ns-notes-mrtags" />
+      </div>
     </li>
   );
 }

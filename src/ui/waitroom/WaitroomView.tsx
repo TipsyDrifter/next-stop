@@ -29,6 +29,7 @@ import { indexOfAnchor, useDragReorder } from "../common/dragReorder";
 import { rowContextMenu, type ContextMenuSpec } from "../common/contextMenu";
 import { CommitInput } from "../common/fields";
 import { EntityTagField } from "../common/EntityTagField";
+import { EntityTagPills } from "../common/TagPills";
 import { IconChevron, IconPlus } from "../common/icons";
 import { PageHeader } from "../common/PageHeader";
 import { runOnBlankClick } from "../common/selection/desktopSelection";
@@ -449,6 +450,9 @@ function WaitItem(props: {
       <span className="main">
         <span className="nm">{w.name}</span>
         {w.note && <span className="sub">{w.note}</span>}
+        {open !== "edit" && (
+          <EntityTagPills entityType={TK_TAG_WISH} entityId={w.id} max={3} compact className="ns-wr-tags" />
+        )}
       </span>
       <span className="amt">
         {action === "entry" &&

@@ -90,6 +90,10 @@ export async function completeNodeFlow(
     await suspendNodeFlow(id, false);
     return;
   }
+  if (!occ && n.status === "paused") {
+    await toggleStopoverFlow(id);
+    return;
+  }
   if (occ ? occ.status === "done" : n.status === "done") {
     retractCardOf(id);
     await ns().setCompleted(id, false);

@@ -206,6 +206,15 @@ export class MemoryNodeRepository implements NodeRepository {
       .map((n) => ({ id: n.id, name: n.name, parent_id: n.parent_id }));
   }
 
+  async listChildren(parentId: string): Promise<NodeRow[]> {
+    this.ensureLeafTicketBackfill();
+    this.backfillSortKeys();
+    return this.alive()
+      .filter((n) => n.parent_id === parentId && n.kind !== "station")
+      .sort(compareSiblings)
+      .map(clone);
+  }
+
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
     this.ensureLeafTicketBackfill();
     this.backfillSortKeys();
@@ -592,6 +601,12 @@ export class MemoryNodeRepository implements NodeRepository {
           // 「退役前本來就在今天」改用規則補判（retiredWasDueToday；與 SQLite 版的 SQL＋補判同一個結果）
           (n.repeat_rule !== null && n.scheduled_on === null &&
             retiredWasDueToday(n, this.occurrencesOf(n.id), dateKey, dayStartHour)))
+      ) return true;
+      // D-1.36-6：今日頁按下「途中下車」當天比照蓋済留原位淡化至隔天日界線自動退場
+      if (
+        n.status === "paused" && n.updated_at >= start && n.updated_at < end &&
+        ((n.scheduled_on !== null && n.scheduled_on <= dateKey) ||
+          (n.scheduled_on === null && n.due_on !== null && n.due_on <= dateKey))
       ) return true;
       // 第五條＝定期券變體（r2 的定期券版）：蓋済／運休之後 scheduled_on 已被推到下一班，
       // 「今天交代過的那一班」只能靠 occurrence 的時刻戳留在清單裡（與 SQLite 版的第五條 OR 同源）；

@@ -278,6 +278,18 @@ export class SqliteNodeRepository implements NodeRepository {
     );
   }
 
+  async listChildren(parentId: string): Promise<NodeRow[]> {
+    const db = await getDb();
+    await this.ensureLeafTicketBackfill(db);
+    return this.withOverrides(
+      db,
+      await db.select<NodeRow[]>(
+        `SELECT * FROM nodes WHERE parent_id = $1 AND kind != 'station' AND ${ALIVE} ORDER BY ${SIBLING_ORDER_SQL}`,
+        [parentId],
+      ),
+    );
+  }
+
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
     const db = await getDb();
     await this.ensureLeafTicketBackfill(db);
@@ -1353,6 +1365,12 @@ export class SqliteNodeRepository implements NodeRepository {
                     (r.scheduled_on IS NOT NULL AND r.scheduled_on <= $1)
                  OR (r.scheduled_on IS NULL AND r.due_on IS NOT NULL AND r.due_on <= $1)
                  OR (r.repeat_rule IS NOT NULL AND r.scheduled_on IS NULL)
+               ))
+           OR (r.status = 'paused' AND r.updated_at >= $2 AND r.updated_at < $3
+               AND NOT (r.scheduled_end IS NOT NULL AND r.scheduled_on IS NOT NULL AND r.scheduled_end > r.scheduled_on AND r.scheduled_end >= $1)
+               AND (
+                    (r.scheduled_on IS NOT NULL AND r.scheduled_on <= $1)
+                 OR (r.scheduled_on IS NULL AND r.due_on IS NOT NULL AND r.due_on <= $1)
                ))
            OR (r.repeat_rule IS NOT NULL AND EXISTS (
                  SELECT 1 FROM occurrences o

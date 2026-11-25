@@ -115,7 +115,8 @@ import { makeScheduleActions } from "../schedule/scheduleActions";
 import { moveNodeTo } from "../common/moveTo";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
-import { SealDone } from "../stamps";
+import { SealDone, SealStopover } from "../stamps";
+import { EntityTagPills } from "../common/TagPills";
 import { useBackLayer } from "./backStack";
 import { useRevealStore } from "./routeMapReveal";
 import { MobileTicketSheet } from "./MobileTicketSheet";
@@ -296,14 +297,12 @@ function RouteSummaryLines({
   s,
   decimals,
   next,
-  onOpenStation,
 }: {
   route: NodeRow;
   s: RouteSummary | null;
   decimals: number;
-  /** 下一站與它的方針（整批載好，方針擴充 辛 §3 #7） */
+  /** 下一站與它的方針（整批載好，方針擴充 辛 §3 #7；v1.36 D-1.36-6 純唯讀總覽） */
   next: RouteNextAims | undefined;
-  onOpenStation(id: string): void;
 }) {
   const parts = s ? summaryParts(s, decimals, OVERVIEW_DAYS) : [];
   return (
@@ -311,24 +310,14 @@ function RouteSummaryLines({
       <span className="m2-route-name">{route.name}</span>
       {s &&
         (s.nextStation && next ? (
-          // 下一站這一行另開車站小卡：列本身是可點的（進第二層），事件與鍵盤都在這裡截住
-          <button
-            type="button"
-            className="wa-m-next"
-            aria-haspopup="dialog"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenStation(next.station.id);
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
+          <span className="wa-m-next is-static">
             <span className="m2-route-next">
               <span aria-hidden>◎</span>
               下一站 {s.nextStation.name}
               {s.nextStation.expectedOn && <span className="d">{mdw(s.nextStation.expectedOn)}</span>}
             </span>
             {next.brief && <span className="wa-m-aim">{next.brief}</span>}
-          </button>
+          </span>
         ) : (
           <span className="m2-route-next">
             <span aria-hidden>◎</span>
@@ -414,7 +403,6 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
   const decimals = ov?.decimals ?? 2;
   const liveRoutes = routes.filter((r) => !r.arrived_on);
   const nextAims = useRouteNextAims(routes);
-  const stationCard = useStationCard();
   const [sheet, setSheet] = useState<ListSheet | null>(null);
   const close = () => setSheet(null);
   useBackLayer(LINES_SHEET_LAYER, sheet !== null, close);
@@ -472,7 +460,6 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <>
       {empty}
-      {stationCard.node}
       {lines.length > 0 && liveRoutes.length > 0 && (
         <p className="m2-ov-head">
           {headParts(liveRoutes.length, ov?.totalTimeMs ?? 0, ov?.totalSpendMinor ?? 0, decimals, OVERVIEW_DAYS, true).join("・")}
@@ -517,7 +504,7 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
                         >
                           <span aria-hidden className="m2-band" style={{ background: route.color ?? "var(--route-preset-4)" }} />
                           <RouteRoundel route={route} />
-                          <RouteSummaryLines route={route} s={ov?.byRoute[route.id] ?? null} decimals={decimals} next={nextAims[route.id]} onOpenStation={stationCard.open} />
+                          <RouteSummaryLines route={route} s={ov?.byRoute[route.id] ?? null} decimals={decimals} next={nextAims[route.id]} />
                           {/* 回饋甲 D-主-130：未完成的末端項目數（淡色數字；0 不畫），同桌機側欄路線列尾；丁的新列結構下放在 .m2-route-go 前 */}
                           <RouteOpenCount routeId={route.id} />
                           <span aria-hidden className="m2-route-go">
@@ -881,7 +868,7 @@ export default function MobileRouteMap() {
             rootChildren,
             collapsed,
             hideDone,
-            (n) => isRouteNodeDone(n, currentOccurrences),
+            (n) => isRouteNodeDone(n, currentOccurrences) || (!currentOccurrences[n.id] && n.status === "paused"),
             stationFilter ? (id) => matchesStationFilter(id, stationFilter, tree, routeStList) : undefined,
           )
         : { rows: [] as VisibleRow[], doneHidden: 0, doneShown: 0 },
@@ -1490,6 +1477,7 @@ export default function MobileRouteMap() {
             const occ = currentOccurrences[id];
             const done = occ ? occ.status === "done" : node.status === "done";
             const suspended = occ?.status === "skipped";
+            const paused = !done && !suspended && node.status === "paused";
             const open = !collapsed[id];
             const detail = detailId === id;
             const serial = serialOf(serials, id);
@@ -1507,7 +1495,7 @@ export default function MobileRouteMap() {
             const ownStationName = node.station_id ? (routeStationMap.get(node.station_id)?.name ?? null) : null;
             const kidNodes = kids.map((k) => tree.byId[k]).filter((x): x is NodeRow => !!x);
             const kidDone = kidNodes.filter((k) => isRouteNodeDone(k, currentOccurrences)).length;
-            const ring = (node.kind === "train" || node.kind === "car") && hasKids && !done && !suspended;
+            const ring = (node.kind === "train" || node.kind === "car") && hasKids && !done && !suspended && !paused;
             const chapterText = isChapter
               ? (() => {
                   const cc = chapterCount(kidNodes, (k) => isRouteNodeDone(k, currentOccurrences));
@@ -1530,6 +1518,7 @@ export default function MobileRouteMap() {
                     "m2-row" +
                     (done ? " is-done" : "") +
                     (suspended ? " is-suspended" : "") +
+                    (paused ? " is-paused" : "") +
                     (flashId === id ? " is-reveal" : "") +
                     (selecting ? " is-selecting" : "") +
                     (isPicked ? " is-picked" : "")
@@ -1610,14 +1599,17 @@ export default function MobileRouteMap() {
                         </>
                       )}
                     </span>
-                    {/* 済／運休在視覺上是右邊那枚角印（aria-hidden）；語意補在這裡，
+                    <EntityTagPills entityType="node" entityId={node.id} max={3} compact className="m2-tags" />
+                    {/* 済／運休／途中下車在視覺上是右邊那枚角印（aria-hidden）；語意補在這裡，
                         讀屏使用者不必展開詳情才知道這張票交代過了。畫面上不重複印字。 */}
-                    {(done || suspended) && <span className="sr-only">{suspended ? "運休" : "済"}</span>}
+                    {(done || suspended || paused) && (
+                      <span className="sr-only">{suspended ? "運休" : paused ? "途中下車" : "済"}</span>
+                    )}
                   </div>
 
                   {/**
-                   * 検印鈕（D-主-71；常駐）：単擊＝済／取消済／運休中＝取消運休（桌機大綱同一支 completeNodeFlow）。
-                   * N9：済＝圓印（定案，同手機今日票卡）；運休＝方角印（運行狀態告示）；未交代＝虛線圓「検印」。
+                   * 検印鈕（D-主-71；常駐）：単擊＝済／取消済／運休中＝取消運休／途中下車＝解除途中下車（桌機大綱同一支 completeNodeFlow）。
+                   * N9：済＝圓印（定案，同手機今日票卡）；運休／途中下車＝方角印；未交代＝虛線圓「検印」。
                    */}
                   {isChapter ? (
                     <button
@@ -1632,7 +1624,7 @@ export default function MobileRouteMap() {
                   <button
                     type="button"
                     className="m2-stamp"
-                    aria-label={`${suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}——${node.name}`}
+                    aria-label={`${suspended ? "取消本班運休" : paused ? "解除途中下車" : done ? "取消完成" : "蓋章完成"}——${node.name}`}
                     aria-pressed={done}
                     tabIndex={selecting ? -1 : undefined}
                     onClick={() => stamp(id)}
@@ -1641,6 +1633,8 @@ export default function MobileRouteMap() {
                       <span className="m2-seal is-suspended" aria-hidden>
                         運休
                       </span>
+                    ) : paused ? (
+                      <SealStopover className="m2-seal-stopover" title="途中下車（點擊解除）" />
                     ) : done ? (
                       <SealDone small fresh={freshId === id} className="m2-seal-done" />
                     ) : ring ? (

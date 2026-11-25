@@ -1128,7 +1128,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
 
   async editRunning(
     id: string,
-    input: { categoryId: string; startIso: string; link?: BlockLink | null; note?: string | null },
+    input: { categoryId: string; startIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<CoverSummary> {
     await this.ready();
     const now = Date.now();
@@ -1140,6 +1140,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
       now,
       link: input.link,
       curLink: cur ? linkOfRow(cur) : undefined,
+      ack: input.ack,
       note: input.note, // ⑦
       curNote: cur ? noteOf(cur) : undefined,
     });

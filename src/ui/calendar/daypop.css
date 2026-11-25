@@ -128,6 +128,9 @@
 /* 無路線＝襯線「臨」（承臨時車票的由來） */
 .ns-daypop .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
+.ns-daypop .prow-main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+}
 .ns-daypop .prow .t {
   flex: 1; min-width: 0; font-size: 13px; letter-spacing: .04em; /* 字面值：列名 13px；桌機字階沒有這一階（原型逐字） */
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -135,6 +138,7 @@
   transition: color .25s, text-decoration-color .25s;
 }
 .ns-daypop .prow.done .t { color: var(--color-ink-faint); text-decoration-color: color-mix(in srgb, var(--color-ink) 35%, transparent); }
+.ns-daypop .prow.is-paused .t { color: var(--color-ink-faint); }
 /* 運休＝**不刪除線**、標題只退到 ink-soft（④ 一字題主人拍板 2026-09-12：「運休票標題維持 ink-soft
    ——運休是中性資訊，不該比済更退後；済有刪除線承擔語義、運休沒有」）。這一列有運休章承擔語義，
    與今日頁同一張定期券要同一個深淺；格內 `.it.skipped` 沒有章、另有一套（見 calendar.css:189）。 */
@@ -232,7 +236,9 @@
   display: flex; align-items: center; justify-content: unsafe center;
 }
 .ns-daypop .susp-slot .ns-imp { --ns-zoom: .8; }
-.ns-daypop .prow.skipped .stamp-s { border-color: transparent; }
+.ns-daypop .stopover-slot .ns-imp { --ns-zoom: .56; }
+.ns-daypop .prow.skipped .stamp-s,
+.ns-daypop .prow.is-paused .stamp-s { border-color: transparent; }
 
 /* ═══ 締切列 ═══ */
 .ns-daypop .prow .sime-g {

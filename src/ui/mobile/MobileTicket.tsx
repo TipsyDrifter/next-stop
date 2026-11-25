@@ -35,16 +35,20 @@
  *   （只換字色；誤點卡照印原時刻、多半就是赭，§0-1 第 19 條）。`now` 由呼叫端的 `useMinuteTick()` 給——一頁一個節拍，
  *   不每張卡各掛計時器。有時刻就不另印「預計 N 分」（併進 `.hz`）；本元件原本就不印預計，所以沒有要拿掉的項。
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import { formatDateRangeBadge } from "../../domain/dateRange";
 import { isClockPast, nextDayNote } from "../../lib/date";
-import { SealCarryOver, SealDone, SealLate, SealSuspended } from "../stamps";
+import { SealCarryOver, SealDone, SealLate, SealStopover, SealSuspended } from "../stamps";
 import type { TicketCardModel } from "../schedule/ticketCard";
 import { lineTodayRowActions } from "../../lines/runtime";
 import { SelectCheck } from "./mobileSelect";
 import { useMobileDetailStore } from "./detail/mobileDetailStore";
 import { PriorityMark } from "../common/PriorityMark";
+import { NodeCrumb } from "../common/NodeCrumb";
+import { EntityTagPills } from "../common/TagPills";
+import { toggleStopoverFlow } from "../outline/nodeFlows";
+import { SubTicketsDrawer } from "../today/SubTicketsDrawer";
 import { formatRunOriginText, formatSeatBadgeText, releaseSeatedFlow } from "../common/seating";
 import "../common/seating/flexible-seating.css";
 
@@ -102,7 +106,7 @@ export interface MobileTicketProps {
 export function TicketTime({ card, today, now }: { card: TicketCardModel; today: string; now: number }) {
   const t = card.time;
   if (t === null) return null;
-  const settled = card.done || card.suspended;
+  const settled = card.done || card.suspended || card.paused;
   const past = !settled && !card.doing && isClockPast(card.railDate ?? today, t, now);
   const nx = nextDayNote(t);
   const est = card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null;
@@ -139,7 +143,8 @@ export function MobileTicket({
   rangeActions,
 }: MobileTicketProps) {
   const { done, suspended, paused, late, railDate, readOnly } = card;
-  const settled = done || suspended;
+  const [kidsOpen, setKidsOpen] = useState(false);
+  const settled = done || suspended || paused;
   const hasRange = Boolean(!card.isRepeat && card.scheduledOn && card.scheduledEnd && card.scheduledEnd > card.scheduledOn);
 
   const accent = route?.color ?? "var(--route-none)";
@@ -186,9 +191,21 @@ export function MobileTicket({
   if (card.ruleText) meta.push(<span>{card.ruleText}</span>);
   if (card.children) {
     meta.push(
-      <span>
-        {card.kind === "train" ? "車廂" : "車票"} {card.children.done}/{card.children.total}
-      </span>,
+      <button
+        type="button"
+        className="m-tk-cars-btn"
+        aria-expanded={kidsOpen}
+        aria-label={`${card.kind === "train" ? "車廂" : "車票"} ${card.children.done}/${card.children.total}——點擊${kidsOpen ? "收合" : "展開"}子車票`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setKidsOpen((v) => !v);
+        }}
+      >
+        <span>
+          {card.kind === "train" ? "車廂" : "車票"} {card.children.done}/{card.children.total}
+        </span>
+        <span aria-hidden>{kidsOpen ? "▴" : "▾"}</span>
+      </button>,
     );
   }
   // 延着＝誤點區的票（同桌機 .late-seal 的條件；締切那段不蓋）。行內小章，形制同繰越；済蓋下後一樣淡到 .38
@@ -251,6 +268,9 @@ export function MobileTicket({
         </span>
 
         <div className="m-tk-body">
+          {!hideFare && card.parentId && (
+            <NodeCrumb parentId={card.parentId} compact className="m-tk-crumb" />
+          )}
           {/* 標題在手機一律排印：桌機「臨時券＝手寫體」那條有 [data-theme="dark"] 的退回規則（銀河不手寫），
               手機要複製就得在 mobile.css 寫主題覆寫——違反 WP0「本檔不寫 [data-theme] 覆寫」的紀律；
               而 375px 寬的兩行標題用手寫體本來就難讀。臨時券的身分由 meta 的「臨時券」與虛線「臨」票根承擔。 */}
@@ -276,6 +296,7 @@ export function MobileTicket({
               </span>
             ))}
           </div>
+          <EntityTagPills entityType="node" entityId={card.nodeId} max={3} compact className="m-tk-tags" />
           {!settled && !selecting && (rangeActions || card.seatedInto) && (
             <div className="ns-mrange-bar">
               {rangeActions && (
@@ -328,18 +349,26 @@ export function MobileTicket({
           )}
         </div>
 
-        {/* 検印區＝44px 觸控目標（鐵則 5）。単擊＝済／取消済／取消運休（分支由 actions 決定）；唯讀列不可按 */}
+        {/* 検印區＝44px 觸控目標（鐵則 5）。単擊＝済／取消済／取消運休／解除途中下車；唯讀列不可按 */}
         <button
           type="button"
-          aria-label={readOnly ? "唯讀" : suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
+          aria-label={readOnly ? "唯讀" : suspended ? "取消本班運休" : paused ? "解除途中下車" : done ? "取消完成" : "蓋章完成"}
           aria-pressed={done}
           disabled={readOnly}
           tabIndex={selecting ? -1 : undefined}
-          onClick={() => onComplete(card)}
+          onClick={() => {
+            if (paused && !suspended && !done) {
+              void toggleStopoverFlow(card.nodeId);
+              return;
+            }
+            onComplete(card);
+          }}
           className="m-tk-stamp"
         >
           {suspended ? (
             <SealSuspended className="m-tk-seal-zone" title="運休（本班暫停）" />
+          ) : paused ? (
+            <SealStopover className="m-tk-seal-zone m-tk-seal-stopover" title="途中下車（點擊解除）" />
           ) : done ? (
             <SealDone small fresh={fresh} className="m-tk-seal-zone" title="済" />
           ) : (
@@ -360,6 +389,15 @@ export function MobileTicket({
           <span aria-hidden>⋯</span>
         </button>
       </article>
+      {!selecting && kidsOpen && card.children && card.children.total > 0 && (
+        <SubTicketsDrawer
+          parentId={card.nodeId}
+          childDone={card.children.done}
+          childTotal={card.children.total}
+          mobile
+          onOpenChild={(id) => useMobileDetailStore.getState().open(id)}
+        />
+      )}
     </li>
   );
 }

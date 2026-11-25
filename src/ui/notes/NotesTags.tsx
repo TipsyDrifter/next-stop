@@ -422,7 +422,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
               loadFailed && <ErrorBar message="荷札沒有載入成功。" onRetry={() => void st().loadIndex()} />
             ) : !node ? (
               realTags.length > 0 ? (
-                <div className="ns-notes-cloud">
+                <div className="ns-notes-cloud ns-washi-card">
                   {realTags.map((x) => (
                     <TagChip key={x.key} name={x.name} onOpen={() => st().select(x.key)} />
                   ))}

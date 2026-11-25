@@ -19,11 +19,14 @@
  * 放掉後焦點落 body，TimetableView 在面板關掉時把焦點還給根節點。
  */
 import { MIN, fmtClock, fmtDur, fmtHMS, msOf } from "../../../domain/timetable";
+import { focusBlockTags } from "../../../domain/timetableTags";
 import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
 import { linkLabelOf, linkOfRow, taskEstimateOf } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
+import { TagPills } from "../../common/TagPills";
 import { CategoryBadge } from "../CategoryBadge";
+import { useTimetableTagMaps } from "./TimetableTagChips";
 import { useNow } from "../useNow";
 
 export interface RunDockProps {
@@ -44,12 +47,14 @@ export function Kbd({ id }: { id: string }) {
 
 export function RunDock({ variant }: RunDockProps) {
   const running = useTimetableStore((s) => s.running);
+  const categories = useTimetableStore((s) => s.categories);
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
   const linkInfo = useTimetableStore((s) => s.linkInfo);
   const requestDepart = useTimetableStore((s) => s.requestDepart);
   const requestArrive = useTimetableStore((s) => s.requestArrive);
   const openSheet = useTimetableStore((s) => s.openSheet);
+  const tagMaps = useTimetableTagMaps();
   const now = useNow(1000);
   const desk = variant === "desktop";
 
@@ -78,6 +83,7 @@ export function RunDock({ variant }: RunDockProps) {
   const lkInfo = linkInfo[lk.nodeId ?? lk.routeId ?? ""];
   const linkGone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
   const taskEst = est === null ? taskEstimateOf(running, linkInfo) : null;
+  const focusTags = focusBlockTags({ id: running.id, categoryId: running.category_id }, categories, tagMaps);
   const blurThen = (e: { currentTarget: HTMLElement }, go: () => void): void => {
     e.currentTarget.blur();
     go();
@@ -122,6 +128,11 @@ export function RunDock({ variant }: RunDockProps) {
             {status}
             <span>{fmtClock(start)} 発</span>
           </span>
+          {focusTags.length > 0 && (
+            <span className="ns-tt-dock-tags">
+              <TagPills keys={focusTags} max={3} compact onPick={false} />
+            </span>
+          )}
         </span>
         <span className="ns-tt-dock-more" aria-hidden="true">
           ⋯

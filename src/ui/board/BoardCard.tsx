@@ -14,6 +14,8 @@ import { isTaskDone, isTaskLate, isTaskSettled, type OccurrenceLike } from "../.
 import { IconDots } from "../common/icons";
 import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { PriorityMark } from "../common/PriorityMark";
+import { EntityTagPills } from "../common/TagPills";
+import { SealStopover } from "../stamps";
 import { roundelStyle } from "../common/roundel";
 import { rowContextMenu } from "../common/contextMenu";
 import { STATUS_COLUMN_LABEL, cardStatus } from "../../domain/board";
@@ -88,7 +90,8 @@ export interface BoardCardProps {
 export function BoardCard({ node, today, occurrence, path, route, showStatus, selected, picked, fresh, stampWhy, onStamp, menu, onPress, onOpen, onMore, leading, returnFocus }: BoardCardProps) {
   const m = cardMeta(node, occurrence, today);
   const status = cardStatus(node, occurrence);
-  const label = m.skipped ? "取消本班運休" : m.done ? "取消完成" : "蓋章完成";
+  const paused = !m.done && !m.skipped && node.status === "paused";
+  const label = m.skipped ? "取消本班運休" : paused ? "解除途中下車" : m.done ? "取消完成" : "蓋章完成";
   const btn = useRef<HTMLButtonElement>(null);
   const [items, setItems] = useState<PopMenuItem[] | null>(null);
   const rd: CSSProperties | undefined = route ? roundelStyle(route.color) : undefined;
@@ -101,7 +104,7 @@ export function BoardCard({ node, today, occurrence, path, route, showStatus, se
       onContextMenu={rowContextMenu(() => ({ overline: cardOverline(node), label: `「${node.name}」的動作`, items: menu(), before: () => useUiStore.getState().select(node.id) }))}
     >
       <article
-        className={"ns-bc" + (m.done ? " done" : "") + (m.skipped ? " is-skipped" : "") + (selected ? " selected" : "") + (picked ? " is-picked" : "")}
+        className={"ns-bc" + (m.done ? " done" : "") + (m.skipped ? " is-skipped" : "") + (paused ? " is-paused" : "") + (selected ? " selected" : "") + (picked ? " is-picked" : "")}
         aria-label={node.name}
         onClick={onOpen ? () => onOpen(node) : undefined}
       >
@@ -133,6 +136,7 @@ export function BoardCard({ node, today, occurrence, path, route, showStatus, se
             {m.run && <span className={"chip" + (m.run.late ? " late" : "")}>{m.run.text}</span>}
             {m.due && <span className={"chip" + (m.due.late ? " late" : "")}>{m.due.text}</span>}
             {m.late && <span className="ns-bc-late">延着</span>}
+            <EntityTagPills entityType="node" entityId={node.id} max={3} compact />
           </div>
         </div>
         <div className="ns-bc-zone">
@@ -175,6 +179,11 @@ export function BoardCard({ node, today, occurrence, path, route, showStatus, se
               {m.skipped && (
                 <span className="off" aria-hidden>
                   休
+                </span>
+              )}
+              {paused && !m.skipped && (
+                <span className="stopover" aria-hidden>
+                  <SealStopover title="途中下車（點擊解除）" />
                 </span>
               )}
             </button>

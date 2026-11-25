@@ -38,6 +38,7 @@ export function cardFromTreeNode(node: NodeRow, occ: CurrentOccurrence | undefin
     name: node.name,
     kind: node.kind,
     routeId: node.route_id,
+    parentId: node.parent_id,
     serial: serial || null,
     fare: rule ? "定期券" : isPh ? "預留席" : node.parent_id === null ? "臨時券" : "乘車券",
     ruleText: rule ? describeRule(rule) : null,

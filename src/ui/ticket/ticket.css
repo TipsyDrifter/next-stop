@@ -241,6 +241,7 @@
 .ns-tk-sign { font-family: var(--font-display); font-weight: 600; font-size: 13px; text-align: center; line-height: 1; color: var(--color-ink-faint); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 .ns-tk-row[data-kind="income"] .ns-tk-sign { color: var(--color-gold-ink); }
 .ns-tk-main { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.ns-tk-rtags { flex: none; align-self: center; }
 .ns-tk-cat {
   flex: none; max-width: 62%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 13.5px; letter-spacing: .03em; color: var(--color-ink); /* 字面值：13.5px 不在桌機字階，照原型 */
@@ -898,8 +899,16 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 /* A3：搜尋開著時頁首放大鏡亮著（aria-expanded） */
 .ns-tk-pagehead .ns-toolbar .ns-iconbtn[aria-expanded="true"] { background: var(--sel-bg); color: var(--sel-fg); }
 
-/* A4（P3 A 案＋v1.32 2B-2 常駐當月直篩）：頁首下一列——左＝常駐篩選膠囊列（搜尋時多一截關鍵字框），右＝常駐排序鈕 */
-.ns-tk-subbar { display: flex; align-items: flex-start; gap: var(--sp-2) 10px; min-height: 28px; margin-bottom: var(--sp-3); }
+/* A4（P3 A 案＋v1.32 2B-2 常駐當月直篩＋D-1.36-3 宣紙薄襯帶守護）：頁首下一列——左＝常駐篩選膠囊列（搜尋時多一截關鍵字框），右＝常駐排序鈕 */
+.ns-tk-subbar {
+  display: flex; align-items: flex-start; gap: var(--sp-2) 10px; min-height: 28px; margin-bottom: var(--sp-3);
+  padding: 6px 10px; box-sizing: border-box;
+  background-color: var(--washi-strip-bg);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+}
 .ns-tk-subbar > .l { flex: 1; min-width: 0; min-height: 28px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px var(--sp-2); }
 .ns-tk-subbar > .r { flex: none; min-height: 28px; margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .ns-tk-subbar .ns-tk-search { width: 220px; min-width: 140px; }

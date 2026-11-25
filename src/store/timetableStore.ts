@@ -83,7 +83,7 @@ import {
   isoOf,
   latestGap,
   msOf,
-  runMarker,
+  blockRunMarker,
   segmentsOfDay,
   sheetBlockIdOf,
   blockThresholdOf,
@@ -885,6 +885,7 @@ export interface TimetableStore {
     offNames?: readonly string[],
     note?: string | null,
     estimateMin?: number | null,
+    longOk?: boolean,
   ): Promise<void>;
   split(blockId: string, at: number, categoryId2: string): Promise<void>;
   resolveLongRun(blockId: string, end: number, choice: LongRunChoice, categoryId2?: string): Promise<void>;
@@ -1734,7 +1735,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async editRunning(blockId, categoryId, start, link, tagEdit, offNames, note, estimateMin) {
+    async editRunning(blockId, categoryId, start, link, tagEdit, offNames, note, estimateMin, longOk) {
       const add = draftTagNames(tagEdit?.add);
       if (add === false) return;
       const offEdit = offNames === undefined ? null : blockTagEditOf(useTagStore.getState().keysOf(TT_TAG_BLOCK_OFF, blockId), offNames);
@@ -1744,11 +1745,19 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       const catChanged = !before || before.id !== blockId || before.category_id !== categoryId;
       const startChanged = !before || before.id !== blockId || msOf(before.started_at) !== start;
       // 己：只改了預估 ⇒ toast 講預估（同舊預估面板）
-      const onlyEstimate = estimateMin !== undefined && !catChanged && !startChanged && link === undefined && !tagEdit && !offEdit && note === undefined;
+      const onlyEstimate = estimateMin !== undefined && !catChanged && !startChanged && link === undefined && !tagEdit && !offEdit && note === undefined && !longOk;
       let tagErr: unknown = null;
       await write(
         async () => {
-          const r = onlyEstimate ? null : await timetableRepo.editRunning(blockId, { categoryId, startIso: isoOf(start), link, note });
+          const r = onlyEstimate
+            ? null
+            : await timetableRepo.editRunning(blockId, {
+                categoryId,
+                startIso: isoOf(start),
+                link,
+                ack: longOk === true ? true : undefined,
+                note,
+              });
           if (estimateMin !== undefined) await timetableRepo.setEstimate(blockId, estimateMin);
           const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];
           if (tagEdit) edits.push([{ add: add ?? [], remove: tagEdit.remove }, TT_TAG_BLOCK]);
@@ -2290,9 +2299,13 @@ export function blockMarker(
   now: number,
   links: Record<string, LinkInfo>,
 ): RunMarker {
-  return runMarker(
+  return blockRunMarker(
     toSpan(block),
-    blockThresholdOf(block.ended_at !== null, block.estimate_min, catById[block.category_id] ?? null, globalMaxMin, liveTaskEstimate(block, links)),
+    block.ended_at !== null,
+    block.estimate_min,
+    catById[block.category_id] ?? null,
+    globalMaxMin,
+    taskEstimateOf(block, links),
     now,
   );
 }

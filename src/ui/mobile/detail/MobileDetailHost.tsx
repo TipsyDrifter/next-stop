@@ -1,29 +1,13 @@
 /**
- * 手機詳情頁（手機殼班 D-主-69 全同等、D-主-75 全螢幕子頁、D-主-78 重複規則照現況；原型 `prototypes/主線-手機殼班.html` Q2 A 版）。
- * MobileShell 掛一份；`useMobileDetailStore.nodeId` 有值就用共用 `MFullPage` 畫「車票／列車／車廂詳情」——手機沒有側板，這頁就是它。
- *
- * 節點從哪來：同桌機 DetailPanel（tree ＞ today 切片，都沒有就問 repository；切片每次 reload 都換物件＝版本號，補撈的那份跟著刷新）。
- *   問到「沒有／已刪除」＝自己關（刪掉、同步收到別台刪除、復原前的那一刻都一樣）；還在問的那一下只畫空頁、不關。
- * 返回層：MFullPage 用 `core.detail` 登記 "full"（返回鍵＝‹ 返回）；疊在頁上的子 sheet（日期／時刻／移動到…／路線）一律 "dialog"，
- *   返回鍵一次關最上面那一層（backStack 檔頭的規矩）。MSheet 開的那一刻底下有 "full" 就自動當 "dialog"、z 抬到頁之上（.is-over），
- *   所以不收 backKind 的 MobileTimeSheet 也不必繞（第一輪的兄弟 SubLayer 先登記、detail.css 抬 z 兩處繞法已拿掉）。
- *
- * 欄位（由上而下＝原型 Q2 A）：票根列（路線徽章・路線名・票號・票種）→ 名稱（襯線大字，blur／Enter 存）→ 概要（多行，blur 存）
- *   → 路線（只有臨時車票；= 桌機「所屬路線」）→ 票種（乘車券⇄定期券；切定期券展開重複規則、切回清掉規則）
- *   → 時段組（回饋甲 D-主-129，同桌機側板）：乘車日 → 時段（開始 → 結束兩格，各開時刻 sheet）→ 長度（分段鈕＋自訂）→ 插槽 section "schedule" → 締切日
- *   → 重複（可收合段）→ 心情三燈（只給列車／車廂；收官磨光 Q1 起車票不畫，規格 §5）→ 各線 nodeFields 的 Mobile 列（荷札…）→ 乘務記錄清單＋記一句 → 競合 → 移動到… → 刪除。
- *   支線＝名稱・概要・各線欄位・移動到…・轉為列車・刪除（同桌機 BranchPanel）；其他種類只給名稱・移動到…・刪除。
- *   反方評審 #3 補齊桌機側板有、清單漏掉的（MobileStateRows）：名稱下「完成於」；重複段之後＝検印（車票済章／定期券本班済・運休・本班日期・本班時刻）；
- *   心情那一組前面加現況・優先順序（列車／車廂；車票＝検印之前一列優先順序，D-主-133）；之後分量（花費・進度）；移動到…之後「轉為支線」（列車）。
- * 寫入一律走既有動作、桌機同一支：
- *   名稱／概要／心情／締切日 → `updateNode`；乘車日 → `updateNode(…, { backfill: true })`（D-主-67：改到過去＝補記，同桌機 ScheduledChip）；
- *   時段開始 → `updateNode`（scheduled_time）並出手機的時刻收據（timeReceipt，同 useMobileToday.setTime）；時段結束／長度 → `updateNode`（estimate_min）；重複／票種 → `setRepeatRule`（MobileRepeatSection）；
- *   路線標籤 → `setRouteTag`；乘務記錄 → `addWorkLog`；移動到… → `moveNodeTo`（toast＋復原）；刪除 → `deleteTicket`（子項 ≥5／不知道就先問、toast＋復原；先關頁再刪）。
- * 定期券（parseRule 才算；退役的也一樣）：乘車日唯讀「依重複設定排班」；時段是「每班」（逐班改在検印下的「本班日期」「本班時刻」與票卡 ⋯「本班改時刻…」）。
- * 第四輪（D-主-85）：路線也從這頁開（路線圖第二層抬頭 ⋯「路線詳情…」）——路線不在 tree／today 切片，改從 nodeStore.routes 找；
- *   內容換畫 ./MobileRouteBody（桌機 RoutePanel＋StationList 的手機版），本檔只分流。
+ * 手機詳情頁（v1.36 D-1.36-6「三段式大硬券・漸進式揭露」重構，與桌機側板 100% 雙端同等）：
+ *   1. 第一段「票頭與歸屬帶」：票根列右側 `.m-dt-fare` 升級為可點擊切換按鈕（開 MSheet 切換乘車券／定期券／預留席，
+ *      消滅下方兩整行低頻轉換列）、名稱下無框單行空概要（點擊展開多行）、緊湊歸屬帶（掛在／車站／荷札）。
+ *   2. 第二段「行車排程與検印」：推進狀態 → 優先順序 → 結案雙印記（蓋済｜途中下車）→ 排程組
+ *      （乘車日 → 單行「時段與預估」漸進式揭露膠囊 → 條件顯示其他時段 → 締切日）；定期券才展開重複規則與本班検印。
+ *   3. 第三段「旅途足跡與關聯」：直屬子車票清單（列車／車廂，支援原地蓋済與新增）→ 時刻表累計時數與進度 → 關聯旅客筆記
+ *      → 心情三燈（順暢／平穩／吃力）→ 乘務記錄 → 競合 → 轉種類 → 刪除。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { KIND_LABEL, WORK_LOG_EVENT_LABEL, describeConflict, isTaskKind, parseRule, type NodeKind, type NodeRow } from "../../../domain";
 import { REPEATABLE_KINDS, nodeRepo } from "../../../data";
 import { effectiveTime, isTimeOverridden } from "../../../domain/scheduledTime";
@@ -31,11 +15,13 @@ import { currentDest, moveTargetRule } from "../../../domain/moveTo";
 import type { AttachTarget } from "../../../domain/notes";
 import { todayKey } from "../../../lib/date";
 import { lineNodeFields } from "../../../lines/runtime";
+import type { NodeFieldSpec } from "../../../lines/types";
 import { conflictNameOf, isSettling, serialOf, useNodeStore } from "../../../store/nodeStore";
 import { useSelectionStore } from "../../../store/selectionStore";
 import { useUiStore } from "../../../store/uiStore";
-import { CommitInput, CommitTextarea } from "../../common/fields";
+import { CommitInput } from "../../common/fields";
 import { MFullPage } from "../../common/MFullPage";
+import { MSheet, MSheetItem } from "../../common/MSheet";
 import { MobileAttachPicker, RouteRoundel } from "../../common/MobileAttachPicker";
 import type { AttachKind } from "../../notes/useAttachOptions";
 import { MobileDatePicker, type DateQuick } from "../../common/MobileDatePicker";
@@ -43,7 +29,6 @@ import { dateChipRangeText, dateQuickSet } from "../../common/DateChip";
 import { MobileSeatSheet, canActAsSeatSlot, releaseSeatedFlow } from "../../common/seating";
 import "../../common/seating/flexible-seating.css";
 import { IconClose } from "../../common/icons";
-import { Segmented } from "../../common/Segmented";
 import { reattachTo } from "../../common/quickadd/reattach";
 import { useNodeLocationInfo, type NodeLocationInfo } from "../../panel/MoveTo";
 import "../../common/moveTo.css";
@@ -53,10 +38,13 @@ import { convertKindFlow, moveRunFlow, resetRunTimeFlow } from "../../outline/no
 import { useMinuteTick } from "../../schedule/useMinuteTick";
 import { MobileTimeSheet, timeReceipt } from "../MobileTimeSheet";
 import { confirmAndDeleteNode } from "../../common/deleteNodeFlow";
-import { mdwText, runDateBounds, switchFare } from "../../panel/panelRules";
+import { fareModeOf, mdwText, runDateBounds, switchFare, teikiState, type FareMode } from "../../panel/panelRules";
 import { spanEnd } from "../../panel/clockValue";
 import { LengthField } from "../../panel/TimeField";
+import { ScheduleSummaryChip, useHasExtraSlots } from "../../panel/ScheduleSummaryRow";
+import { ChildTicketsSection } from "../../panel/ChildTicketsSection";
 import { useRepeatDraft } from "../../panel/useRepeatDraft";
+import type { PanelRepeat } from "../../panel/RepeatRuleEditor";
 import { fmtLogStamp, splitLogs, timeCardOf } from "./detailModel";
 import { MobileRepeatSection } from "./MobileRepeatSection";
 import { MobileRouteBody } from "./MobileRouteBody";
@@ -67,7 +55,7 @@ import "./detail.css";
 
 /** 全螢幕頁那一層的返回層 id */
 const PAGE_LAYER = "core.detail";
-/** 疊在頁上的日期／時刻 sheet 那一層（同一時間只開一張；種類由 MSheet 自己認成 "dialog"） */
+/** 疊在頁上的子 sheet 那一層（同一時間只開一張；種類由 MSheet 自己認成 "dialog"） */
 const SUB_LAYER = "core.detail.sub";
 
 export function MobileDetailHost() {
@@ -83,13 +71,11 @@ function DetailPage({ nodeId }: { nodeId: string }) {
   useEffect(() => {
     if (useSelectionStore.getState().ids.length) useSelectionStore.getState().clear();
   }, []);
-  // 路線不在 tree／today 切片裡（tree 是它底下的節點）：從書封的路線清單找（第四輪）
   const sliced = useNodeStore((s) => s.tree.byId[nodeId] ?? s.today.byId[nodeId] ?? s.routes.find((r) => r.id === nodeId));
   const tree = useNodeStore((s) => s.tree);
   const today = useNodeStore((s) => s.today);
   const occ = useNodeStore((s) => s.currentOccurrences);
   const calendar = useNodeStore((s) => s.calendar);
-  /** 問 repository 的結果；null＝還在問。切片都換過一次就重問（刪除／同步／搬走都會換切片） */
   const [fetched, setFetched] = useState<{ row: NodeRow | null } | null>(null);
   useEffect(() => {
     let alive = true;
@@ -113,8 +99,6 @@ function DetailPage({ nodeId }: { nodeId: string }) {
 
   const node = sliced ?? fetched?.row ?? undefined;
 
-  // 換 tab＝離開這頁（手機殼班反方評審 #6）：頁裡掛的別線欄位會把人帶去別的 tab（筆記列點一則／「還有 N 則」、荷札點牌子），
-  // 頁不關就蓋在那個 tab 上面，看起來像點了沒反應。在這裡統一收，不必每個跳轉入口各記得關。
   useEffect(
     () =>
       useUiStore.subscribe((s, prev) => {
@@ -144,12 +128,10 @@ type Sub =
       onPickRange?(start: string, end: string | null): void;
     }
   | { kind: "time" }
-  /** 時段的結束（MobileTimeSheet end 模式；改結束＝重算長度） */
   | { kind: "end" }
-  /** 定期券本班時刻（MobileTimeSheet run 模式） */
   | { kind: "run"; railDate: string }
-  /** 4C：配對待辦入座 */
   | { kind: "seat"; slotId: string; slotName: string; dueOn: string }
+  | { kind: "fare" }
   | { kind: "move"; from: AttachTarget };
 
 /* ───────────── 內容 ───────────── */
@@ -162,10 +144,32 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
   const closeSub = () => setSub(null);
 
   const task = isTaskKind(node.kind) || node.kind === "ticket";
+  const repeatable = REPEATABLE_KINDS.includes(node.kind);
+  const repeat = useRepeatDraft(node);
+  const [repOpen, setRepOpen] = useState(false);
+
   const moveRule = moveTargetRule(node.kind);
   const locInfo = useNodeLocationInfo(node);
 
-  /** 先問到父節點的種類才開挑選器（要標「目前位置」；同 MobileTicketSheet.startMove） */
+  const fareMode: FareMode = fareModeOf(node, repeatable ? repeat.draft.mode : undefined);
+  const plainFare = fareClass({ ...node, repeat_rule: null, is_placeholder: null }, locInfo.parentKind ?? undefined).label;
+
+  const applyFare = (next: FareMode) => {
+    closeSub();
+    if (!repeatable) return;
+    if (next === "plain") {
+      if (repeat.draft.mode !== "none") repeat.push(switchFare(repeat.draft, false));
+      if (node.is_placeholder) void updateNode(node.id, { is_placeholder: null });
+    } else if (next === "teiki") {
+      repeat.push(switchFare(repeat.draft, true));
+      setRepOpen(true);
+      if (node.is_placeholder) void updateNode(node.id, { is_placeholder: null });
+    } else if (next === "seat") {
+      if (repeat.draft.mode !== "none") repeat.push(switchFare(repeat.draft, false));
+      if (!node.is_placeholder) void updateNode(node.id, { is_placeholder: 1 });
+    }
+  };
+
   const startMove = async () => {
     let parentKind: NodeKind | null = null;
     if (node.parent_id) {
@@ -180,7 +184,6 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
   };
 
   const remove = () => {
-    // 先關頁再刪（同票卡 ⋯ 的 D-2）：確認框與 toast＋復原都在共用流程（今日／行程表同一支）
     onClose();
     void confirmAndDeleteNode(node.id);
   };
@@ -194,44 +197,53 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
 
   return (
     <div className="m-dt">
-      <Stub node={node} />
-      <CommitInput
-        value={node.name}
-        onCommit={(name) =>
-          void updateNode(node.id, { name, ...(node.is_placeholder ? { is_placeholder: null } : {}) })
-        }
-        required
-        wrap
-        ariaLabel="名稱"
-        className="m-dt-name"
-      />
-      <DoneAt node={node} />
-      {node.kind !== "station" && (
-        <div className="m-dt-note">
-          <CommitTextarea
-            value={node.description ?? ""}
-            onCommit={(v) => void updateNode(node.id, { description: v || null })}
-            ariaLabel="概要"
-            placeholder="概要：補一句要做到什麼程度…"
-          />
-        </div>
-      )}
+      {/* 第一段：票頭（票根・可點票種角標・名稱・完成於・單行空概要） */}
+      <header className="m-dt-head">
+        <Stub
+          node={node}
+          parentKind={locInfo.parentKind ?? undefined}
+          fareMode={repeatable ? fareMode : undefined}
+          plainFare={plainFare}
+          onOpenFare={repeatable ? () => setSub({ kind: "fare" }) : undefined}
+        />
+        <CommitInput
+          value={node.name}
+          onCommit={(name) =>
+            void updateNode(node.id, { name, ...(node.is_placeholder ? { is_placeholder: null } : {}) })
+          }
+          required
+          wrap
+          ariaLabel="名稱"
+          className="m-dt-name"
+        />
+        <DoneAt node={node} />
+        {node.kind !== "station" && <MobileInlineSummary node={node} />}
+      </header>
 
       {task ? (
-        <TaskFields node={node} today={today} setSub={setSub} locInfo={locInfo} onStartMove={() => void startMove()} />
+        <TaskFields
+          node={node}
+          today={today}
+          setSub={setSub}
+          locInfo={locInfo}
+          repeat={repeat}
+          repOpen={repOpen}
+          onToggleRep={() => setRepOpen((o) => !o)}
+          onStartMove={() => void startMove()}
+        />
       ) : (
         <>
-          {(moveRule || node.kind === "branch") && (
-            <div className="m-dt-group">
-              {moveRule && <LocationPickRow info={locInfo} onOpen={() => void startMove()} />}
-              {node.kind === "branch" && <MobileStationRow node={node} />}
-            </div>
-          )}
-          <LineFieldRows node={node} />
+          {/* 支線等非任務節點：歸屬帶 ＋ 足跡欄位（不遺漏 meta／footprint／status） */}
+          <div className="m-dt-group is-affil">
+            {moveRule && <LocationPickRow info={locInfo} onOpen={() => void startMove()} />}
+            {node.kind === "branch" && <MobileStationRow node={node} />}
+            <LineFieldRows node={node} sections={["meta"]} inGroup />
+          </div>
+          <BranchFootprintMobile node={node} />
         </>
       )}
 
-      {/* 轉種類（雙端同等：列車→支線、支線→列車、掛路線車票→支線、空支線→車票） */}
+      {/* 轉種類（雙端同等） */}
       {(node.kind === "train" || node.kind === "branch") && (
         <button type="button" className="m-dt-link" onClick={() => void convertKindFlow(node, node.kind === "train" ? "branch" : "train")}>
           <span>{node.kind === "train" ? "轉為支線" : "轉為列車"}</span>
@@ -265,6 +277,34 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
       </button>
 
       {/* ── 疊在頁上的子 sheet（同一時間一張；返回鍵＝關這一張） ── */}
+      {sub?.kind === "fare" && repeatable && (
+        <MSheet list title="切換票種" overline={node.name} backId={SUB_LAYER} backKind="dialog" onClose={closeSub}>
+          <MSheetItem
+            ariaLabel={fareMode === "plain" ? `${plainFare}（目前）` : plainFare}
+            onClick={() => applyFare("plain")}
+          >
+            {plainFare}
+            {fareMode === "plain" && <span className="m-tks-aside">✓</span>}
+            <small>一般單次待辦</small>
+          </MSheetItem>
+          <MSheetItem
+            ariaLabel={fareMode === "teiki" ? "定期券（目前）" : "定期券"}
+            onClick={() => applyFare("teiki")}
+          >
+            定期券
+            {fareMode === "teiki" && <span className="m-tks-aside">✓</span>}
+            <small>依重複規則自動排班</small>
+          </MSheetItem>
+          <MSheetItem
+            ariaLabel={fareMode === "seat" ? "預留席（目前）" : "預留席"}
+            onClick={() => applyFare("seat")}
+          >
+            預留席
+            {fareMode === "seat" && <span className="m-tks-aside">✓</span>}
+            <small>虛線空位，可讓其他待辦入座</small>
+          </MSheetItem>
+        </MSheet>
+      )}
       {sub?.kind === "date" && (
         <MobileDatePicker
           title={sub.title}
@@ -335,6 +375,85 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
   );
 }
 
+/** 票名下的無框單行空概要（點擊才展開多行；清空失焦退回單行淡字） */
+function MobileInlineSummary({ node }: { node: NodeRow }) {
+  const updateNode = useNodeStore((s) => s.updateNode);
+  const val = node.description ?? "";
+  const hasDesc = val.trim().length > 0;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(val);
+  const focused = useRef(false);
+  const committed = useRef(val);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    committed.current = val;
+    if (!focused.current) setDraft(val);
+  }, [val, node.id]);
+
+  useEffect(() => {
+    if (editing) taRef.current?.focus();
+  }, [editing]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== committed.current) {
+      committed.current = next;
+      setDraft(next);
+      void updateNode(node.id, { description: next || null });
+    } else {
+      setDraft(committed.current);
+    }
+    if (!next) setEditing(false);
+  };
+
+  if (!hasDesc && !editing) {
+    return (
+      <button type="button" className="m-dt-note-add" aria-label="新增概要" onClick={() => setEditing(true)}>
+        ＋ 補一句概要…
+      </button>
+    );
+  }
+
+  return (
+    <div className="m-dt-note">
+      <textarea
+        ref={taRef}
+        rows={2}
+        aria-label="概要"
+        placeholder="補一句要做到什麼程度…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => {
+          focused.current = true;
+        }}
+        onBlur={() => {
+          focused.current = false;
+          commit();
+        }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            commit();
+            taRef.current?.blur();
+          } else if (e.key === "Escape") {
+            if (draft !== committed.current) {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraft(committed.current);
+            } else if (!committed.current) {
+              e.preventDefault();
+              e.stopPropagation();
+              setEditing(false);
+            }
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 function LocationPickRow({ info, onOpen }: { info: NodeLocationInfo; onOpen: () => void }) {
   const pathText = info.route ? info.segments.join(" › ") : "無路線（臨時券）";
   return (
@@ -356,17 +475,41 @@ function LocationPickRow({ info, onOpen }: { info: NodeLocationInfo; onOpen: () 
   );
 }
 
-/* ───────────── 票根列 ───────────── */
+/* ───────────── 票根列（右上可點票種角標） ───────────── */
 
-function Stub({ node }: { node: NodeRow }) {
+function Stub({
+  node,
+  parentKind,
+  fareMode,
+  plainFare,
+  onOpenFare,
+}: {
+  node: NodeRow;
+  parentKind?: NodeKind;
+  fareMode?: FareMode;
+  plainFare?: string;
+  onOpenFare?: () => void;
+}) {
   const route = useNodeStore((s) => (node.route_id ? s.routes.find((r) => r.id === node.route_id) : undefined));
   const todaySerial = useNodeStore((s) => s.today.byId[node.id]?.serial);
   const serials = useNodeStore((s) => s.serials);
-  // 票號單一真相同桌機 NameBlock：今日索引有算過就用它，否則查 store 的票號表
   const serial = todaySerial ?? serialOf(serials, node.id);
-  // 票種：定期券只認 parseRule；其餘走大綱那支共用的 fareClass（臨時券／支線／乘車券）
-  const fare = parseRule(node.repeat_rule) ? { label: "定期券", teiki: true } : fareClass({ ...node, repeat_rule: null });
   const color = route?.color ?? "var(--route-none)";
+
+  const displayFare =
+    fareMode !== undefined
+      ? {
+          label: fareMode === "teiki" ? "定期券" : fareMode === "seat" ? "預留席" : (plainFare ?? "乘車券"),
+          teiki: fareMode === "teiki",
+          seat: fareMode === "seat",
+        }
+      : (() => {
+          const f = parseRule(node.repeat_rule)
+            ? { label: "定期券", teiki: true }
+            : fareClass({ ...node, repeat_rule: null }, parentKind);
+          return { ...f, seat: Boolean(node.is_placeholder && !f.teiki) };
+        })();
+
   return (
     <div className="m-dt-stub">
       <span className={"m-dt-route" + (route ? "" : " is-none")} style={{ ["--c" as string]: color }} aria-hidden="true">
@@ -374,43 +517,79 @@ function Stub({ node }: { node: NodeRow }) {
       </span>
       <span className="m-dt-route-name">{route ? route.name : "無路線"}</span>
       {serial && <span className="m-dt-serial">No.{serial}</span>}
-      <span className={"m-dt-fare" + (fare.teiki ? " is-teiki" : "")}>{fare.label}</span>
+      {onOpenFare ? (
+        <button
+          type="button"
+          className={
+            "m-dt-fare is-pickable" +
+            (displayFare.teiki ? " is-teiki" : "") +
+            (displayFare.seat ? " is-seat" : "")
+          }
+          aria-haspopup="dialog"
+          aria-label={`票種：${displayFare.label}（點擊切換票種）`}
+          onClick={onOpenFare}
+        >
+          <span>{displayFare.label}</span>
+          <span className="m-dt-fare-caret" aria-hidden="true">
+            ▾
+          </span>
+        </button>
+      ) : (
+        <span
+          className={
+            "m-dt-fare" +
+            (displayFare.teiki ? " is-teiki" : "") +
+            (displayFare.seat ? " is-seat" : "")
+          }
+        >
+          {displayFare.label}
+        </span>
+      )}
     </div>
   );
 }
 
-/* ───────────── 列車／車廂／車票的欄位 ───────────── */
+/* ───────────── 列車／車廂／車票的三段式大硬券欄位 ───────────── */
 
 function TaskFields({
   node,
   today,
   setSub,
   locInfo,
+  repeat,
+  repOpen,
+  onToggleRep,
   onStartMove,
 }: {
   node: NodeRow;
   today: string;
   setSub: (s: Sub) => void;
   locInfo: NodeLocationInfo;
+  repeat: PanelRepeat;
+  repOpen: boolean;
+  onToggleRep: () => void;
   onStartMove: () => void;
 }) {
   const updateNode = useNodeStore((s) => s.updateNode);
   const runOverrides = useNodeStore((s) => s.runOverrides);
   const repeatable = REPEATABLE_KINDS.includes(node.kind);
-  const { draft, push } = useRepeatDraft(node);
-  const [repOpen, setRepOpen] = useState(false);
-  /** 定期券（含退役的）：掛著規則就不給直改乘車日（repository 的 reschedule 只看 parseRule） */
-  const ruled = parseRule(node.repeat_rule) !== null;
-  const plainFare = fareClass({ ...node, repeat_rule: null, is_placeholder: null }).label;
+  const { draft, push } = repeat;
+  const { teiki, retired } = teikiState(node);
+  const ruled = teiki || retired;
+  const [schedOpen, setSchedOpen] = useState(false);
+  const hasExtraSlots = useHasExtraSlots(node, "mobile");
+
   const syncDueTarget = node.scheduled_end ?? node.scheduled_on;
   const isDueSynced = Boolean(syncDueTarget && node.due_on === syncDueTarget);
 
-  const seatedOvr = !ruled && node.scheduled_on
-    ? runOverrides.find((o) => !o.deleted_at && o.seated_node_id === node.id && o.due_on === node.scheduled_on)
-    : undefined;
-  const hostOvr = !ruled && node.is_placeholder && node.scheduled_on
-    ? runOverrides.find((o) => !o.deleted_at && o.node_id === node.id && o.due_on === node.scheduled_on && o.seated_node_id)
-    : undefined;
+  const seatedOvr =
+    !ruled && node.scheduled_on
+      ? runOverrides.find((o) => !o.deleted_at && o.seated_node_id === node.id && o.due_on === node.scheduled_on)
+      : undefined;
+  const hostOvr =
+    !ruled && node.is_placeholder && node.scheduled_on
+      ? runOverrides.find((o) => !o.deleted_at && o.node_id === node.id && o.due_on === node.scheduled_on && o.seated_node_id)
+      : undefined;
   const canHostSeat = !ruled && canActAsSeatSlot(node, node.status === "done") && Boolean(node.scheduled_on);
 
   const pickDate = (
@@ -423,222 +602,250 @@ function TaskFields({
 
   return (
     <>
-      <div className="m-dt-group">
+      {/* ── 第一段尾端：緊湊歸屬帶（掛在 ＋ 車站 ＋ 荷札） ── */}
+      <div className="m-dt-group is-affil">
         <LocationPickRow info={locInfo} onOpen={onStartMove} />
+        <MobileStationRow node={node} />
+        <LineFieldRows node={node} sections={["meta"]} inGroup />
+      </div>
 
-        {repeatable && (
-          <Row label="票種">
-            <Segmented
-              options={[
-                { value: "plain", label: plainFare },
-                { value: "teiki", label: "定期券" },
-              ]}
-              value={draft.mode === "none" ? "plain" : "teiki"}
-              onChange={(v) => {
-                const teiki = v === "teiki";
-                push(switchFare(draft, teiki));
-                if (teiki) setRepOpen(true);
-              }}
-              aria-label="票種"
-            />
-          </Row>
-        )}
+      {/* ── 第二段：上半主段 —— 行車排程與検印 ── */}
+      <section className="m-dt-band">
+        <h3 className="m-dt-band-title">行車排程</h3>
+        <div className="m-dt-group">
+          <StatusRows node={node} />
 
-        <Row label="預留席">
-          <button
-            type="button"
-            className={"ns-qa-chip" + (node.is_placeholder ? " is-on" : "")}
-            aria-pressed={Boolean(node.is_placeholder)}
-            onClick={() => void updateNode(node.id, { is_placeholder: node.is_placeholder ? null : 1 })}
-          >
-            <span className="k">{node.is_placeholder ? "預留席（點擊轉正式車票）" : "設為預留席"}</span>
-          </button>
-        </Row>
-
-        {seatedOvr && (
-          <Row label="入座席次">
-            <div className="ns-range-row-acts">
-              <span className="ns-seat-badge">已入座（{seatedOvr.due_on.slice(5).replace("-", "/")}）</span>
-              <button
-                type="button"
-                className="ns-seat-release"
-                onClick={() => void releaseSeatedFlow(seatedOvr.node_id, seatedOvr.due_on, node.id)}
-              >
-                釋出預留席
-              </button>
-            </div>
-          </Row>
-        )}
-
-        {canHostSeat && node.scheduled_on && (
-          <Row label="待辦入座">
-            {hostOvr?.seated_node_id ? (
+          {seatedOvr && (
+            <Row label="入座席次">
               <div className="ns-range-row-acts">
-                <span className="ns-seat-badge">已有車票入座</span>
+                <span className="ns-seat-badge">已入座（{seatedOvr.due_on.slice(5).replace("-", "/")}）</span>
                 <button
                   type="button"
                   className="ns-seat-release"
-                  onClick={() => void releaseSeatedFlow(node.id, node.scheduled_on!, hostOvr.seated_node_id ?? undefined)}
+                  onClick={() => void releaseSeatedFlow(seatedOvr.node_id, seatedOvr.due_on, node.id)}
                 >
                   釋出預留席
                 </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                className="ns-seat-dropbtn"
-                onClick={() => setSub({ kind: "seat", slotId: node.id, slotName: node.name, dueOn: node.scheduled_on! })}
-              >
-                ⇄ 配對待辦入座…
-              </button>
-            )}
-          </Row>
-        )}
+            </Row>
+          )}
 
-        <Row label="乘車日">
-          {ruled ? (
-            <span className="m-dt-locked">
-              {node.scheduled_on ? mdwText(node.scheduled_on) : "—"}
-              <span className="m-dt-sub">・依重複設定排班</span>
-            </span>
-          ) : (
-            <DatePick
-              value={node.scheduled_on}
-              endValue={node.scheduled_end}
-              empty="沒排日期"
-              label="乘車日"
-              onOpen={() =>
-                pickDate(
-                  "乘車日",
-                  node.scheduled_on,
-                  dateQuickSet("backward", today),
-                  (d) => {
-                    const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
-                    void updateNode(
-                      node.id,
-                      syncDue ? { scheduled_on: d, scheduled_end: null, due_on: d } : { scheduled_on: d, scheduled_end: null },
-                      { backfill: true },
-                    );
-                  },
-                  {
-                    endValue: node.scheduled_end,
-                    allowRange: true,
-                    onPickRange: (s, e) => {
+          {canHostSeat && node.scheduled_on && (
+            <Row label="待辦入座">
+              {hostOvr?.seated_node_id ? (
+                <div className="ns-range-row-acts">
+                  <span className="ns-seat-badge">已有車票入座</span>
+                  <button
+                    type="button"
+                    className="ns-seat-release"
+                    onClick={() => void releaseSeatedFlow(node.id, node.scheduled_on!, hostOvr.seated_node_id ?? undefined)}
+                  >
+                    釋出預留席
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="ns-seat-dropbtn"
+                  onClick={() => setSub({ kind: "seat", slotId: node.id, slotName: node.name, dueOn: node.scheduled_on! })}
+                >
+                  ⇄ 配對待辦入座…
+                </button>
+              )}
+            </Row>
+          )}
+
+          <Row label="乘車日">
+            {ruled ? (
+              <span className="m-dt-locked">
+                {node.scheduled_on ? mdwText(node.scheduled_on) : "—"}
+                <span className="m-dt-sub">・依重複設定排班</span>
+              </span>
+            ) : (
+              <DatePick
+                value={node.scheduled_on}
+                endValue={node.scheduled_end}
+                empty="沒排日期"
+                label="乘車日"
+                onOpen={() =>
+                  pickDate(
+                    "乘車日",
+                    node.scheduled_on,
+                    dateQuickSet("backward", today),
+                    (d) => {
                       const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
                       void updateNode(
                         node.id,
-                        syncDue ? { scheduled_on: s, scheduled_end: e, due_on: e ?? s } : { scheduled_on: s, scheduled_end: e },
-                        { backfill: !e },
+                        syncDue ? { scheduled_on: d, scheduled_end: null, due_on: d } : { scheduled_on: d, scheduled_end: null },
+                        { backfill: true },
                       );
                     },
-                  },
-                )
-              }
-              onClear={() => void updateNode(node.id, { scheduled_on: null, scheduled_end: null }, { backfill: true })}
-            />
-          )}
-        </Row>
-
-        {/* 時段組（回饋甲 D-主-129；原型 q3-A 手機）：乘車日 → 時段 → 長度 → 〔插槽 section "schedule"〕→ 締切日，同桌機側板 */}
-        <Row label="時段">
-          <SpanButtons node={node} ruled={ruled} onStart={() => setSub({ kind: "time" })} onEnd={() => setSub({ kind: "end" })} />
-        </Row>
-
-        <Row label="長度" tall>
-          <LengthField value={node.estimate_min} onCommit={(v) => void updateNode(node.id, { estimate_min: v })} compact={false} />
-        </Row>
-
-        <ScheduleLineRows node={node} />
-
-        <Row label="締切日">
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
-            <DatePick
-              value={node.due_on}
-              empty="未設定"
-              label="締切日"
-              onOpen={() =>
-                pickDate(
-                  "締切日",
-                  node.due_on,
-                  syncDueTarget
-                    ? [{ label: "＝同乘車日", day: syncDueTarget }, ...dateQuickSet("forward", today)]
-                    : dateQuickSet("forward", today),
-                  (d) => void updateNode(node.id, { due_on: d }),
-                )
-              }
-              onClear={() => void updateNode(node.id, { due_on: null })}
-            />
-            {syncDueTarget && (
-              <button
-                type="button"
-                className={"ns-qa-chip" + (isDueSynced ? " is-on" : "")}
-                aria-pressed={isDueSynced}
-                title="將締切日設為與乘車日（或期間訖日）同一天"
-                onClick={() =>
-                  void updateNode(node.id, {
-                    due_on: isDueSynced ? null : syncDueTarget,
-                  })
+                    {
+                      endValue: node.scheduled_end,
+                      allowRange: true,
+                      onPickRange: (s, e) => {
+                        const syncDue = Boolean(node.scheduled_on && node.due_on === (node.scheduled_end ?? node.scheduled_on));
+                        void updateNode(
+                          node.id,
+                          syncDue ? { scheduled_on: s, scheduled_end: e, due_on: e ?? s } : { scheduled_on: s, scheduled_end: e },
+                          { backfill: !e },
+                        );
+                      },
+                    },
+                  )
                 }
-              >
-                <span className="k">＝同乘車日</span>
-              </button>
+                onClear={() => void updateNode(node.id, { scheduled_on: null, scheduled_end: null }, { backfill: true })}
+              />
             )}
+          </Row>
+
+          {/* 單行「時段與預估」漸進式揭露膠囊（收合省下 ~150px；點擊原地展開 SpanButtons ＋ DurationPicker） */}
+          <Row label="時段" tall={schedOpen}>
+            <ScheduleSummaryChip
+              start={node.scheduled_time}
+              estimateMin={node.estimate_min}
+              lockedDate={ruled}
+              expanded={schedOpen}
+              onToggle={() => setSchedOpen((o) => !o)}
+              variant="mobile"
+            >
+              <div className="m-dt-sched-edit-block">
+                <SpanButtons node={node} ruled={ruled} onStart={() => setSub({ kind: "time" })} onEnd={() => setSub({ kind: "end" })} />
+                <LengthField value={node.estimate_min} onCommit={(v) => void updateNode(node.id, { estimate_min: v })} compact={false} />
+              </div>
+            </ScheduleSummaryChip>
+          </Row>
+
+          {/* 其他時段（timetable.slots）：僅在有資料或展開編輯時顯示 */}
+          {(hasExtraSlots || schedOpen) && <ScheduleLineRows node={node} />}
+
+          <Row label="締切日">
+            <div className="m-dt-due-row">
+              <DatePick
+                value={node.due_on}
+                empty="未設定"
+                label="締切日"
+                onOpen={() =>
+                  pickDate(
+                    "締切日",
+                    node.due_on,
+                    syncDueTarget
+                      ? [{ label: "＝同乘車日", day: syncDueTarget }, ...dateQuickSet("forward", today)]
+                      : dateQuickSet("forward", today),
+                    (d) => void updateNode(node.id, { due_on: d }),
+                  )
+                }
+                onClear={() => void updateNode(node.id, { due_on: null })}
+              />
+              {syncDueTarget && (
+                <button
+                  type="button"
+                  className={"ns-qa-chip" + (isDueSynced ? " is-on" : "")}
+                  aria-pressed={isDueSynced}
+                  title="將締切日設為與乘車日（或期間訖日）同一天"
+                  onClick={() =>
+                    void updateNode(node.id, {
+                      due_on: isDueSynced ? null : syncDueTarget,
+                    })
+                  }
+                >
+                  <span className="k">＝同乘車日</span>
+                </button>
+              )}
+            </div>
+          </Row>
+        </div>
+
+        {/* 定期券專屬：重複規則與本班検印 */}
+        {repeatable && draft.mode !== "none" && (
+          <MobileRepeatSection
+            node={node}
+            draft={draft}
+            push={push}
+            open={repOpen}
+            onToggle={onToggleRep}
+            onPickDate={(title, cur, done, min) => pickDate(title, cur, [], done, { min })}
+          />
+        )}
+
+        {teiki && (
+          <div className="m-dt-group is-after-sec">
+            <StampRows
+              node={node}
+              onRunTime={() => {
+                const day = useNodeStore.getState().currentOccurrences[node.id]?.due_on ?? node.scheduled_on;
+                if (day) setSub({ kind: "run", railDate: day });
+              }}
+              onRunDate={(railDate) => {
+                const { min, max } = runDateBounds(parseRule(node.repeat_rule), today);
+                const quick = dateQuickSet("forward", today).filter((q) => q.day >= min && (!max || q.day <= max));
+                pickDate(
+                  "本班日期",
+                  railDate,
+                  quick,
+                  (d) => {
+                    if (!isSettling(node.id)) void moveRunFlow(node.id, railDate, d);
+                  },
+                  { min, max },
+                );
+              }}
+              onRunSeat={(railDate, slotName) => setSub({ kind: "seat", slotId: node.id, slotName, dueOn: railDate })}
+            />
           </div>
-        </Row>
+        )}
+      </section>
 
-        {/* ⑫：車站（規則同桌機側板 useStationField：沒有子項、路線上有車站才出） */}
-        <MobileStationRow node={node} />
-      </div>
+      {/* ── 第三段：下半主段 —— 旅途足跡與關聯 ── */}
+      <section className="m-dt-band m-dt-footprint">
+        <h3 className="m-dt-band-title">旅途足跡</h3>
 
-      {repeatable && draft.mode !== "none" && (
-        <MobileRepeatSection
-          node={node}
-          draft={draft}
-          push={push}
-          open={repOpen}
-          onToggle={() => setRepOpen((o) => !o)}
-          onPickDate={(title, cur, done, min) => pickDate(title, cur, [], done, { min })}
-        />
-      )}
+        {/* 1. 直屬子車票清單（列車／車廂顯示） */}
+        {isTaskKind(node.kind) && <ChildTicketsSection node={node} variant="mobile" />}
 
-      <div className="m-dt-group is-after-sec">
-        <StampRows
-          node={node}
-          onRunTime={() => {
-            const day = useNodeStore.getState().currentOccurrences[node.id]?.due_on ?? node.scheduled_on;
-            if (day) setSub({ kind: "run", railDate: day });
-          }}
-          onRunDate={(railDate) => {
-            // 範圍同 runMoveBlock（今天起、不早於起算日、不晚於結束日）；快選也只留範圍內的
-            const { min, max } = runDateBounds(parseRule(node.repeat_rule), today);
-            const quick = dateQuickSet("forward", today).filter((q) => q.day >= min && (!max || q.day <= max));
-            pickDate(
-              "本班日期",
-              railDate,
-              quick,
-              (d) => {
-                if (!isSettling(node.id)) void moveRunFlow(node.id, railDate, d);
-              },
-              { min, max },
-            );
-          }}
-          onRunSeat={(railDate, slotName) => setSub({ kind: "seat", slotId: node.id, slotName, dueOn: railDate })}
-        />
-        {(isTaskKind(node.kind) || node.kind === "ticket") && <StatusRows node={node} />}
-        {/* Bug 4：車票與列車／車廂統一提供心情三燈 */}
-        <Row label="心情">
-          <MoodLights value={node.mood} onChange={(m) => void updateNode(node.id, { mood: m })} />
-        </Row>
-        <AmountRows node={node} />
-      </div>
+        {/* 2. 時刻表累計時數、列車進度、關聯旅客筆記、心情三燈 */}
+        <div className="m-dt-group">
+          <LineFieldRows
+            node={node}
+            sections={["amount", "footprint"]}
+            filter={(f) => f.id.startsWith("timetable.")}
+            inGroup
+          />
+          <AmountRows node={node} />
+          <LineFieldRows
+            node={node}
+            sections={["footprint", "status"]}
+            filter={(f) => !f.id.startsWith("timetable.")}
+            inGroup
+          />
+          <Row label="心情">
+            <MoodLights value={node.mood} onChange={(m) => void updateNode(node.id, { mood: m })} />
+          </Row>
+        </div>
 
-      <LineFieldRows node={node} />
-      <WorkLogs node={node} />
+        {/* 3. 乘務記錄與競合 */}
+        <WorkLogs node={node} />
+      </section>
     </>
   );
 }
 
-/** 日期列：整列可點開日期 sheet；有值時右邊一顆 ×（清除；同 DateChip clearable 的位置） */
+/** 支線等非任務節點的旅途足跡（不遺漏時間與關聯筆記） */
+function BranchFootprintMobile({ node }: { node: NodeRow }) {
+  const fields = lineNodeFields("mobile").filter(
+    (f) => f.Mobile && f.kinds.includes(node.kind) && (f.section === "footprint" || f.section === "status" || !f.section),
+  );
+  if (!fields.length) return null;
+  return (
+    <section className="m-dt-band m-dt-footprint">
+      <h3 className="m-dt-band-title">旅途足跡</h3>
+      <div className="m-dt-group">
+        <LineFieldRows node={node} sections={["footprint", "status"]} inGroup />
+      </div>
+    </section>
+  );
+}
+
+/** 日期列：整列可點開日期 sheet；有值時右邊一顆 × */
 function DatePick({
   value,
   endValue,
@@ -672,12 +879,7 @@ function DatePick({
   );
 }
 
-/**
- * 時段兩格（D-主-129；原型 q3-A 手機「兩格各點一下開時間 sheet」）：開始 → 結束，各 44 高。
- *   開始＝開 rule 模式的時刻 sheet（不帶「預計多久」：只改開始＝整段平移，長度不動；「不排時刻」＝清開始、長度保留）；
- *   結束＝開 end 模式（改結束＝重算長度；等於或早於開始由框的範圍擋下）。沒排開始＝結束格停用（淡「—」）。
- *   定期券＝每班時刻，開始格前印「每班」。
- */
+/** 時段兩格：開始 → 結束 */
 function SpanButtons({ node, ruled, onStart, onEnd }: { node: NodeRow; ruled: boolean; onStart(): void; onEnd(): void }) {
   const start = node.scheduled_time;
   const end = spanEnd(start, node.estimate_min);
@@ -703,7 +905,6 @@ function SpanButtons({ node, ruled, onStart, onEnd }: { node: NodeRow; ruled: bo
   );
 }
 
-/** 時刻 sheet（MobileTimeSheet rule 模式＝單發票的時刻／定期券的每班時刻；長度另有一列 ⇒ withLen=false）；寫入與收據同 useMobileToday.setTime */
 function TimeSub({ node, today, onClose }: { node: NodeRow; today: string; onClose(): void }) {
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -741,7 +942,6 @@ function TimeSub({ node, today, onClose }: { node: NodeRow; today: string; onClo
   );
 }
 
-/** 時段的結束（MobileTimeSheet end 模式）：確定＝新長度寫回 estimate_min（同桌機時段結束格；值就在列上，不另出收據） */
 function EndSub({ node, today, onClose }: { node: NodeRow; today: string; onClose(): void }) {
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -765,7 +965,6 @@ function EndSub({ node, today, onClose }: { node: NodeRow; today: string; onClos
   );
 }
 
-/** 定期券本班時刻（MobileTimeSheet run 模式；寫入與收據同 useMobileToday.setRunTime／clearRunTime、桌機 RunTimeRow 同一支 store 動作） */
 function RunTimeSub({ node, railDate, today, onClose }: { node: NodeRow; railDate: string; today: string; onClose(): void }) {
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -811,7 +1010,7 @@ function RunTimeSub({ node, railDate, today, onClose }: { node: NodeRow; railDat
   );
 }
 
-/** 心情三燈（字與色＝complete/moods.ts，完成卡與桌機側板同一份）；再按同一盞＝熄掉 */
+/** 心情三燈（順 · 平 · 難；complete/moods.ts）；再按同一盞＝熄掉 */
 function MoodLights({ value, onChange }: { value: NodeRow["mood"]; onChange: (m: NodeRow["mood"]) => void }) {
   const cur = MOODS.find((m) => m.value === value);
   return (
@@ -838,17 +1037,43 @@ function MoodLights({ value, onChange }: { value: NodeRow["mood"]; onChange: (m:
   );
 }
 
+type FieldSection = NonNullable<NodeFieldSpec["section"]>;
+
 /**
- * 各線登記的節點欄位的手機列（插槽 nodeFields 的 Mobile；接法同 MobileRouteMap 唯讀詳情）；沒有任何一線登記＝不出 DOM。
- * section "schedule" 的不在這裡：畫在時段組裡（ScheduleLineRows，長度之後、締切日之前，同桌機側板）。
+ * 各線登記的節點欄位的手機列（插槽 nodeFields 的 Mobile）：
+ * 支援依 `sections` 與 `filter` 精準分流到歸屬帶（meta）或旅途足跡（amount／footprint／status）。
  */
-function LineFieldRows({ node }: { node: NodeRow }) {
-  const fields = lineNodeFields("mobile").filter((f) => f.Mobile && f.kinds.includes(node.kind) && f.section !== "schedule");
+function LineFieldRows({
+  node,
+  sections,
+  filter,
+  inGroup = false,
+}: {
+  node: NodeRow;
+  sections?: readonly FieldSection[];
+  filter?: (f: NodeFieldSpec) => boolean;
+  inGroup?: boolean;
+}) {
+  const set = sections ? new Set<FieldSection>(sections) : null;
+  const fields = lineNodeFields("mobile").filter((f) => {
+    if (!f.Mobile || !f.kinds.includes(node.kind)) return false;
+    const sec = (f.section ?? "status") as FieldSection;
+    if (set) {
+      if (!set.has(sec)) return false;
+    } else if (sec === "schedule") {
+      return false;
+    }
+    return filter ? filter(f) : true;
+  });
   if (!fields.length) return null;
-  return <div className="m-dt-lines">{fields.map((f) => (f.Mobile ? <f.Mobile key={f.id} node={node} /> : null))}</div>;
+  return (
+    <div className={"m-dt-lines" + (inGroup ? " is-in-group" : "")}>
+      {fields.map((f) => (f.Mobile ? <f.Mobile key={f.id} node={node} /> : null))}
+    </div>
+  );
 }
 
-/** 時段組裡的別線欄位（插槽 nodeFields 的 section "schedule"，例：時刻表⑦「其他時段」）；沒登記＝不出 DOM */
+/** 時段組裡的別線欄位（section "schedule"：其他時段） */
 function ScheduleLineRows({ node }: { node: NodeRow }) {
   const fields = lineNodeFields("mobile").filter((f) => f.Mobile && f.kinds.includes(node.kind) && f.section === "schedule");
   if (!fields.length) return null;
@@ -865,7 +1090,6 @@ function WorkLogs({ node }: { node: NodeRow }) {
   const addWorkLog = useNodeStore((s) => s.addWorkLog);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  // 系統事件（発券／入鋏／済）是 store 順手寫的、不會回頭通知：拿 updated_at 當重載訊號（同桌機 WorkLogList）
   useEffect(() => {
     void loadWorkLogs(node.id);
   }, [node.id, node.updated_at, loadWorkLogs]);
@@ -876,7 +1100,6 @@ function WorkLogs({ node }: { node: NodeRow }) {
     if (!body || busy) return;
     setBusy(true);
     try {
-      // 寫進去才清框（失敗由 store 寫 error 列；字留著可以再按一次）
       if (await addWorkLog(node.id, body)) setDraft("");
     } finally {
       setBusy(false);
@@ -887,7 +1110,6 @@ function WorkLogs({ node }: { node: NodeRow }) {
     <>
       <section className="m-dt-sec">
         <h3 className="m-dt-sec-title">
-          {/* 計數只算主人手記（桌機段頭同一把尺）；一則都沒有就不印，免得旁邊掛著発券列還寫「還沒有」 */}
           乘務記錄{manual > 0 && <span className="m-dt-sec-aside">{manual} 則</span>}
         </h3>
         {logs === undefined ? (
@@ -898,7 +1120,6 @@ function WorkLogs({ node }: { node: NodeRow }) {
               {entries.map((l) => (
                 <li key={l.id} className={l.event ? "is-evt" : undefined}>
                   <span className="m-dt-tm">{fmtLogStamp(l.logged_at)}</span>
-                  {/* 事件列（発券／入鋏／済）印事件名；手記走主人筆跡 */}
                   <span className={l.event ? "m-dt-evt" : "m-dt-hw"}>{l.event ? WORK_LOG_EVENT_LABEL[l.event] : l.body}</span>
                 </li>
               ))}
@@ -930,7 +1151,6 @@ function WorkLogs({ node }: { node: NodeRow }) {
         </div>
       </section>
 
-      {/* 競合（同步衝突的敗方值；D-1.1-5）：系統講的話走印刷體，同 MobileRouteMap 唯讀詳情那段 */}
       {conflicts.length > 0 && (
         <div className="m-dt-conflict">
           <span className="m-dt-label">競合</span>

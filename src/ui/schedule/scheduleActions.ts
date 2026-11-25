@@ -39,7 +39,7 @@ import { TIME_REPEAT_ONLY_MSG } from "../../domain/scheduledTime";
 import { timeReceipt } from "../mobile/MobileTimeSheet";
 import { planPickDay } from "../mobile/pickDay";
 import { requestMoveTo } from "../common/moveTo";
-import { moveRunFlow } from "../outline/nodeFlows";
+import { moveRunFlow, toggleStopoverFlow } from "../outline/nodeFlows";
 import type { PopMenuItem } from "../common/PopMenu";
 
 /** 一個動作目標：班次列（日曆同一把尺）或「只在締切日浮出來」的票（手機卡用，§0-1 第 14 條） */
@@ -132,6 +132,10 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
       if (!node || isSettling(node.id)) return false;
       if (t.kind === "due") {
         // 締切浮出來的單發票：済蓋在票本身（status），沒有班次層的鎖
+        if (node.status === "paused") {
+          void toggleStopoverFlow(node.id);
+          return false;
+        }
         if (node.status === "done") {
           uncomplete(node.id);
           return false;
@@ -155,6 +159,10 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
           .then((r) => {
             if (!r.ok && r.reason) toast(r.reason);
           });
+        return false;
+      }
+      if (!row.done && node.status === "paused") {
+        void toggleStopoverFlow(node.id);
         return false;
       }
       if (row.done) {

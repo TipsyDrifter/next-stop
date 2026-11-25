@@ -49,7 +49,7 @@ import { TodayRow } from "./TodayRow";
 import { DoneToggleChip, NO_DEST, QuickAddLauncher, QuickAddRow, type QuickDefaults } from "../common/quickadd";
 import { LogInlineInput } from "./LogInlineInput";
 import { DeferPopover } from "./DeferPopover";
-import { useTodayController } from "./useTodayController";
+import { isHideableDoneRow, isSettledRow, useTodayController } from "./useTodayController";
 import { useTodayKeyboard } from "./useTodayKeyboard";
 import { indexOfAnchor, useDragReorder, type DropPlace } from "../common/dragReorder";
 import { useSelectionStore } from "../../store/selectionStore";
@@ -103,14 +103,9 @@ function dayOfYear(d: Date): { day: number; total: number } {
   return { day, total: Math.round((end.getTime() - start.getTime()) / 86_400_000) };
 }
 
-/** 這一列済了沒（定期券看班次；運休不算）——「済 N・隱藏」開關數的就是這個 */
-function isDoneRow(r: TodayRowData): boolean {
-  return r.occurrence ? r.occurrence.status === "done" : r.status === "done";
-}
-
-/** 這一列交代了沒（済或運休；定期券看班次結局）——與 TodayRow 的口徑同一條 */
+/** 這一列交代了沒（済／運休／途中下車）——與 useTodayController 同一條 */
 function isSettled(r: TodayRowData): boolean {
-  return r.occurrence ? r.occurrence.status === "done" || r.occurrence.status === "skipped" : r.status === "done";
+  return isSettledRow(r);
 }
 
 /**
@@ -172,8 +167,8 @@ export function TodayView() {
   const toggleTodayHideDone = useUiStore((s) => s.toggleTodayHideDone);
   const rangeTickets = useNodeStore((s) => s.rangeTickets);
   const runOverrides = useNodeStore((s) => s.runOverrides);
-  const doneToday = c.todayRows.filter(isDoneRow).length;
-  const shownToday = todayHideDone ? c.todayRows.filter((r) => !isDoneRow(r)) : c.todayRows;
+  const doneToday = c.todayRows.filter(isHideableDoneRow).length;
+  const shownToday = todayHideDone ? c.todayRows.filter((r) => !isHideableDoneRow(r)) : c.todayRows;
   const manual = manualOrderIds(c.todayRows);
   const picked = useSelectionStore((s) => (s.scope === "today" ? s.ids : null));
 

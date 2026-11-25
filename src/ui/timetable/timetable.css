@@ -3069,3 +3069,110 @@ button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--accent) 16%,
 .ns-tt-ledger-row { height: auto; }
 .ns-tt-ledger-time { color: var(--color-ink-soft); letter-spacing: .04em; }
 .ns-tt-ledger-tags { gap: var(--sp-1); margin-top: var(--sp-1); }
+
+/* ═══ v1.36 1B-1 / 1A-4 / 1B-3：全視圖 #荷札 常駐顯影、日程上層脈絡、非卡區宣紙薄襯帶 ═══ */
+
+/* 一般時間軸卡片內 #荷札 */
+.ns-tt-axis-tags { margin-top: 4px; }
+
+/* 運行列焦點荷札（雙端） */
+.ns-tt-dock-tags {
+  display: flex; flex-wrap: wrap; align-items: center;
+  margin-top: 3px; min-width: 0;
+}
+
+/* 週視圖窄塊頭與 # 微記號（覆寫 .ns-tt-week-b span 繼承樣式，保留原色對比） */
+.ns-tt-week-b-head {
+  display: inline-flex; align-items: center; gap: 3px;
+  max-width: 100%; min-width: 0;
+}
+.ns-tt-week-b .ns-tt-week-b-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ns-tt-week-b .ns-tagdot {
+  padding: 0 2px; padding-top: 0;
+  font-size: 9px; line-height: 1; letter-spacing: 0;
+  flex: none;
+}
+.ns-tt-week-b.is-pend .ns-tagdot {
+  background: var(--color-paper); color: var(--color-late);
+}
+.ns-tt-week-tip-tags {
+  display: block; margin-top: 2px;
+  font-size: var(--fs-micro); letter-spacing: .04em; color: var(--color-ink-soft);
+}
+[data-shell="mobile"] .ns-tt-week-b-head {
+  justify-content: center; gap: 2px;
+}
+
+/* 日程：預定卡上層脈絡與 #荷札 */
+.ns-tt-sched-crumb {
+  margin-top: 1px;
+  opacity: .88;
+}
+.ns-tt-sched-card-tags {
+  display: flex; flex-wrap: wrap; align-items: center;
+  margin-top: 2px; min-width: 0;
+}
+
+/* 日程：實績塊上 #荷札（底為高飽和分類色，文字與邊框對齊 --ns-tt-on-cat 確保 AA 對比） */
+.ns-tt-sched-bn-row {
+  display: flex; align-items: center; gap: 4px;
+  max-width: 100%; min-width: 0; width: 100%;
+}
+.ns-tt-sched-bn-row .ns-tt-sched-bn {
+  flex: 0 1 auto; min-width: 0;
+}
+.ns-tt-sched-blk-tags {
+  display: flex; flex-wrap: wrap; align-items: center;
+  margin-top: 2px; max-width: 100%; min-width: 0;
+}
+.ns-tt-sched-blk .ns-tagpill {
+  color: var(--ns-tt-on-cat);
+  border-color: color-mix(in srgb, var(--ns-tt-on-cat) 45%, transparent);
+}
+.ns-tt-sched-blk .ns-tagpill-hash {
+  color: color-mix(in srgb, var(--ns-tt-on-cat) 75%, transparent);
+}
+.ns-tt-sched-blk .ns-tagpill-more {
+  color: var(--ns-tt-on-cat);
+  border-color: color-mix(in srgb, var(--ns-tt-on-cat) 45%, transparent);
+}
+
+/* 日程：還沒排待排車票之上層脈絡與 #荷札 */
+.ns-tt-sched-ui-crumb { margin-top: 1px; }
+.ns-tt-sched-ui-tags {
+  display: flex; flex-wrap: wrap; align-items: center;
+  margin-top: 3px; min-width: 0;
+}
+.ns-tt-sched-chip-main {
+  display: inline-flex; flex-direction: column; align-items: flex-start;
+  min-width: 0; line-height: 1.25;
+}
+.ns-tt-sched-chip-crumb { max-width: 140px; }
+
+/* 1B-3：時刻表非卡區宣紙薄襯帶守護（D-1.36-3；配合 .ns-washi-strip，水鏡鎌倉下不吃字） */
+.ns-tt-dnav.ns-tt-axis-nav.ns-washi-strip { padding: var(--sp-1) var(--sp-2); }
+.ns-tt-fbar.ns-washi-strip { padding: 6px 10px; }
+.ns-tt-sec.ns-washi-strip { padding: 5px 12px; }
+.ns-tt-board-head.ns-washi-strip { padding: 5px 12px; margin: 4px 0 6px; }
+.ns-tt-group-name.ns-washi-strip {
+  display: inline-flex; align-items: center; width: fit-content;
+  padding: 2px 9px; margin-bottom: 2px;
+}
+.ns-tt-week-bar.ns-washi-strip { padding: 6px 12px; }
+.ns-tt-sched-top.ns-washi-strip { padding: 6px 12px; }
+.ns-tt-sched-mtop.ns-washi-strip {
+  padding: 6px 10px; margin-bottom: 6px;
+}
+[data-shell="mobile"] .ns-tt-sched-mtop .ns-tt-sched-sum { margin-bottom: 0; }
+.ns-tt-sched-un.is-side .ns-tt-sched-un-h.ns-washi-strip {
+  padding: 5px 10px; margin-bottom: 4px;
+}
+.ns-tt-sched-un.is-chips .ns-tt-sched-un-h.ns-washi-strip {
+  margin: 0 var(--m-gutter, 16px) 5px; padding: 4px 10px;
+}
+.ns-tt-stats-pbar.ns-washi-strip { padding: 6px 12px; }
+[data-shell="mobile"] .ns-tt-stats-pbar.ns-washi-strip { padding: 6px 10px; }
+.ns-tt-grid-nav.ns-washi-strip { padding: var(--sp-1) 10px; }
+.ns-tt-grid.is-phone .ns-tt-grid-nav.ns-washi-strip .ns-tt-grid-read { inset: 0; }

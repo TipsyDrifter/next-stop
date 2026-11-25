@@ -21,11 +21,32 @@
 .m-dt-route.is-none { border-style: dashed; font-family: var(--font-body); }
 .m-dt-route-name { color: var(--color-ink-soft); letter-spacing: .14em; }
 .m-dt-serial { font-family: var(--font-latin); letter-spacing: .08em; }
+.m-dt-head { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; }
 .m-dt-fare {
-  margin-left: auto; padding: 1px 6px; border: 1px solid var(--color-dash); border-radius: 2px;
-  font-size: 10px; letter-spacing: .3em; color: var(--color-ink-soft);
+  margin-left: auto; padding: 2px 7px; border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  font-size: 10px; letter-spacing: .24em; color: var(--color-ink-soft);
 }
 .m-dt-fare.is-teiki { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.m-dt-fare.is-seat { border-style: dashed; border-color: var(--color-dash); color: var(--color-ink-soft); }
+.m-dt-fare.is-pickable {
+  display: inline-flex; align-items: center; gap: 3px; min-height: 28px; padding: 2px 8px 2px 10px;
+  background: transparent; cursor: pointer; font-family: var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.m-dt-fare.is-pickable:active { border-style: solid; border-color: var(--accent); background: var(--sel-bg); color: var(--accent); }
+.m-dt-fare.is-pickable:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.m-dt-fare-caret { font-size: 10px; letter-spacing: 0; opacity: .75; }
+
+/* 無框單行空概要（v1.36 D-1.36-6：點擊才展開多行） */
+.m-dt-note-add {
+  display: block; width: 100%; min-height: 36px; padding: 6px 2px; margin: 0;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer; text-align: left;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint);
+  -webkit-tap-highlight-color: transparent;
+}
+.m-dt-note-add:active { background: var(--hover-bg); color: var(--color-ink-soft); }
+.m-dt-note-add:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
 /* ── 名稱（襯線大字）＋概要（虛線框多行） ── */
 .m-dt .m-dt-name,
@@ -324,7 +345,122 @@
 .m-dt-seal-restore:active { background: var(--hover-bg); }
 .m-dt-seal-restore:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
+/* ── v1.36 D-1.36-6：三段式大硬券區段標題與歸屬帶 ── */
+.m-dt-group.is-affil { border-top: 1px dashed var(--color-dash); }
+.m-dt-band { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.m-dt-band-title {
+  margin: 0; padding: 6px 0 4px; display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm);
+  letter-spacing: .22em; color: var(--color-ink-soft);
+}
+.m-dt-band-title::after { content: ""; flex: 1; height: 0; border-top: 1px dashed var(--color-dash); }
+.m-dt-due-row { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+
+/* ── v1.36 D-1.36-6：單行「時段與預估」漸進式揭露膠囊（手機） ── */
+.m-dt-sched-sum { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.m-dt-sched-pill {
+  width: 100%; min-height: 40px; padding: 6px 12px;
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: transparent; cursor: pointer; text-align: left;
+  font-family: var(--font-body); font-size: var(--fs-body); letter-spacing: .03em; color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.m-dt-sched-pill.has-val .m-dt-sched-text {
+  font-family: var(--font-latin); font-variant-numeric: tabular-nums; font-weight: 500;
+}
+.m-dt-sched-pill.is-empty {
+  border-style: dashed; border-color: var(--color-dash); color: var(--color-ink-faint); font-size: var(--fs-sm);
+}
+.m-dt-sched-pill:active { background: var(--hover-bg); border-color: var(--accent); }
+.m-dt-sched-pill.is-open {
+  border-style: solid; border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: var(--sel-bg); color: var(--sel-fg);
+}
+.m-dt-sched-pill:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.m-dt-sched-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-dt-sched-caret { flex: none; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .06em; }
+.m-dt-sched-pill.is-open .m-dt-sched-caret { color: var(--sel-fg); }
+.m-dt-sched-body { padding: 4px 0 6px; }
+.m-dt-sched-edit-block { display: flex; flex-direction: column; gap: 10px; }
+
+/* ── v1.36 D-1.36-6：下半主段「直屬子車票清單」（手機 44px 觸控目標） ── */
+.m-dt-kids { padding: 4px 0 8px; }
+.m-dt-kids.is-empty { padding: 0 0 4px; }
+.m-dt-kids-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; }
+.m-dt-kids-title {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  font-size: var(--fs-xs); letter-spacing: .2em; color: var(--color-ink-soft); font-weight: 500;
+}
+.m-dt-kids-count {
+  font-family: var(--font-latin); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+.m-dt-kids-addbtn {
+  min-height: 36px; padding: 0 8px; border: 0; border-radius: var(--radius-ctl);
+  background: transparent; cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .06em; color: var(--accent);
+  -webkit-tap-highlight-color: transparent;
+}
+.m-dt-kids-addbtn:active { background: var(--hover-bg); }
+.m-dt-kids-addbtn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.m-dt-kids-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--color-line); }
+.m-dt-kid {
+  display: flex; align-items: center; gap: 4px; min-height: 46px;
+  border-bottom: 1px dashed var(--color-line);
+}
+.m-dt-kid-stamp {
+  flex: none; width: 44px; height: 44px; margin-left: -8px; padding: 0;
+  display: inline-grid; place-items: center; border: 0; background: transparent; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.m-dt-kid-stamp span {
+  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; box-sizing: border-box;
+  border: 1.4px dashed var(--color-dash); background: transparent; color: transparent;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700; line-height: 1;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft), transform var(--dur-fast) var(--ease-spring, var(--ease));
+}
+.m-dt-kid-stamp.is-on span {
+  border-style: solid; border-color: var(--seal);
+  background: color-mix(in srgb, var(--seal) 10%, transparent); color: var(--seal);
+  transform: rotate(-6deg);
+}
+.m-dt-kid-stamp.is-fresh span { animation: mDtSealIn .28s var(--ease-spring, ease-out); }
+.m-dt-kid-stamp:focus-visible { outline: var(--focus-ring); outline-offset: -4px; }
+.m-dt-kid-name {
+  flex: 1; min-width: 0; min-height: 44px; padding: 4px 2px; border: 0; background: transparent; cursor: pointer; text-align: left;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-body); font-size: var(--fs-body); letter-spacing: .03em; color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+.m-dt-kid-name:active { background: var(--hover-bg); }
+.m-dt-kid-name:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.m-dt-kid-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-dt-kid.is-done .m-dt-kid-text {
+  color: var(--color-ink-faint);
+  text-decoration: line-through color-mix(in srgb, var(--color-ink) 35%, transparent) 1px;
+}
+.m-dt-kid-kind {
+  flex: none; padding: 1px 4px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  font-size: 11px; line-height: 1.2; color: var(--color-ink-faint);
+}
+.m-dt-kid-geshya {
+  flex: none; padding: 1px 5px;
+  border: 1.4px solid color-mix(in srgb, var(--stamp-ink) 65%, transparent); border-radius: var(--radius-ctl);
+  font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: .06em; line-height: 1.2;
+  color: var(--stamp-ink); transform: rotate(-4deg);
+}
+.m-dt-kids-form { display: flex; align-items: center; gap: 8px; padding: 8px 0 4px; }
+.m-dt-kids-in {
+  flex: 1; min-width: 0; min-height: 44px; padding: 4px 2px; box-sizing: border-box;
+  border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; background: transparent; outline: none;
+  font-family: var(--font-body); font-size: 16px; color: var(--color-ink);
+}
+.m-dt-kids-in:focus { border-bottom-color: var(--accent); }
+.m-dt-kids-in::placeholder { color: var(--color-ink-faint); }
+
 @media (prefers-reduced-motion: reduce) {
-  .m-dt-sec-body, .m-dt-seal-btn.is-fresh .m-dt-seal-mark { animation: none; }
-  .m-dt-mood span, .m-dt-caret, .m-dt-hmbtn, .m-dt-seal-btn, .m-dt-seal-mark { transition: none; }
+  .m-dt-sec-body, .m-dt-seal-btn.is-fresh .m-dt-seal-mark, .m-dt-kid-stamp.is-fresh span { animation: none; }
+  .m-dt-mood span, .m-dt-caret, .m-dt-hmbtn, .m-dt-seal-btn, .m-dt-seal-mark, .m-dt-fare.is-pickable, .m-dt-sched-pill, .m-dt-kid-stamp span { transition: none; }
 }

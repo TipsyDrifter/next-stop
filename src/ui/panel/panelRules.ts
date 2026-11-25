@@ -14,6 +14,7 @@ import type { NodeKind, NodeRow, NodeStatus, Priority, RepeatFreq, RepeatRule } 
 import type { CurrentOccurrence } from "../../data/nodeRepository";
 import { canHaveChildren } from "../../domain/node.ts";
 import { parseDurationInput } from "../../domain/duration.ts";
+import { arrivalClock } from "../../lib/date.ts";
 import { REPEAT_INTERVAL_MAX, WEEKDAY_LABEL, addDaysKey, afterRule, describeEnd, describeRule, fixedRule, parseRule } from "../../domain/repeat.ts";
 
 /* ───────────── 一、重複規則草稿 ───────────── */
@@ -395,4 +396,64 @@ export function kidCountOf(
   if (treeCount !== null) return treeCount;
   if (!slice) return null;
   return slice.child_total > 0 ? null : 0;
+}
+
+/* ───────────── 五、v1.36 三段式大硬券：票種三態與單行時段摘要（D-1.36-6） ───────────── */
+
+/** 詳情面板右上角票種角標可切換的三種模式：一般單次／定期券／預留席 */
+export type FareMode = "plain" | "teiki" | "seat";
+
+/** 依節點現況與重複草稿判定目前票種模式（定期券優先於預留席，與 fareClass 口徑一致） */
+export function fareModeOf(
+  node: Pick<NodeRow, "repeat_rule" | "is_placeholder">,
+  draftMode?: EditMode,
+): FareMode {
+  const isTeiki = draftMode !== undefined ? draftMode !== "none" : parseRule(node.repeat_rule) !== null;
+  if (isTeiki) return "teiki";
+  if (node.is_placeholder) return "seat";
+  return "plain";
+}
+
+/** 緊湊時長字樣（例：90 → "1h30m"、60 → "1h"、30 → "30m"） */
+export function formatCompactDuration(min: number): string {
+  const m = Math.round(min);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem ? `${h}h${rem}m` : `${h}h`;
+}
+
+export interface ScheduleSummary {
+  hasValue: boolean;
+  text: string;
+}
+
+/**
+ * 單行「時段與預估」膠囊摘要文案（D-1.36-6 雙端共用）：
+ * - 開始＋預估：`14:00–15:30 · 1h30m`（定期券帶 `每班 ` 前綴）
+ * - 只有開始：`14:00 発`（定期券 `每班 14:00 発`）
+ * - 只有預估：`預估 1h30m`
+ * - 都未設定：`＋ 排時段／預估長度`
+ */
+export function formatScheduleSummary(input: {
+  start: string | null;
+  estimateMin: number | null;
+  lockedDate?: boolean;
+}): ScheduleSummary {
+  const start = input.start;
+  const est = input.estimateMin !== null && input.estimateMin > 0 ? input.estimateMin : null;
+  const pre = input.lockedDate ? "每班 " : "";
+
+  if (start && est !== null) {
+    const end = arrivalClock(start, est);
+    const span = end ? `${start}–${end}` : `${start} 発`;
+    return { hasValue: true, text: `${pre}${span} · ${formatCompactDuration(est)}` };
+  }
+  if (start) {
+    return { hasValue: true, text: `${pre}${start} 発` };
+  }
+  if (est !== null) {
+    return { hasValue: true, text: `預估 ${formatCompactDuration(est)}` };
+  }
+  return { hasValue: false, text: "＋ 排時段／預估長度" };
 }

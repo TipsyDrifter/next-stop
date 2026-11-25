@@ -379,10 +379,14 @@
   --danger: var(--late);
   --danger-bg: color-mix(in srgb, var(--late) 8%, transparent);      /* 現值 overlay.css:73（荷札確認的 9% 併入） */
 
-  /* 心情三色（完成卡、側板；現值 CompleteCard.tsx 拿 --color-gold 當資料色 → 新定） */
+  /* 心情三色（完成卡、側板；D-1.36-6 正名為順暢／平穩／吃力） */
   --mood-good: var(--route-preset-3);   /* 順暢＝松葉 */
-  --mood-ok: var(--arc);                /* 還行＝金（紀念章弧那一金） */
+  --mood-ok: var(--arc);                /* 平穩＝金（紀念章弧那一金） */
   --mood-hard: var(--late);             /* 吃力＝赭 */
+
+  /* 手帳宣紙薄襯帶（D-1.36-3：水鏡鎌倉等高彩實景主題下，畫布區段標、欄頭與篩選膠囊條之輕柔托底） */
+  --washi-strip-bg: color-mix(in srgb, var(--color-paper-high) 76%, transparent);
+  --washi-strip-border: color-mix(in srgb, var(--color-line) 72%, transparent);
 
   /* 淡態與禁用（§1.8；值是 opacity：opacity: var(--dim)） */
   --dim: .42;                           /* 常駐淡態（⋯、＋ 路線、›）：會 hover 轉實；現值 sidebar.css:113 */

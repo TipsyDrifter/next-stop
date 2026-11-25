@@ -28,6 +28,8 @@ import { IconGear, IconPlus } from "../common/icons";
 import { Select } from "../common/Select";
 import { runOnBlankClick } from "../common/selection/desktopSelection";
 import { WISH_ACTION_LABEL, moneyText, type WishRow } from "../../domain/ticket";
+import { TK_TAG_WISH } from "../../domain/ticketTags";
+import { EntityTagPills } from "../common/TagPills";
 import { useImeGuard } from "../ticket/dialogs/dialogBits";
 import { bootWaitroom, buyFromWaitroom, gotoRealized } from "./waitroomActs";
 import {
@@ -228,6 +230,14 @@ export default function MobileWaitroom() {
               )}
             </span>
           )}
+          <EntityTagPills
+            entityType={TK_TAG_WISH}
+            entityId={w.id}
+            max={3}
+            compact
+            onPick={selecting ? false : undefined}
+            className="ns-wr-mtags"
+          />
         </div>
         {!selecting && (
           <button

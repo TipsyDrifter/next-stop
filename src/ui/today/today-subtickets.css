@@ -1,0 +1,218 @@
+/*
+ * today-subtickets.css — 今日頁母列車「子車票原地微展開」抽屜、上層脈絡、#荷札與手機途中下車樣式（v1.36）。
+ * 供桌機 TodayRow.tsx 與手機 MobileTicket.tsx 共用；全面使用語意層 Token（不寫裸色碼）。
+ */
+
+/* ── 桌機票面上層脈絡（位於標題上方，右留白避開右上角票種小字） ── */
+.ns-tk-crumb {
+  margin: 0 0 2px;
+  padding-right: 56px;
+}
+
+/* ── 桌機母列車「車票 d/t ▾」可點擊切換鈕 ── */
+.ns-cars-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 5px;
+  margin: -1px -5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-soft),
+              border-color var(--dur-fast) var(--ease-soft),
+              background var(--dur-fast) var(--ease-soft);
+}
+.ns-cars-btn:hover,
+.ns-cars-btn[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--color-dash);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.ns-cars-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.ns-cars-caret {
+  font-size: 10px;
+  line-height: 1;
+  opacity: .75;
+}
+
+/* ── 桌機母列車原地微展開子車票清單 ── */
+.ns-subtickets {
+  margin: -2px 10px 4px 108px;
+  padding: 6px 10px 6px 12px;
+  background: var(--color-paper-high);
+  border: 1px solid var(--color-hairline);
+  border-top: 1px dashed var(--color-dash);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ns-sub-empty {
+  padding: 4px 2px;
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+}
+
+.ns-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: var(--radius-ctl);
+  transition: background var(--dur-fast) var(--ease-soft);
+}
+.ns-sub-row:hover {
+  background: color-mix(in srgb, var(--color-ink) 4%, transparent);
+}
+
+.ns-sub-stamp {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px dashed var(--color-dash);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-ink-faint);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 10px;
+  line-height: 1;
+  transition: border-color var(--dur-fast) var(--ease-soft),
+              color var(--dur-fast) var(--ease-soft),
+              background var(--dur-fast) var(--ease-soft);
+}
+.ns-sub-stamp:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ns-sub-stamp.is-done {
+  border: 1.4px solid var(--seal);
+  color: var(--seal);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--seal) 6%, transparent);
+}
+.ns-sub-stamp.is-paused {
+  border: 1px solid var(--stamp-ink);
+  border-radius: var(--radius-ctl);
+  color: var(--stamp-ink);
+  font-size: 9px;
+  width: auto;
+  min-width: 22px;
+  padding: 0 3px;
+  height: 18px;
+  opacity: .85;
+}
+.ns-sub-stamp:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-sub-name {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--fs-meta);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ns-sub-name:hover {
+  color: var(--accent);
+}
+.ns-sub-row.is-done .ns-sub-name {
+  color: var(--color-ink-faint);
+  text-decoration: line-through;
+}
+.ns-sub-row.is-paused .ns-sub-name {
+  color: var(--color-ink-faint);
+}
+
+.ns-sub-date {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+}
+
+/* ── 手機票卡：上層脈絡、荷札、途中下車印章與淡化、母列車子票展開 ── */
+.m-tk-crumb {
+  margin: 0 0 2px;
+}
+
+.m-tk-tags {
+  margin-top: 3px;
+}
+
+.m-tk.is-paused {
+  background: var(--color-paper-used);
+  opacity: .78;
+}
+.m-tk.is-paused .m-tk-title {
+  color: var(--color-ink-soft);
+}
+.m-tk.is-paused .m-tk-stamp .m-tk-seal-stopover {
+  --ns-zoom: .58;
+}
+
+.m-tk-cars-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  margin: 0 -2px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 3%, transparent);
+  color: var(--color-ink-soft);
+  font: inherit;
+  cursor: pointer;
+}
+.m-tk-cars-btn[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.m-subtickets {
+  margin: -1px 6px 4px 16px;
+  padding: 6px 10px;
+  background: var(--color-paper-high);
+  border: 1px solid var(--color-hairline);
+  border-top: 1px dashed var(--color-dash);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.m-subtickets .ns-sub-row {
+  min-height: 36px;
+}
+.m-subtickets .ns-sub-stamp {
+  width: 26px;
+  height: 26px;
+}
+.m-subtickets .ns-sub-stamp.is-paused {
+  width: auto;
+  height: 20px;
+  padding: 0 4px;
+}

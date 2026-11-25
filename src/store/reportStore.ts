@@ -433,12 +433,15 @@ export const useReportStore = create<ReportState>((set, get) => ({
     const curSpread = get().spread;
     let seeded: ReportDaySpreadData | null = curSpread?.day === target ? curSpread : null;
     if (!seeded && f && target >= (f.loadedFrom ?? f.today) && target <= f.today) {
+      const detail = buildSingleDayDetail(f, target, Date.now());
       seeded = {
         day: target,
         isToday: target === f.today,
-        detail: buildSingleDayDetail(f, target, Date.now()),
+        detail,
         routes: f.routes,
         dayNotes: f.dayNotes?.[target] ?? [],
+        workLogs: [],
+        moods: detail.seals.flatMap((s) => (s.mood ? [s.mood] : [])),
         diaries: null,
         reflections: [],
       };

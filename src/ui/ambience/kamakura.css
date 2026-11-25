@@ -20,12 +20,26 @@
 }
 :root[data-skin="kamakura"][data-theme="dark"] .ticket::before,
 :root[data-skin="kamakura"][data-theme="dark"] .panel-sheet,
+:root[data-skin="kamakura"][data-theme="dark"] .ns-washi-card,
+:root[data-skin="kamakura"][data-theme="dark"] .ns-washi-strip,
 :root[data-skin="kamakura"][data-shell="mobile"] .ticket::before,
 :root[data-skin="kamakura"][data-shell="mobile"] .panel-sheet,
 :root[data-skin="kamakura"][data-shell="mobile"] .techo-card,
+:root[data-skin="kamakura"][data-shell="mobile"] .ns-washi-card,
+:root[data-skin="kamakura"][data-shell="mobile"] .ns-washi-strip,
 :root[data-skin="kamakura"][data-shell="mobile"] .ns-tabs {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* 水鏡鎌倉實景畫布下強化宣紙薄襯帶之清晰托底（保持溫潤透氣、避免吃字） */
+:root[data-skin="kamakura"][data-theme="light"] {
+  --washi-strip-bg: color-mix(in srgb, var(--color-paper-high) 86%, transparent);
+  --washi-strip-border: var(--glass-edge);
+}
+:root[data-skin="kamakura"][data-theme="dark"] {
+  --washi-strip-bg: color-mix(in srgb, var(--color-paper-high) 88%, transparent);
+  --washi-strip-border: var(--color-line);
 }
 
 /* 今日頁底部預留湖岸石板步道與木欄杆呼吸帶，捲到底時最後一張車票不遮住前景木欄杆 */

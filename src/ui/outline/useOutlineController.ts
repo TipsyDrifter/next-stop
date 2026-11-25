@@ -211,7 +211,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   const isDoneNode = useCallback(
     (n: Pick<NodeRow, "id" | "status">): boolean => {
       const occ = currentOccurrences[n.id];
-      return occ ? occ.status === "done" : n.status === "done";
+      return occ ? occ.status === "done" : n.status === "done" || n.status === "paused";
     },
     [currentOccurrences],
   );

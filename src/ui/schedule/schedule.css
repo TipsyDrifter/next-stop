@@ -36,19 +36,22 @@
 /* 串流的空狀態（UI 丙-3 D3）：捲動內容頂端，下面照舊是今天那一段（草稿列開在那裡） */
 .ns-sch .ns-sch-empty { margin-block: var(--sp-6) var(--sp-5); }
 
-/* ═══ 一天 ═══ */
-.ns-sch-day { position: relative; padding-bottom: 6px; }
-.ns-sch-day.is-empty { padding-bottom: 0; }
-.ns-sch-rows { padding: 0 4px; }
+/* ═══ 一天（v1.36 D-1.36-3：日區塊內容區以 .ns-washi-card 霧面紙卡承載） ═══ */
+.ns-sch-day { position: relative; padding-bottom: 8px; }
+.ns-sch-day.is-empty { padding-bottom: 4px; }
+.ns-sch-body.ns-washi-card { padding: 4px 12px; }
+.ns-sch-rows { padding: 0 2px; }
 
-/* ═══ 段標題（.sec 語彙；串流裡 sticky＝推擠式，各段標題只黏在自己那一段內；原型 :353-366） ═══ */
+/* ═══ 段標題（.sec 語彙；v1.36 D-1.36-3：改用宣紙薄襯帶 --washi-strip-bg，貼合水鏡鎌倉等實景底圖） ═══ */
 .ns-sch .sec {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: baseline; gap: 9px;
-  margin: 0 0 6px; padding: 12px 4px 8px;
-  background-color: color-mix(in srgb, color-mix(in srgb, var(--sky-top) 45%, var(--sky-mid)) 78%, transparent);
-  -webkit-backdrop-filter: blur(12px) saturate(1.1);
-  backdrop-filter: blur(12px) saturate(1.1);
+  margin: 0 0 6px; padding: 9px 12px 8px;
+  background-color: var(--washi-strip-bg);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
 }
 .ns-sch .sec h3 {
   margin: 0; white-space: nowrap;
@@ -77,13 +80,16 @@
 .ns-sch .sec:focus { outline: none; }
 .ns-sch .sec:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
-/* 空白日／區間列／邊界行＝一行（不 sticky、無底色、不留大片空白；原型 :426-434） */
+/* 空白日／區間列／邊界行＝一行（不 sticky；v1.36 D-1.36-3 維持淡宣紙薄襯帶守護可讀性） */
 .ns-sch-day.is-empty .sec,
 .ns-sch-run > .sec,
 .ns-sch .ns-sch-edge {
-  position: relative; background: transparent;
-  -webkit-backdrop-filter: none; backdrop-filter: none;
-  margin-bottom: 0; padding: 7px 4px; min-height: 34px; align-items: center;
+  position: relative;
+  background: var(--washi-strip-bg);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  margin-bottom: 4px; padding: 6px 12px; min-height: 34px; align-items: center;
 }
 .ns-sch-day.is-empty .sec h3,
 .ns-sch-run > .sec h3,
@@ -123,12 +129,17 @@
 @keyframes nsSchIn { from { opacity: 0; transform: translateY(-6px); } }
 .ns-sch-day.is-unfold { animation: nsSchIn .24s ease-out; }
 
-/* ═══ 誤點列（今日段標題正上方；一整列都是按鈕，不 sticky，點了捲到最早的誤點日；原型 :395-413） ═══ */
+/* ═══ 誤點列（今日段標題正上方；v1.36 D-1.36-3 鋪宣紙薄襯帶） ═══ */
 .ns-sch-latejump {
   display: flex; align-items: center; gap: 9px;
-  width: 100%; min-height: 44px;
-  margin: 0; padding: 8px 4px 2px;
-  background: transparent; border: 0; cursor: pointer; text-align: left;
+  width: 100%; min-height: 40px;
+  margin: 0 0 6px; padding: 6px 12px;
+  background: var(--washi-strip-bg);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  cursor: pointer; text-align: left;
   font: inherit; color: var(--color-late);
 }
 .ns-sch-latejump .lj-t { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); letter-spacing: .18em; white-space: nowrap; }
@@ -154,9 +165,14 @@
 }
 .ns-sch-subhead::after { content: ""; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--color-late) 35%, transparent); }
 
-/* ═══ 今日全交代（原型 .cheer :541-546） ═══ */
+/* ═══ 今日全交代（v1.36 D-1.36-3 鋪宣紙薄襯帶） ═══ */
 .ns-sch-cheer {
-  display: flex; align-items: center; gap: 9px; margin: 12px 4px 2px;
+  display: flex; align-items: center; gap: 9px; margin: 10px 0 2px; padding: 7px 12px;
+  background: var(--washi-strip-bg);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
   font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: .2em; color: var(--color-ink-soft); /* 字面值：全済 13px；桌機字階沒有這一階（原型逐字） */
   animation: nsSchIn .4s ease-out;
 }
@@ -192,6 +208,9 @@
 /* 無路線＝襯線「臨」（承臨時車票的由來） */
 .ns-sch .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
+.ns-sch .prow-main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+}
 .ns-sch .prow .t {
   flex: 1; min-width: 0; font-size: 13px; letter-spacing: .04em; /* 字面值：列名 13px；桌機字階沒有這一階（原型逐字） */
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -199,6 +218,7 @@
   transition: color .25s, text-decoration-color .25s;
 }
 .ns-sch .prow.done .t { color: var(--color-ink-faint); text-decoration-color: color-mix(in srgb, var(--color-ink) 35%, transparent); }
+.ns-sch .prow.is-paused .t { color: var(--color-ink-faint); }
 /* 運休＝不刪除線、標題只退到 ink-soft（④ 一字題主人拍板 2026-09-12；與浮層同一套） */
 .ns-sch .prow.skipped .t { color: var(--color-ink-soft); }
 .ns-sch .prow.late .t { color: var(--color-late); }
@@ -289,7 +309,9 @@
   display: flex; align-items: center; justify-content: unsafe center;
 }
 .ns-sch .susp-slot .ns-imp { --ns-zoom: .8; }
-.ns-sch .prow.skipped .stamp-s { border-color: transparent; }
+.ns-sch .stopover-slot .ns-imp { --ns-zoom: .62; }
+.ns-sch .prow.skipped .stamp-s,
+.ns-sch .prow.is-paused .stamp-s { border-color: transparent; }
 
 /* 締切列 */
 .ns-sch .prow .sime-g {
@@ -411,6 +433,16 @@
 .ns-sch .ns-sch-jump-tt:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 2px;
+}
+
+/* v1.36 D-1.36-3：行程表頁尾鋪宣紙薄襯帶守護水鏡鎌倉等主題 */
+.ns-calendar .page-foot {
+  padding: 10px 14px;
+  background: var(--washi-strip-bg);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
 }
 
 /* ═══ 減量動態：只關動畫與過場，不動版面；程式捲動的 behavior 由 useStream 讀同一個 media query 改 auto ═══ */

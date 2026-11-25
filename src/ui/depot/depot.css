@@ -160,7 +160,8 @@
 .ns-depot-tgroup { display: flex; flex-direction: column; align-items: stretch; flex: none; }
 .ns-depot-tplate {
   position: relative; display: flex; flex-direction: column; align-items: center;
-  margin: 0 0 8px; padding: 0 4px 5px; line-height: 1.35; border-bottom: 1px solid var(--color-ink-soft);
+  margin: 0 0 8px; padding: 6px 10px 7px; line-height: 1.35;
+  border-bottom: 1px solid var(--color-ink-soft);
   font-family: var(--font-display); font-weight: 700; font-size: var(--fs-ui);
   letter-spacing: .14em; white-space: nowrap; color: var(--color-ink);
 }
@@ -198,8 +199,8 @@
 }
 .ns-depot-bookend.is-r::after { left: auto; right: 0; }
 
-/* 還在跑 */
-.ns-depot-running { flex: 1 1 300px; min-width: 0; padding-bottom: 12px; }
+/* 還在跑（D-1.36-3：霧面紙卡守護） */
+.ns-depot-running { flex: 1 1 300px; min-width: 0; padding: 14px 16px 10px; }
 .ns-depot-run-h {
   display: flex; align-items: center; gap: 10px; margin: 0 0 6px;
   font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); letter-spacing: .2em;
@@ -210,6 +211,7 @@
   border-bottom: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
   transition: background-color var(--dur-fast) var(--ease-soft);
 }
+.ns-depot-run-row:last-child { border-bottom: 0; }
 .ns-depot-run-row:hover { background: var(--hover-bg); }
 .ns-depot-run-row:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-depot-run-row .nm {
@@ -257,8 +259,8 @@
   font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-soft);
 }
 
-.ns-depot-yb { display: grid; grid-template-columns: 92px 1fr; gap: 20px; padding: 22px 0; border-bottom: 1px dashed var(--color-dash); }
-.ns-depot-yb:last-child { border-bottom: 0; }
+.ns-depot-yblist { display: flex; flex-direction: column; gap: 14px; margin-top: var(--sp-4); }
+.ns-depot-yb { display: grid; grid-template-columns: 92px 1fr; gap: 20px; padding: 18px 22px; }
 .ns-depot-yb-m b {
   display: block; font-family: var(--font-display); font-weight: 700; letter-spacing: .06em; line-height: 1.1;
   font-size: calc(var(--fs-display) - 4px); /* 原型：桌機 26／手機 22 */
@@ -309,6 +311,7 @@
 .ns-depot-back:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 .ns-depot-book { max-width: 720px; }
+.ns-depot-book.ns-washi-card { padding: 24px 28px 28px; }
 /* 桌機頁：頁首照 PageHeader（身分式），終點章放日付印位 */
 .ns-depot-book .ns-pagehead-title { display: inline-flex; align-items: center; gap: 12px; }
 .ns-depot-book .ns-pagehead-stats { max-width: none; }
@@ -410,13 +413,13 @@
 [data-shell="mobile"] .ns-depot-tbooks { gap: 4px; }
 [data-shell="mobile"] .ns-depot-sp-name { font-size: var(--fs-body); letter-spacing: .12em; }
 [data-shell="mobile"] .ns-depot-spine .ns-depot-badge { margin-top: 20px; }
-[data-shell="mobile"] .ns-depot-running { flex: none; padding-bottom: 0; }
+[data-shell="mobile"] .ns-depot-running { flex: none; padding: 12px 14px 8px; }
 [data-shell="mobile"] .ns-depot-pager { margin: -14px -10px -14px -6px; }
 [data-shell="mobile"] .ns-depot-apage { flex: 0 0 100%; min-width: 0; }
 [data-shell="mobile"] .ns-depot-album { scrollbar-width: none; }
 [data-shell="mobile"] .ns-depot-album::-webkit-scrollbar { display: none; }
 [data-shell="mobile"] .ns-depot-astamps { gap: 2px 8px; }
-[data-shell="mobile"] .ns-depot-yb { grid-template-columns: 58px 1fr; gap: 12px; }
+[data-shell="mobile"] .ns-depot-yb { grid-template-columns: 58px 1fr; gap: 12px; padding: 14px; }
 [data-shell="mobile"] .ns-depot-yb-facts { gap: 14px; }
 [data-shell="mobile"] .ns-depot-ago { margin-top: 14px; }
 [data-shell="mobile"] .ns-depot-chip { height: 40px; }

@@ -12,6 +12,8 @@ import { useUiStore } from "../../../store/uiStore";
 import { useScheduleUiStore } from "../../schedule/scheduleUiStore";
 import { MIN, fmtDur } from "../../../domain/timetable";
 import { openTicket } from "./openTicket";
+import { NodeCrumb } from "../../common/NodeCrumb";
+import { TagDotHint, TagPills, useEntityTagKeys } from "../../common/TagPills";
 import { SCHED_UI } from "./scheduleModel";
 import { ADD_PLACEHOLDER_KEY, PLACEHOLDER_UI, isAddPlaceholder, planItemDisplay } from "./scheduleSeatModel";
 import { routeColorOf, type SchedulePage } from "./useSchedulePage";
@@ -40,7 +42,7 @@ export interface UnscheduledTrayProps {
 }
 
 export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }: UnscheduledTrayProps) {
-  const { grid, items, nodes, routeById, picked, isToday, lateKeys, lateRepeatCount, canEdit, shell } = page;
+  const { grid, items, nodes, picked, isToday, lateKeys, lateRepeatCount, canEdit, shell } = page;
   const pick = useTimetableScheduleStore((s) => s.pick);
   const desk = shell === "desktop";
   const ro = !page.cmp.canEdit;
@@ -147,88 +149,27 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
     </p>
   ) : null;
 
-  const entries = list.map((u) => {
-    const key = u.key;
-    const it = items[key];
-    const n = nodes[u.nodeId];
-    const route = n?.route_id ? routeById[n.route_id] : undefined;
-    const disp = planItemDisplay(it, n, route?.name);
-    const off = u.off
-      ? TT_TEXT.schedOutOfAxis(u.off)
-      : u.lateFrom
-        ? SCHED_UI.lateTag(md(u.lateFrom), it.time)
-        : null;
-    const est = it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate;
-    const meta = [
-      disp.badgeText ?? "",
-      route?.name ?? "",
-      it.kind === "repeat" && disp.badgeKind !== "filled" ? SCHED_UI.repeat : "",
-      off ?? "",
-      est,
-    ].filter(Boolean);
-
-    const cls =
-      (mode === "chips" ? "ns-tt-sched-chip" : "ns-tt-sched-ui") +
-      (disp.isPlaceholder ? " is-placeholder" : "") +
-      (picked === key ? " is-pick" : "") +
-      (ro ? " is-ro" : "") +
-      (drag?.key === key ? " is-lifted" : "");
-    const style = { "--rc": routeColorOf(page, u.nodeId) } as CSSProperties;
-    const dragProps = canEdit ? { onPointerDown: onDragStart(key, "list") } : {};
-
-    if (mode === "chips") {
-      return (
-        <button
-          type="button"
-          key={key}
-          className={cls}
-          style={style}
-          aria-pressed={picked === key}
-          onClick={() => onPick(key)}
-          {...dragProps}
-        >
-          <i className="ns-tt-sched-rdot" aria-hidden="true" />
-          <span className="ns-tt-sched-chip-n">{disp.title}</span>
-          {disp.badgeText && <em className={`ns-tt-sched-tag is-${disp.badgeKind ?? "seg"}`}>{disp.badgeText}</em>}
-          {off && <small className={"ns-tt-num" + (u.lateFrom || u.off ? " is-warn" : "")}>{off}</small>}
-          <small className="ns-tt-num ns-tt-sched-chip-est">{est}</small>
-        </button>
-      );
-    }
-
-    return (
-      <button
-        type="button"
-        key={key}
-        className={cls}
-        style={style}
-        aria-pressed={picked === key}
-        onClick={() => onPick(key)}
-        {...dragProps}
-      >
-        {!ro && (
-          <span className="ns-tt-sched-grip" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-        )}
-        <i className="ns-tt-sched-rdot" aria-hidden="true" />
-        <span className="ns-tt-sched-ui-main">
-          <b>{disp.title}</b>
-          <small>{meta.join("・")}</small>
-        </span>
-      </button>
-    );
-  });
+  const entries = list.map((u) => (
+    <TrayEntryButton
+      key={u.key}
+      u={u}
+      page={page}
+      mode={mode}
+      ro={ro}
+      canEdit={canEdit}
+      picked={picked === u.key}
+      lifted={drag?.key === u.key}
+      onPick={onPick}
+      onDragStart={onDragStart}
+    />
+  ));
 
   const empty = <p className="ns-tt-sched-none">{ro ? SCHED_UI.trayEmptyPast : TT_TEXT.schedTrayEmpty}</p>;
 
   if (mode === "chips") {
     return (
       <div className="ns-tt-sched-un is-chips">
-        <div className="ns-tt-sched-un-h">
+        <div className="ns-tt-sched-un-h ns-washi-strip">
           <b>{TT_TEXT.schedTrayTitle}</b>
           <span className="ns-tt-num">{list.length}</span>
           <small>{ro ? SCHED_UI.trayNoteRo : SCHED_UI.trayNoteEditMobile}</small>
@@ -241,7 +182,7 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
   }
   return (
     <aside className="ns-tt-sched-un is-side" aria-label={TT_TEXT.schedTrayTitle}>
-      <div className="ns-tt-sched-un-h">
+      <div className="ns-tt-sched-un-h ns-washi-strip">
         <b>{TT_TEXT.schedTrayTitle}</b>
         <span className="ns-tt-num">{list.length}</span>
         {placeholderBtn}
@@ -251,5 +192,111 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
       {pickHint}
       {lateLine && <div className="ns-tt-sched-un-foot">{lateLine}</div>}
     </aside>
+  );
+}
+
+function TrayEntryButton({
+  u,
+  page,
+  mode,
+  ro,
+  canEdit,
+  picked,
+  lifted,
+  onPick,
+  onDragStart,
+}: {
+  u: TrayEntry;
+  page: SchedulePage;
+  mode: "side" | "chips";
+  ro: boolean;
+  canEdit: boolean;
+  picked: boolean;
+  lifted: boolean;
+  onPick(key: string): void;
+  onDragStart(key: string, src: DragSrc): (e: ReactPointerEvent<HTMLElement>) => void;
+}) {
+  const { items, nodes, routeById } = page;
+  const key = u.key;
+  const it = items[key];
+  const n = nodes[u.nodeId];
+  const tagKeys = useEntityTagKeys("node", n?.id);
+  const route = n?.route_id ? routeById[n.route_id] : undefined;
+  const disp = planItemDisplay(it, n, route?.name);
+  const off = u.off
+    ? TT_TEXT.schedOutOfAxis(u.off)
+    : u.lateFrom
+      ? SCHED_UI.lateTag(md(u.lateFrom), it.time)
+      : null;
+  const est = it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate;
+  const meta = [
+    disp.badgeText ?? "",
+    route?.name ?? "",
+    it.kind === "repeat" && disp.badgeKind !== "filled" ? SCHED_UI.repeat : "",
+    off ?? "",
+    est,
+  ].filter(Boolean);
+
+  const cls =
+    (mode === "chips" ? "ns-tt-sched-chip" : "ns-tt-sched-ui") +
+    (disp.isPlaceholder ? " is-placeholder" : "") +
+    (picked ? " is-pick" : "") +
+    (ro ? " is-ro" : "") +
+    (lifted ? " is-lifted" : "");
+  const style = { "--rc": routeColorOf(page, u.nodeId) } as CSSProperties;
+  const dragProps = canEdit ? { onPointerDown: onDragStart(key, "list") } : {};
+
+  if (mode === "chips") {
+    return (
+      <button
+        type="button"
+        className={cls}
+        style={style}
+        aria-pressed={picked}
+        onClick={() => onPick(key)}
+        {...dragProps}
+      >
+        <i className="ns-tt-sched-rdot" aria-hidden="true" />
+        <span className="ns-tt-sched-chip-main">
+          <span className="ns-tt-sched-chip-n">{disp.title}</span>
+          {n?.parent_id && <NodeCrumb parentId={n.parent_id} compact className="ns-tt-sched-chip-crumb" />}
+        </span>
+        {disp.badgeText && <em className={`ns-tt-sched-tag is-${disp.badgeKind ?? "seg"}`}>{disp.badgeText}</em>}
+        {off && <small className={"ns-tt-num" + (u.lateFrom || u.off ? " is-warn" : "")}>{off}</small>}
+        <small className="ns-tt-num ns-tt-sched-chip-est">{est}</small>
+        {tagKeys.length > 0 && <TagDotHint keys={tagKeys} />}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={cls}
+      style={style}
+      aria-pressed={picked}
+      onClick={() => onPick(key)}
+      {...dragProps}
+    >
+      {!ro && (
+        <span className="ns-tt-sched-grip" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+      )}
+      <i className="ns-tt-sched-rdot" aria-hidden="true" />
+      <span className="ns-tt-sched-ui-main">
+        <b>{disp.title}</b>
+        {n?.parent_id && <NodeCrumb parentId={n.parent_id} compact className="ns-tt-sched-ui-crumb" />}
+        <small>{meta.join("・")}</small>
+        {tagKeys.length > 0 && (
+          <span className="ns-tt-sched-ui-tags">
+            <TagPills keys={tagKeys} max={2} compact onPick={false} />
+          </span>
+        )}
+      </span>
+    </button>
   );
 }

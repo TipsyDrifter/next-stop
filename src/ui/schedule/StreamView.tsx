@@ -738,8 +738,10 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
   const clickable = !past; // 今天與未來可點開草稿（含空白單日、攤開的逐日行）；過去不行（P10）
   const hKey = headKey(sec.date);
 
-  // 統計口徑＝domain/dayCount（磨光⑤ N11）：済才算「完成」，済＋運休算結清；與桌機、手機今日同一把尺
-  const count = dayCount(rows.map((r) => ({ done: r.done, settled: r.done || r.skipped })));
+  // 統計口徑＝domain/dayCount（磨光⑤ N11；v1.36 D-1.36-6 納入途中下車）：済才算「完成」，済＋運休＋途中下車算結清
+  const count = dayCount(
+    rows.map((r) => ({ done: r.done, settled: r.done || r.skipped || r.node?.status === "paused" })),
+  );
   const { total } = count;
   const open = count.left;
   const countParts = dayCountParts(count);
@@ -814,44 +816,48 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
         </button>
       </div>
 
-      {rows.length > 0 && (
-        <div ref={setRowsEl} className="ns-sch-rows">
-          {rows.map((row) => (
-            <StreamRow
-              key={row.key}
-              row={row}
-              selected={p.selKey === rowKey(row.entry.date, row.entry.node_id)}
-              picked={!!p.picked?.has(row.entry.node_id)}
-              fresh={p.freshKey === row.key}
-              onSelect={p.onPress}
-              onStamp={p.onStamp}
-              onDefer={p.onDefer}
-              onFreshEnd={p.onFreshEnd}
-              onMenu={p.onMenu}
-            />
-          ))}
-        </div>
-      )}
-
-      {sec.dues.length > 0 && (
-        <>
-          <div className="ns-sch-subhead">締切</div>
-          <div className="ns-sch-rows">
-            {sec.dues.map((d) => {
-              const k = dueKey(d);
-              return (
-                <DueRow
-                  key={k}
-                  due={d}
-                  node={nodes[d.node_id]}
-                  route={routeOf(d.node_id)}
-                  selected={p.selKey === k}
-                  onSelect={() => p.onSelect(k)}
+      {(rows.length > 0 || sec.dues.length > 0) && (
+        <div className="ns-sch-body ns-washi-card">
+          {rows.length > 0 && (
+            <div ref={setRowsEl} className="ns-sch-rows">
+              {rows.map((row) => (
+                <StreamRow
+                  key={row.key}
+                  row={row}
+                  selected={p.selKey === rowKey(row.entry.date, row.entry.node_id)}
+                  picked={!!p.picked?.has(row.entry.node_id)}
+                  fresh={p.freshKey === row.key}
+                  onSelect={p.onPress}
+                  onStamp={p.onStamp}
+                  onDefer={p.onDefer}
+                  onFreshEnd={p.onFreshEnd}
+                  onMenu={p.onMenu}
                 />
-              );
-            })}
-          </div>
-        </>
+              ))}
+            </div>
+          )}
+
+          {sec.dues.length > 0 && (
+            <>
+              <div className="ns-sch-subhead">締切</div>
+              <div className="ns-sch-rows">
+                {sec.dues.map((d) => {
+                  const k = dueKey(d);
+                  return (
+                    <DueRow
+                      key={k}
+                      due={d}
+                      node={nodes[d.node_id]}
+                      route={routeOf(d.node_id)}
+                      selected={p.selKey === k}
+                      onSelect={() => p.onSelect(k)}
+                    />
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* 草稿列＝建票列（回饋甲 D-主-128：乘車日＝那一天；可改掛到、時刻…；建到別天才出收據） */}

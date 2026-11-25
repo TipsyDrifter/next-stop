@@ -83,13 +83,21 @@ export function isDoneRow(row: TodayRow): boolean {
 }
 
 /**
+ * 「隱藏已完成（已結案）」收起判準（v1.36 D-1.36-6）：
+ * 定期券看班次済；一般票納入 `done` 與 `paused`（途中下車＝第二結案印記）。
+ */
+export function isHideableDoneRow(row: TodayRow): boolean {
+  return row.occurrence ? row.occurrence.status === "done" : row.status === "done" || row.status === "paused";
+}
+
+/**
  * 上移／下移要插到手排座標的第幾格（桌機 Alt+↑↓、⋯ 與手機 sheet 共用；回饋甲 D-主-131）：
- * 「済・隱藏」開著時跳過看不見的済票，跟畫面上相鄰的那張換位。null＝畫面上已經在頂／底（或不在手排座標）。
+ * 「済・隱藏」開著時跳過看不見的已結案票，跟畫面上相鄰的那張換位。null＝畫面上已經在頂／底（或不在手排座標）。
  * 格位照 moveToday（reorderIds：先拿掉自己再插）——往上往下都剛好是那位鄰居現在的座標。
  */
 export function manualStepTarget(rows: readonly TodayRow[], id: string, delta: -1 | 1, hideDone: boolean): number | null {
   const ids = manualOrderIds(rows);
-  const hidden = hideDone ? new Set(rows.filter((r) => r.id !== id && isDoneRow(r)).map((r) => r.id)) : null;
+  const hidden = hideDone ? new Set(rows.filter((r) => r.id !== id && isHideableDoneRow(r)).map((r) => r.id)) : null;
   const shown = hidden ? ids.filter((x) => !hidden.has(x)) : ids;
   const i = shown.indexOf(id);
   if (i < 0) return null;
@@ -98,11 +106,11 @@ export function manualStepTarget(rows: readonly TodayRow[], id: string, delta: -
 }
 
 /**
- * 「這一列今天交代過了沒」＝済 **或** 運休（運休也是一種交代，只是結局不是済）。
+ * 「這一列今天交代過了沒」＝済、運休 **或** 途中下車（v1.36 D-1.36-6：途中下車＝第二結案印記，退出未完成數）。
  * 頁首「還有 N 張」的母數與 1.0d 慶祝吃這一條（D-④-2）。
  */
 export function isSettledRow(row: TodayRow): boolean {
-  return row.occurrence !== null || row.status === "done";
+  return row.occurrence !== null || row.status === "done" || row.status === "paused";
 }
 
 /** 今日列 → 完成數的一格（磨光⑤ N11；桌機今日與手機今日共用，domain/dayCount 吃這個形狀） */
@@ -245,7 +253,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
   const visibleRows = rows.filter(
     (r) =>
       (!lateCollapsed || r.bucket === "today") &&
-      !(todayHideDone && r.bucket === "today" && (r.occurrence ? r.occurrence.status === "done" : r.status === "done")),
+      !(todayHideDone && r.bucket === "today" && isHideableDoneRow(r)),
   );
   const todayRows = rows.filter((r) => r.bucket === "today");
   const lateRows = rows.filter((r) => r.bucket !== "today");
@@ -389,6 +397,10 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     // 要蓋済就再點一次（票面已回到空欄）。取消運休不留痕，故不出收據。
     if (row.occurrence?.status === "skipped") {
       suspendRow(row);
+      return;
+    }
+    if (!row.occurrence && row.status === "paused") {
+      await toggleStopoverFlow(row.id);
       return;
     }
     if (isRetiredRunRow(row)) {

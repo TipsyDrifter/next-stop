@@ -86,3 +86,24 @@
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .m2-chapter-go:active { color: var(--color-ink); border-color: var(--accent); }
+
+/* v1.36 D-1.36-6：第二層途中下車列淡化與墨色角印、第一層下一站純唯讀樣式、第二層 #荷札 */
+[data-shell="mobile"] .m2-row.is-paused {
+  opacity: .72;
+}
+[data-shell="mobile"] .m2-row.is-paused .m2-name {
+  color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .m2-stamp .m2-seal-stopover {
+  --ns-zoom: .56;
+}
+[data-shell="mobile"] .m2-tags {
+  margin-top: 2px;
+}
+[data-shell="mobile"] .wa-m-next.is-static {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  cursor: inherit;
+}

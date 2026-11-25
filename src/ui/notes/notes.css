@@ -268,6 +268,8 @@
 }
 .ns-notes-row .m { margin-top: 6px; display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .05em; min-width: 0; }
 .ns-notes-row .m .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-notes-rtags { margin-top: 5px; }
+.ns-notes-itags { margin-top: 6px; }
 /* 列表空狀態（共用 EmptyState 放在卡裡；長相在 common/listbits.css） */
 .ns-notes-listempty { padding: var(--sp-5) 0; }
 .ns-notes-more { padding: 12px 22px; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .1em; }
@@ -505,6 +507,18 @@
    頁首外距、主體橫排與內距由〈H0〉那段統一給（四頁同高同線），這裡只管日記主體的兩塊——
    左＝本文（自己捲的本文欄，吃滿高；搜尋列在頁首下一列，見下）、右＝足跡區塊卡（不全高、卡內捲）。舊的自畫大日期列、‹ ›、今天鈕已退役。 */
 .ns-notes-dmain { flex: 1; min-width: 0; min-height: 0; align-self: stretch; display: flex; flex-direction: column; }
+/* 桌機日記頁首「運行實績 ›」輕量互通鈕（D-1.36-3） */
+.ns-notes-dhead .ns-notes-dreport {
+  margin-left: 8px;
+  font-family: var(--font-body);
+  font-weight: 400;
+  white-space: nowrap;
+}
+/* 日記頁退役右側足跡欄後改單欄沉靜閱讀寬度（D-1.36-3） */
+.ns-notes-dpage > .ns-notes-measure {
+  max-width: 44em;
+  margin-inline: auto;
+}
 /* 搜尋列（頁首放大鏡點了才展開，§5 P2）：頁首下一列、通欄（頁根的直接子節點；左右內距同 .ns-notes-body），兩欄一起往下推、卡頂仍對齊。
    `.page.ns-notes >` 那條 H0 規則會叫直接子節點吃剩下的高度，這裡同權重、寫在後面蓋回 flex:none */
 .ns-notes-dsubbar { flex: none; display: flex; align-items: center; min-height: var(--ctl-h); margin-bottom: var(--sp-3); }
@@ -638,12 +652,16 @@
 }
 .ns-notes-sumi.alt { --ns-rot: -4deg; }
 
-/* ═══ v1.32 2B-2：筆記列表＆收件匣「排序切換 ＋ #荷札 組合篩選條」 ═══ */
+/* ═══ v1.32 2B-2：筆記列表＆收件匣「排序切換 ＋ #荷札 組合篩選條」（D-1.36-3 浮於天空之篩選條鋪設宣紙薄襯帶） ═══ */
 .ns-notes-fbar-wrap { display: flex; flex-direction: column; gap: 6px; }
 .ns-notes-fbar-wrap.is-inbox {
   margin-bottom: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px dashed var(--color-line);
+  padding: 8px 12px;
+  background-color: var(--washi-strip-bg);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
 }
 .ns-notes-fbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .ns-notes-ikinds {

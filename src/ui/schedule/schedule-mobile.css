@@ -68,8 +68,8 @@
 [data-shell="mobile"] .m-sch-day { position: relative; padding-bottom: 6px; }
 [data-shell="mobile"] .m-sch-day.is-run { animation: m-sch-bar-in .24s ease-out; }
 
-/* 段標題（全域 .sec 的串流覆寫：sticky、左右撐滿 gutter；原型 :353-393） */
-[data-shell="mobile"] .m-sch-stream .sec { position: sticky; top: 0; z-index: 2; display: flex; align-items: baseline; gap: 9px; margin: 0 calc(-1 * var(--m-gutter)) 6px; padding: 12px var(--m-gutter) 8px; background: color-mix(in srgb, color-mix(in srgb, var(--sky-top) 45%, var(--sky-mid)) 78%, transparent); -webkit-backdrop-filter: blur(12px) saturate(1.1); backdrop-filter: blur(12px) saturate(1.1); }
+/* 段標題（全域 .sec 的串流覆寫：sticky、左右撐滿 gutter；v1.36 D-1.36-3 改用宣紙薄襯帶 --washi-strip-bg） */
+[data-shell="mobile"] .m-sch-stream .sec { position: sticky; top: 0; z-index: 2; display: flex; align-items: baseline; gap: 9px; margin: 0 calc(-1 * var(--m-gutter)) 6px; padding: 11px var(--m-gutter) 8px; background: var(--washi-strip-bg); border-bottom: 1px solid var(--washi-strip-border); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur); }
 [data-shell="mobile"] .m-sch-stream .sec h3 { margin: 0; white-space: nowrap; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); letter-spacing: .18em; color: var(--color-ink); }
 [data-shell="mobile"] .m-sch-stream .sec h3 .dt { font-family: var(--font-body); font-weight: 500; font-size: var(--fs-sm); letter-spacing: .06em; }
 [data-shell="mobile"] .m-sch-stream .sec h3 .rel + .dt { margin-left: .7em; color: var(--color-ink-soft); }
@@ -82,11 +82,11 @@
 [data-shell="mobile"] .m-sch-stream .sec.is-today h3 .rel::before { content: ""; display: inline-block; width: 6px; height: 6px; background: var(--accent); transform: rotate(45deg) translateY(-1px); margin-right: 8px; }
 [data-shell="mobile"] .m-sch-stream .sec.is-past h3 { color: var(--color-ink-soft); }
 [data-shell="mobile"] .m-sch-stream .sec.is-clickable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-[data-shell="mobile"] .m-sch-stream .sec.is-clickable:active { background: color-mix(in srgb, var(--accent) 8%, color-mix(in srgb, color-mix(in srgb, var(--sky-top) 45%, var(--sky-mid)) 78%, transparent)); }
+[data-shell="mobile"] .m-sch-stream .sec.is-clickable:active { background: color-mix(in srgb, var(--accent) 8%, var(--washi-strip-bg)); }
 [data-shell="mobile"] .m-sch-stream .sec.is-clickable:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
-/* 空白單日＝一行（不 sticky、不留大片空白；原型 :426-434）；邊界行同款、不可點 */
+/* 空白單日＝一行（不 sticky；v1.36 D-1.36-3 鋪宣紙薄襯帶守護水鏡鎌倉等主題）；邊界行同款、不可點 */
 [data-shell="mobile"] .m-sch-day.is-empty { padding-bottom: 0; }
-[data-shell="mobile"] .m-sch-day.is-empty .sec, [data-shell="mobile"] .m-sch-run .sec, [data-shell="mobile"] .m-sch-stream .m-sch-edge { position: relative; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; margin-bottom: 0; padding-top: 7px; padding-bottom: 7px; min-height: 34px; align-items: center; box-sizing: border-box; }
+[data-shell="mobile"] .m-sch-day.is-empty .sec, [data-shell="mobile"] .m-sch-run .sec, [data-shell="mobile"] .m-sch-stream .m-sch-edge { position: relative; background: var(--washi-strip-bg); border-bottom: 1px solid var(--washi-strip-border); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur); margin-bottom: 0; padding-top: 7px; padding-bottom: 7px; min-height: 34px; align-items: center; box-sizing: border-box; }
 [data-shell="mobile"] .m-sch-day.is-empty .sec h3, [data-shell="mobile"] .m-sch-run .sec h3, [data-shell="mobile"] .m-sch-stream .m-sch-edge h3 { color: var(--color-ink-faint); font-weight: 600; font-size: var(--fs-sm); }
 [data-shell="mobile"] .m-sch-day.is-empty .sec h3 .dt, [data-shell="mobile"] .m-sch-run .sec h3 .dt, [data-shell="mobile"] .m-sch-stream .m-sch-edge h3 .dt { font-size: 12.5px; color: var(--color-ink-faint); } /* 字面值：12.5px；手機字階沒有這一階（原型逐字） */
 [data-shell="mobile"] .m-sch-day.is-empty .sec .note, [data-shell="mobile"] .m-sch-run .sec .note, [data-shell="mobile"] .m-sch-stream .m-sch-edge .note { color: var(--color-ink-faint); letter-spacing: .1em; }
@@ -100,8 +100,8 @@
 [data-shell="mobile"] .m-sch-run.is-open > .m-sch-run-head .note { color: var(--color-ink-soft); }
 [data-shell="mobile"] .m-sch-day.is-run .sec { padding-left: calc(var(--m-gutter) + 14px); }
 [data-shell="mobile"] .m-sch-day.is-run .sec h3::before { content: ""; display: inline-block; width: 7px; margin-right: 7px; vertical-align: middle; border-top: 1px solid var(--color-dash); }
-/* 今日段標題正上方的誤點列（原型 .late-jump :395-413；focus 環換靛） */
-[data-shell="mobile"] .m-sch-latejump { display: flex; align-items: center; gap: 9px; width: calc(100% + 2 * var(--m-gutter)); min-height: 44px; margin: 0 calc(-1 * var(--m-gutter)); padding: 8px var(--m-gutter) 2px; background: transparent; border: 0; cursor: pointer; text-align: left; color: var(--color-late); -webkit-tap-highlight-color: transparent; }
+/* 今日段標題正上方的誤點列（v1.36 D-1.36-3 鋪宣紙薄襯帶） */
+[data-shell="mobile"] .m-sch-latejump { display: flex; align-items: center; gap: 9px; width: calc(100% + 2 * var(--m-gutter)); min-height: 44px; margin: 0 calc(-1 * var(--m-gutter)); padding: 8px var(--m-gutter) 4px; background: var(--washi-strip-bg); border: 0; border-bottom: 1px solid var(--washi-strip-border); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur); cursor: pointer; text-align: left; color: var(--color-late); -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .m-sch-latejump .lj-t { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); letter-spacing: .18em; white-space: nowrap; }
 [data-shell="mobile"] .m-sch-latejump .lj-t::before { content: ""; display: inline-block; width: 6px; height: 6px; background: var(--color-late); transform: rotate(45deg) translateY(-1px); margin-right: 9px; opacity: .85; }
 [data-shell="mobile"] .m-sch-latejump .rule { flex: 1; min-width: 12px; border-top: 1px dashed color-mix(in srgb, var(--color-late) 40%, transparent); }
@@ -109,22 +109,23 @@
 [data-shell="mobile"] .m-sch-latejump .caret { display: inline-block; margin-left: .5em; transition: transform .2s ease-out; }
 [data-shell="mobile"] .m-sch-latejump:active .caret { transform: translateY(-2px); }
 [data-shell="mobile"] .m-sch-latejump:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
-/* 締切小段（原型 .subhead :454-458） */
-[data-shell="mobile"] .m-sch-subhead { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; font-size: 10.5px; letter-spacing: .2em; color: var(--color-late); } /* 字面值：締切小段 10.5px；手機字階沒有這一階（原型逐字） */
+/* 締切小段（v1.36 D-1.36-3 鋪宣紙薄襯帶） */
+[data-shell="mobile"] .m-sch-subhead { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; padding: 4px 10px; background: var(--washi-strip-bg); border: 1px solid var(--washi-strip-border); border-radius: var(--radius-card); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur); font-size: 10.5px; letter-spacing: .2em; color: var(--color-late); } /* 字面值：締切小段 10.5px；手機字階沒有這一階（原型逐字） */
 [data-shell="mobile"] .m-sch-subhead::after { content: ""; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--color-late) 35%, transparent); }
-/* 有執行日的締切＝一行（〆＋圓牌＋名稱＋「執行 M/D」；點＝捲到執行日） */
-[data-shell="mobile"] .m-sch-due { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 4px; padding: 0 10px; box-sizing: border-box; background: transparent; border: 1px dashed var(--color-dash); border-radius: var(--radius-card); font: inherit; color: var(--color-ink); cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
-[data-shell="mobile"] .m-sch-due:active { background: color-mix(in srgb, var(--color-paper-high) 50%, transparent); }
+/* 有執行日的締切＝一行（〆＋圓牌＋名稱＋「執行 M/D」；v1.36 D-1.36-3 鋪宣紙薄襯帶） */
+[data-shell="mobile"] .m-sch-due { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 4px; padding: 6px 10px; box-sizing: border-box; background: var(--washi-strip-bg); border: 1px dashed var(--color-dash); border-radius: var(--radius-card); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur); font: inherit; color: var(--color-ink); cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
+[data-shell="mobile"] .m-sch-due:active { background: color-mix(in srgb, var(--color-paper-high) 85%, transparent); }
 [data-shell="mobile"] .m-sch-due:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .m-sch-due-badge { flex: none; display: inline-grid; place-items: center; min-width: 22px; height: 18px; padding: 0 3px; border-radius: var(--radius-ctl); background: color-mix(in srgb, currentColor 13%, transparent); }
+[data-shell="mobile"] .m-sch-due-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 [data-shell="mobile"] .m-sch-due-name { flex: 1; min-width: 0; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 [data-shell="mobile"] .m-sch-due-when { flex: none; font-size: 10px; letter-spacing: .1em; color: var(--color-late); white-space: nowrap; } /* 字面值：執行日小字 10px；手機字階最小 11，這一階沒有 token（原型逐字） */
 /* 唯讀卡（定期券歷史班次；原型 :505、:514、:520） */
 [data-shell="mobile"] .m-tk.is-ro .m-tk-body { opacity: .78; }
 [data-shell="mobile"] .m-tk-stamp:disabled { cursor: default; background: transparent; }
 [data-shell="mobile"] .m-tk-more:disabled { opacity: var(--disabled); cursor: not-allowed; }   /* 禁用（§1.8；UI 丙-1 前 .25） */
-/* 全済（原型 .cheer :541-546） */
-[data-shell="mobile"] .m-sch-cheer { display: flex; align-items: center; gap: 9px; margin: 12px 0 2px; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm); letter-spacing: .2em; color: var(--color-ink-soft); animation: m-sch-bar-in .4s ease-out; }
+/* 全済（v1.36 D-1.36-3 鋪宣紙薄襯帶） */
+[data-shell="mobile"] .m-sch-cheer { display: flex; align-items: center; gap: 9px; margin: 10px 0 2px; padding: 7px 10px; background: var(--washi-strip-bg); border: 1px solid var(--washi-strip-border); border-radius: var(--radius-card); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur); font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm); letter-spacing: .2em; color: var(--color-ink-soft); animation: m-sch-bar-in .4s ease-out; }
 [data-shell="mobile"] .m-sch-cheer::after { content: ""; flex: 1; border-top: 1px dashed var(--color-dash); }
 /* 草稿列（D-主-8：點日期標題列在那天底下開；與 .m-newticket 同語彙但放在段內） */
 [data-shell="mobile"] .m-sch-draft { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-top: 6px; padding: 7px 10px; box-sizing: border-box; background: color-mix(in srgb, var(--color-paper-high) 50%, transparent); border: 1px dashed var(--color-dash); border-radius: var(--radius-card); animation: m-sch-bar-in .24s ease-out; }

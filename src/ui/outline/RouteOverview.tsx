@@ -43,7 +43,7 @@ import { DateSeal } from "../stamps";
 import { todayKey } from "../../lib/date";
 import { OVERVIEW_DAYS, useRouteOverview } from "./useRouteOverview";
 import { StationMark } from "../weekAims/parts";
-import { useRouteNextAims, useStationCard, type RouteNextAims } from "../weekAims/StationCard";
+import { useRouteNextAims, type RouteNextAims } from "../weekAims/StationCard";
 import { hasTime, headParts, mdw, spendText } from "./routeSummaryText";
 import "./routeOverview.css";
 
@@ -216,16 +216,14 @@ function RouteCard({
   decimals,
   lines,
   next,
-  onOpenStation,
 }: {
   route: NodeRow;
   s: RouteSummary;
   track?: StationTrackResult<NodeRow>;
   decimals: number;
   lines: NodeRow[];
-  /** 下一站與它的方針（整批載好，方針擴充 辛 §3 #7） */
+  /** 下一站與它的方針（整批載好，方針擴充 辛 §3 #7；v1.36 D-1.36-6 純唯讀總覽，不攔截進路線） */
   next: RouteNextAims | undefined;
-  onOpenStation(id: string, anchor: HTMLElement): void;
 }) {
   const color = route.color ?? "var(--route-preset-4)";
   const nextStop = track?.stops.find((st) => st.isNext);
@@ -256,16 +254,7 @@ function RouteCard({
         <More label={label} overline={ROUTE_OV} items={() => routeMenu(route, lines)} />
       </header>
       {next && s.nextStation ? (
-        <button
-          type="button"
-          className="wa-ov-stn"
-          aria-haspopup="dialog"
-          title={`看「${next.station.name}」這一站`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenStation(next.station.id, e.currentTarget);
-          }}
-        >
+        <div className="wa-ov-stn is-static">
           <span className="ns-ov-next">
             <StationMark size={11} />
             下一站 <b>{s.nextStation.name}</b>
@@ -277,7 +266,7 @@ function RouteCard({
             {s.nextStation.expectedOn && <span className="d">{mdw(s.nextStation.expectedOn)}</span>}
           </span>
           {next.brief && <span className="wa-ov-aim">{next.brief}</span>}
-        </button>
+        </div>
       ) : (
         <p className="ns-ov-next">
           <StationMark size={11} />
@@ -342,7 +331,6 @@ export function RouteOverview() {
   const tab = useBoardStore((s) => s.overviewTab);
   const data = useRouteOverview();
   const nextAims = useRouteNextAims(routes);
-  const stationCard = useStationCard();
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const dayKey = todayKey(dayStartHour);
@@ -439,7 +427,6 @@ export function RouteOverview() {
                         decimals={decimals}
                         lines={lines}
                         next={nextAims[r.id]}
-                        onOpenStation={stationCard.open}
                       />
                     ))}
                   </div>
@@ -471,7 +458,6 @@ export function RouteOverview() {
           <span>私鐵手帳・路線一覽</span>
           <span className="fr">{routes.length} 條路線</span>
         </footer>
-        {stationCard.node}
       </div>
     </section>
   );

@@ -63,7 +63,7 @@
  * - **運行中那班也開這個面板**（RestartPanel 併進來）：副標「{分類}・HH:MM 発・● 運行中 Xh」；分類格、発車（範圍同舊
  *   RestartPanel：往前最多一天、不晚於現在−1 分）、連到、荷札照改一塊；「到着」那一列換成一行說明（結束時間對正在跑的班
  *   不適用）；次鈕只有「切開」（不給刪除、不給合併）。主鈕走 `editRunning`；什麼都沒動＝關閉。長塊確認照問（尾端＝現在），
- *   但按「確定記這麼長」不寫 ack（運行中的長度還沒定，寫了「忘記停車」的保險上限就不再問）。
+ *   按「確定記這麼長」時寫入 `ack: true`（D-1.36-1，與補記／改塊口徑一致）。
  * - sheet.focus "start"（從「HH:MM 発」／改出發時間快捷鍵進來）：桌機游標在発車框；手機把発車列捲進畫面閃一下、不叫鍵盤。
  * - 面板開著時這一班到站了（別台到着／換車，同步拉到）：換成已結束的樣子——到着列出現（上限＝max(打開時的現在, 實際到站)）、
  *   副標下赭字「這一班剛到站了」、草稿全留著，「改好了」走一般 editBlock；仍不冒出刪除與合併（按鈕不在手底下突然變多）。
@@ -440,8 +440,9 @@ export function BlockPanel({ onDone }: PanelProps) {
           tagEdit === undefined &&
           offNames === undefined &&
           note === undefined &&
-          est === undefined;
-        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames, note, est);
+          est === undefined &&
+          !ackLong;
+        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames, note, est, ackLong);
       } else {
         void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong, note);
       }

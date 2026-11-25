@@ -46,7 +46,8 @@ cd "$ROOT"
 say() { printf '  %s\n' "$1"; }
 run() { if [[ $DRY -eq 1 ]]; then say "\$ $*"; else "$@"; fi; }
 
-[[ -z "$(git status --porcelain)" ]] || { echo "✗ 工作樹不乾淨，先 commit 或 stash。" >&2; exit 1; }
+# 檢查工作樹乾淨時豁免 docs/回饋筆記.txt（使用者隨時可能正在隨手記心得，它不在公開白名單內、且 git archive 讀的是 commit/tag 而非工作樹）
+[[ -z "$(git status --porcelain -- . ':!docs/回饋筆記.txt')" ]] || { echo "✗ 工作樹不乾淨（除 docs/回饋筆記.txt 外有未提交修改），先 commit 或點名處理。" >&2; exit 1; }
 
 # 匯出來源：給了 --tag 就以「那顆 tag 指到的 commit」為準，不是當前工作樹。
 # 為什麼：hotfix 的發布 build 做在 hotfix 分支上，合回 main 後回主桌發鏡像時 HEAD 已經是 main

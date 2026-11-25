@@ -20,9 +20,9 @@ import { diaryDraftMeta, diaryEmptyText, diaryPlaceholder } from "../../domain/n
 import { DiaryHeader, DiarySearchBar } from "./DiaryHeader";
 import { DiaryDraft, DiaryEntry } from "./DiaryEntry";
 import { DiarySearchList } from "./DiarySearchList";
-import { Footprints } from "./Footprints";
 import { EmptyState } from "../common/EmptyState";
 import { IconEdit } from "../common/icons";
+import { openReportDaySpread } from "../report/reportJumps";
 import { capsOf, useTodayKey } from "./notesBits";
 
 /** 日記子畫面的小浮層：大日期的挑選器／某一篇的改日期 */
@@ -336,8 +336,9 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
         onWrite={emptyShown ? null : write}
         searchOpen={searchOpen}
         onSearchButton={onSearchButton}
+        onOpenReport={() => go(() => openReportDaySpread(day, "desktop"))}
       />
-      {/* 搜尋列＝頁首下一列、通欄（UI 丙-6 回修：原本插在左欄頂，本文卡被推下去、跟足跡卡頂不齊；同售票口的頁首下一列） */}
+      {/* 搜尋列＝頁首下一列、通欄 */}
       {searchOpen && (
         <DiarySearchBar
           searchRef={searchRef}
@@ -359,7 +360,6 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
             {main}
           </section>
         </div>
-        <Footprints today={today} />
       </div>
     </>
   );

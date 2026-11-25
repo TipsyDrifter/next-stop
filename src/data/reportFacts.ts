@@ -383,6 +383,7 @@ export async function loadReportFacts(o: LoadReportOpts): Promise<ReportFacts> {
       name: s.name,
       kind: s.kind,
       dueOn: s.dueOn,
+      mood: s.mood,
       routeId: s.routeId,
       tagKeys: nodeTags[s.nodeId],
     })),
@@ -479,8 +480,12 @@ export async function loadSingleDaySpread(o: LoadSingleDaySpreadOpts): Promise<R
   const nodeTags = entityTagMap(tagIdx, "node");
   const ir = idealRepo as Partial<typeof idealRepo>;
 
-  const [seals, time, money, diaryRows, reflections, dayNotesMap] = await Promise.all([
+  const q = reportQueries as Partial<typeof reportQueries>;
+  const dayWin = dayWindow(day, h);
+
+  const [seals, workLogs, time, money, diaryRows, reflections, dayNotesMap] = await Promise.all([
     sealRepo.listSeals(day, day, h),
+    typeof q.workLogsIn === "function" ? q.workLogsIn(dayWin.start, dayWin.end) : Promise.resolve([]),
     o.open.timetable
       ? timeFacts(
           {
@@ -519,9 +524,11 @@ export async function loadSingleDaySpread(o: LoadSingleDaySpreadOpts): Promise<R
         name: s.name,
         kind: s.kind,
         dueOn: s.dueOn,
+        mood: s.mood,
         routeId: s.routeId,
         tagKeys: nodeTags[s.nodeId],
       })),
+      workLogs,
       time,
       money,
       diaries: diaryRows

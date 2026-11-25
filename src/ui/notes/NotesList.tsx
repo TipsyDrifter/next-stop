@@ -20,6 +20,7 @@ import { useUiStore } from "../../store/uiStore";
 import { excerpt, fmtMonthHeader, monthKey, noteTitle } from "../../domain/notes";
 import { noteTimestampOf } from "../../domain/notesFilter";
 import { EmptyState } from "../common/EmptyState";
+import { EntityTagPills } from "../common/TagPills";
 import { IconPlus } from "../common/icons";
 import { IconSearch, Roundel, dayOf, fmtShort, highlight } from "./notesBits";
 import { notesFlush } from "./notesFlush";
@@ -260,6 +261,7 @@ function NoteRowItem({
           <span>・</span>
           {where}
         </span>
+        <EntityTagPills entityType="note" entityId={n.id} max={3} compact className="ns-notes-rtags" />
       </span>
     </li>
   );

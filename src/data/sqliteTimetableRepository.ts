@@ -707,7 +707,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   async editRunning(
     id: string,
-    input: { categoryId: string; startIso: string; link?: BlockLink | null; note?: string | null },
+    input: { categoryId: string; startIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<CoverSummary> {
     const db = await getDb();
     const now = Date.now();
@@ -720,6 +720,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
       now,
       link: input.link,
       curLink: snap.rowsById[id] ? linkOfRow(snap.rowsById[id]) : undefined,
+      ack: input.ack,
       note: input.note, // ⑦：undefined＝不動
       curNote: snap.rowsById[id] ? noteOf(snap.rowsById[id]) : undefined,
     });

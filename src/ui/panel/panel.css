@@ -56,7 +56,55 @@
   border-bottom: 1px dashed var(--color-dash);
 }
 /* .fare-class 在 techo.css 是絕對定位在票的右上角；票頭版讓開右上角的關閉叉 */
-.panel .panel-head .fare-class { top: 2px; right: 34px; }
+.panel .panel-head .fare-class { top: 0; right: 34px; }
+.panel .panel-head button.fare-class.is-pickable {
+  display: inline-flex; align-items: center; gap: 3px;
+  min-height: 22px; padding: 1px 6px 1px 8px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: transparent; cursor: pointer;
+  font-family: var(--font-body); font-size: 9.5px; letter-spacing: .24em; line-height: 1.4;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.panel .panel-head .fare-class.teiki {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.panel .panel-head .fare-class.is-seat {
+  border-style: dashed;
+  border-color: var(--color-dash);
+  color: var(--color-ink-soft);
+}
+.panel .panel-head button.fare-class.is-pickable:hover,
+.panel .panel-head button.fare-class.is-pickable.is-open {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--sel-bg);
+}
+.panel .panel-head button.fare-class.is-pickable:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.panel .panel-head .fare-caret { font-size: 9px; letter-spacing: 0; opacity: .75; }
+
+/* 票名下無框單行空概要（v1.36 D-1.36-6：點擊才展開多行） */
+.panel .panel-summary-add {
+  display: block; width: 100%; margin-top: 8px; padding: 2px 0;
+  border: 0; border-bottom: 1px dashed transparent; border-radius: 0;
+  background: transparent; cursor: pointer; text-align: left;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .04em;
+  color: var(--color-ink-faint);
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+.panel .panel-summary-add:hover { color: var(--color-ink-soft); border-bottom-color: var(--color-dash); }
+.panel .panel-summary-add:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.panel .panel-summary-edit { margin-top: 8px; }
+.panel textarea.panel-summary-ta {
+  font-size: var(--fs-sm); line-height: 1.6; color: var(--color-ink-soft);
+  border-bottom-color: transparent; padding: 2px 0 3px;
+}
+.panel textarea.panel-summary-ta:hover { border-bottom-color: var(--color-line); }
+.panel textarea.panel-summary-ta:focus { border-bottom-color: var(--accent); color: var(--color-ink); }
+
+/* 第一段尾端：緊湊歸屬帶（掛在／車站／荷札） */
+.panel .panel-affil { gap: 8px; margin-top: 2px; }
 .panel .panel-kind {
   display: flex; align-items: center; gap: 9px; margin-bottom: 9px;
   color: var(--color-ink-mid, var(--ink-mid, var(--color-ink-soft)));
@@ -333,6 +381,112 @@
 .panel .linkbtn:hover { text-decoration-style: solid; }
 .panel .linkbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
+/* ═══ v1.36 D-1.36-6：單行「時段與預估」漸進式揭露膠囊 ═══ */
+.panel .panel-sched-sum { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.panel .panel-sched-pill {
+  width: 100%; min-height: 28px; padding: 3px 9px;
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: transparent; cursor: pointer; text-align: left;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink);
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.panel .panel-sched-pill.has-val .panel-sched-text {
+  font-family: var(--font-latin); font-variant-numeric: tabular-nums; letter-spacing: .03em;
+}
+.panel .panel-sched-pill.is-empty {
+  border-style: dashed; border-color: var(--color-dash); color: var(--color-ink-faint);
+}
+.panel .panel-sched-pill:hover {
+  border-color: var(--accent); background: var(--hover-bg); color: var(--color-ink);
+}
+.panel .panel-sched-pill.is-open {
+  border-style: solid; border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: var(--sel-bg); color: var(--sel-fg);
+}
+.panel .panel-sched-pill:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.panel .panel-sched-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel .panel-sched-caret { flex: none; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .06em; }
+.panel .panel-sched-pill.is-open .panel-sched-caret { color: var(--sel-fg); }
+.panel .panel-sched-body { padding: 8px 0 4px; border-top: 1px dashed var(--color-line); }
+.panel .panel-sched-edit-block { display: flex; flex-direction: column; gap: 10px; }
+.panel .panel-due-row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ═══ v1.36 D-1.36-6：下半主段「直屬子車票清單」（列車／車廂） ═══ */
+.panel .panel-kids { margin-bottom: 12px; }
+.panel .panel-kids.is-empty { margin-bottom: 8px; }
+.panel .panel-kids-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.panel .panel-kids-title {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  font-size: var(--fs-xs); letter-spacing: .22em; color: var(--color-ink-soft); font-weight: 500;
+}
+.panel .panel-kids-count {
+  font-family: var(--font-latin); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+.panel .panel-kids-addbtn {
+  padding: 2px 4px; border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-xs); letter-spacing: .08em; color: var(--accent);
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.panel .panel-kids-addbtn:hover { background: var(--hover-bg); text-decoration: underline; text-underline-offset: 2px; }
+.panel .panel-kids-addbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.panel .panel-kids-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.panel .panel-kid {
+  display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 3px 2px;
+  border-bottom: 1px dashed var(--color-line);
+}
+.panel .panel-kid:last-child { border-bottom-color: transparent; }
+.panel .panel-kid-stamp {
+  flex: none; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  display: inline-grid; place-items: center; cursor: pointer;
+  border: 1.2px dashed var(--color-dash); background: transparent; color: transparent;
+  font-family: var(--font-display); font-size: 10px; font-weight: 700; line-height: 1;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft), transform var(--dur-fast) var(--ease-spring, var(--ease));
+}
+.panel .panel-kid-stamp:hover {
+  border-color: color-mix(in srgb, var(--seal) 65%, transparent);
+  color: color-mix(in srgb, var(--seal) 45%, transparent);
+}
+.panel .panel-kid-stamp.is-on {
+  border-style: solid; border-color: var(--seal);
+  background: color-mix(in srgb, var(--seal) 10%, transparent); color: var(--seal);
+  transform: rotate(-6deg);
+}
+.panel .panel-kid-stamp.is-fresh { animation: nsPanelStampIn .28s var(--ease-spring, ease-out); }
+.panel .panel-kid-stamp:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.panel .panel-kid-name {
+  flex: 1; min-width: 0; padding: 2px 0; border: 0; background: transparent; cursor: pointer; text-align: left;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .03em; color: var(--color-ink);
+}
+.panel .panel-kid-name:hover { color: var(--accent); }
+.panel .panel-kid-name:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.panel .panel-kid-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel .panel-kid.is-done .panel-kid-text {
+  color: var(--color-ink-faint);
+  text-decoration: line-through color-mix(in srgb, var(--color-ink) 35%, transparent) 1px;
+}
+.panel .panel-kid-kind {
+  flex: none; padding: 1px 3px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  font-size: 10px; line-height: 1.2; color: var(--color-ink-faint);
+}
+.panel .panel-kid-geshya {
+  flex: none; padding: 1px 4px;
+  border: 1.2px solid color-mix(in srgb, var(--stamp-ink) 65%, transparent); border-radius: var(--radius-ctl);
+  font-family: var(--font-display); font-size: 9px; font-weight: 700; letter-spacing: .06em; line-height: 1.2;
+  color: var(--stamp-ink); transform: rotate(-4deg);
+}
+.panel .panel-kids-form { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.panel .panel-kids-in { flex: 1; min-width: 0; font-size: var(--fs-sm); }
+.panel .panel-footprint-fields { margin-top: 2px; }
+
 @media (prefers-reduced-motion: reduce) {
-  .panel .tf-show, .panel .len-custom { transition: none; }
+  .panel .tf-show,
+  .panel .len-custom,
+  .panel .panel-head button.fare-class.is-pickable,
+  .panel .panel-summary-add,
+  .panel .panel-sched-pill,
+  .panel .panel-kid-stamp { transition: none; }
+  .panel .panel-kid-stamp.is-fresh { animation: none; }
 }

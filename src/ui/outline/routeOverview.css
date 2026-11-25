@@ -2,9 +2,17 @@
  * 版心照清單型（.sheet，內容 848 置中）；卡片材質＝紙卡（--color-paper-high＋玻璃邊＋--shadow-card），路線色只畫卡片頂端的色帶。
  * 顏色一律 token；路線色經 --rc（行內 style 帶進來，值＝路線存的色）。 */
 
-/* 幹線段標：「幹線 學習 ┄┄┄ 2 條 ⋯」（同 .sec 的骨架：襯線名＋虛線 rule＋右側小字） */
+/* 幹線段標：「幹線 學習 ┄┄┄ 2 條 ⋯」（v1.36 D-1.36-3：鋪設宣紙薄襯帶守護實景底圖可讀性） */
 .ns-ov-line { margin-top: var(--sp-6); }
-.ns-ov-linehead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.ns-ov-linehead {
+  display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px;
+  padding: 6px 12px;
+  background: var(--washi-strip-bg);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+}
 .ns-ov-linehead .k { font-size: var(--fs-xs); letter-spacing: .24em; color: var(--color-ink-faint); }
 .ns-ov-linehead h2 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); letter-spacing: .22em; color: var(--color-ink); }
 .ns-ov-linehead .rule { flex: 1; border-top: 1px dashed var(--color-dash); align-self: center; }
@@ -69,27 +77,42 @@
 .ns-ov-stats .is-late dt, .ns-ov-stats .is-late dd { color: var(--color-late); }
 .ns-ov-stats .is-late dd i { font-style: normal; font-size: var(--fs-xs); margin-right: 4px; }
 
-/* 段尾「＋ 路線」與空幹線的虛線框 */
-.ns-ov-addroute {
-  display: inline-flex; margin-top: 10px; padding: 4px 6px; border: 0; background: none; cursor: pointer;
-  font-family: inherit; font-size: var(--fs-sm); letter-spacing: .14em; color: var(--color-ink-faint);
-  border-radius: var(--radius-ctl); transition: color var(--dur-fast), background-color var(--dur-fast);
+/* v1.36 D-1.36-6：路線卡上「下一站」改為純唯讀總覽資訊，不攔截卡片點擊 */
+.ns-ov-card .wa-ov-stn.is-static {
+  cursor: inherit;
 }
-.ns-ov-addroute:hover, .ns-ov-addroute:focus-visible { color: var(--color-ink); background: var(--hover-bg); outline: none; }
+.ns-ov-card .wa-ov-stn.is-static:hover {
+  background: transparent;
+}
+
+/* 段尾「＋ 路線」與空幹線的虛線框（v1.36 D-1.36-3：鋪設宣紙薄襯帶守護水鏡鎌倉等主題可讀性） */
+.ns-ov-addroute {
+  display: inline-flex; margin-top: 10px; padding: 5px 10px;
+  border: 1px solid var(--washi-strip-border); background: var(--washi-strip-bg); cursor: pointer;
+  font-family: inherit; font-size: var(--fs-sm); letter-spacing: .14em; color: var(--color-ink-soft);
+  border-radius: var(--radius-ctl);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  transition: color var(--dur-fast), background-color var(--dur-fast), border-color var(--dur-fast);
+}
+.ns-ov-addroute:hover, .ns-ov-addroute:focus-visible { color: var(--color-ink); background: var(--color-paper-high); border-color: var(--color-dash); outline: none; }
 .ns-ov-emptyline {
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
   padding: 14px 18px; border: 1px dashed var(--color-dash); border-radius: var(--radius-card);
+  background: var(--washi-strip-bg);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
   font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft);
 }
 
-/* 頁底「車庫 N 條 ›」（接縫班 D-主-282；原型 design-structure-獨立頁 .garage） */
+/* 頁底「車庫 N 條 ›」（接縫班 D-主-282；v1.36 D-1.36-3 鋪設宣紙薄襯帶） */
 .ns-ov-garage {
-  display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 28px; padding: 14px 4px;
-  border: 0; border-top: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line); background: none;
+  display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 28px; padding: 14px 16px;
+  border: 1px solid var(--washi-strip-border); border-radius: var(--radius-card);
+  background: var(--washi-strip-bg);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
   cursor: pointer; text-align: left; font-family: inherit; color: var(--color-ink-soft);
-  transition: background-color var(--dur-fast), color var(--dur-fast);
+  transition: background-color var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
-.ns-ov-garage:hover, .ns-ov-garage:focus-visible { background: var(--hover-bg); color: var(--color-ink); outline: none; }
+.ns-ov-garage:hover, .ns-ov-garage:focus-visible { background: var(--color-paper-high); color: var(--color-ink); border-color: var(--color-dash); outline: none; }
 .ns-ov-garage > svg { flex: none; color: var(--color-ink-faint); }
 .ns-ov-garage .gt { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); letter-spacing: .22em; color: var(--color-ink); }
 .ns-ov-garage .gs { font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-faint); }

@@ -164,6 +164,7 @@ export function FullSearchView() {
 
   return (
     <section ref={sectionRef} tabIndex={-1} className="page ns-fs" aria-label="完整搜尋" onKeyDown={onKeyDown}>
+      <div className="ns-fs-card ns-washi-card">
       <div className="ns-fs-head">
         <h1 className="sr-only">完整搜尋</h1>
         <p className="techo-overline">
@@ -241,6 +242,7 @@ export function FullSearchView() {
         <span>↑↓ 移動</span>
         <span>ENTER 前往</span>
         <span>ESC 清除</span>
+      </div>
       </div>
 
       {routeAnchor && (

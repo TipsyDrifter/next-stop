@@ -49,7 +49,8 @@ import { SelectionBar } from "../common/selection/SelectionBar";
 import { useSelectable } from "../common/selection/useSelectable";
 import { Tabs } from "../common/Tabs";
 import { ProgressRing } from "../outline/ProgressRing";
-import { SealSuspended } from "../stamps";
+import { EntityTagPills } from "../common/TagPills";
+import { SealStopover, SealSuspended } from "../stamps";
 import { BoardCard, cardMeta } from "./BoardCard";
 import { BoardColumns } from "./BoardColumns";
 import { moveCardsToStatus } from "./boardActions";
@@ -573,12 +574,13 @@ const ResultRow = memo(function ResultRow({
   hideCrumb?: boolean;
   on: RowHandlers;
 }) {
-  const { node, route, crumb, tags } = row;
+  const { node, route, crumb } = row;
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
   const m = cardMeta(node, occ, today);
   const status = cardStatus(node, occ);
   const late = isTaskLate(node, occ, today);
   const done = isTaskDone(node, occ);
+  const paused = !done && !m.skipped && node.status === "paused";
   const btn = useRef<HTMLButtonElement>(null);
   const [items, setItems] = useState<PopMenuItem[] | null>(null);
   const containerGlyph = CONTAINER_GLYPH[node.kind];
@@ -590,7 +592,7 @@ const ResultRow = memo(function ResultRow({
       onMouseDown={(e) => on.press(node, e)}
       onContextMenu={rowContextMenu(() => ({ overline: cardOverline(node), label: `「${node.name}」的動作`, items: on.menu(node), before: () => useUiStore.getState().select(node.id) }))}
     >
-      <article className={"ticket" + (late ? " late-t" : "") + (selected ? " selected" : "") + (picked ? " is-picked" : "") + (done ? " done" : "") + (m.skipped ? " is-suspended" : "") + (fresh ? " fresh" : "")}>
+      <article className={"ticket" + (late ? " late-t" : "") + (selected ? " selected" : "") + (picked ? " is-picked" : "") + (done ? " done" : "") + (m.skipped ? " is-suspended" : "") + (paused ? " is-paused" : "") + (fresh ? " fresh" : "")}>
         <div className="stub" style={{ color: route?.color ?? "var(--route-none)" }}>
           <span aria-hidden className={route ? "badge" : "badge dashed"}>
             {route ? (route.code ?? route.name.slice(0, 1)) : "臨"}
@@ -614,11 +616,7 @@ const ResultRow = memo(function ResultRow({
             {m.next && <span className="chip next">{m.next}</span>}
             {m.run && <span className={"chip" + (m.run.late ? " late" : "")}>{m.run.text}</span>}
             {m.due && <span className={"chip" + (m.due.late ? " late" : "")}>{m.due.text}</span>}
-            {tags.map((t) => (
-              <span key={t} className="ns-bd-tag">
-                #{t}
-              </span>
-            ))}
+            <EntityTagPills entityType="node" entityId={node.id} max={3} compact />
           </div>
         </div>
         {late && <span className="late-seal">延着</span>}
@@ -629,8 +627,8 @@ const ResultRow = memo(function ResultRow({
             className="stamp"
             disabled={parked}
             aria-pressed={done}
-            aria-label={m.skipped ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
-            title={parked ? PARKED_ADD_WHY : undefined}
+            aria-label={m.skipped ? "取消本班運休" : paused ? "解除途中下車" : done ? "取消完成" : "蓋章完成"}
+            title={parked ? PARKED_ADD_WHY : paused ? "途中下車中——點擊解除恢復" : undefined}
             onClick={(e) => {
               e.stopPropagation();
               on.stamp(node);
@@ -646,6 +644,11 @@ const ResultRow = memo(function ResultRow({
           {m.skipped && (
             <span className="stopover-slot">
               <SealSuspended title="運休（本班暫停）" />
+            </span>
+          )}
+          {paused && !m.skipped && (
+            <span className="stopover-slot">
+              <SealStopover title="途中下車（點擊解除）" />
             </span>
           )}
         </div>

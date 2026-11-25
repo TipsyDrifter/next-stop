@@ -125,7 +125,7 @@ export function Yearbook({ onOpen }: YearbookProps) {
         {yb.months.map((M) => {
           const [y, m] = M.month.split("-").map(Number);
           return (
-            <section key={M.month} className="ns-depot-yb" aria-label={`${y}年${m}月`}>
+            <section key={M.month} className="ns-depot-yb ns-washi-card" aria-label={`${y}年${m}月`}>
               <div className="ns-depot-yb-m">
                 <b>{m}月</b>
                 {M.month === thisMonth ? <span className="now">這個月</span> : <span>{y}</span>}

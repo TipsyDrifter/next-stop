@@ -36,6 +36,7 @@ import {
   type TimeBlockRow,
 } from "../../../domain/timetable";
 import { filterTimetableDay } from "../../../domain/timetableFilter";
+import { focusBlockTags } from "../../../domain/timetableTags";
 import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useTagStore } from "../../../store/tagStore";
@@ -44,6 +45,7 @@ import { useUiStore } from "../../../store/uiStore";
 import { addDays, dayWindow } from "../../../lib/date";
 import { DateNav } from "../../common/DateNav";
 import { EmptyState } from "../../common/EmptyState";
+import { TagDotHint, TagPills } from "../../common/TagPills";
 import { CategoryBadge } from "../CategoryBadge";
 import { useMergeMarks } from "../panels/controls";
 import { AxisFilterBar } from "./AxisFilterBar";
@@ -184,7 +186,7 @@ export function Axis({ scroller }: AxisProps) {
       {/* UI 丙-4 D9：自畫的 ‹ 今天 › 換共用 DateNav（同行程表、售票口）。動作＝鍵盤 ←／→／T 的同一支 setDayKey；
           看今天時 › 停用（軸不記未來）；「今天」chip 照 DateNav 一律可按，已在今天就原地不動（不重載同一天） */}
       <DateNav
-        className="ns-tt-dnav ns-tt-axis-nav"
+        className="ns-tt-dnav ns-tt-axis-nav ns-washi-strip"
         title={dayLabel(dayKey)}
         onPrev={() => void setDayKey(addDays(dayKey, -1))}
         onNext={() => void setDayKey(addDays(dayKey, 1))}
@@ -197,7 +199,7 @@ export function Axis({ scroller }: AxisProps) {
 
       <DaySummary dayKey={dayKey} />
 
-      <div className="ns-tt-sec">
+      <div className="ns-tt-sec ns-washi-strip">
         <h3>運行圖</h3>
         <span className="ns-tt-sec-rule" />
         <span className="ns-tt-sec-note">{pad2(dayStartHour)}:00 起算</span>
@@ -344,10 +346,20 @@ export function Axis({ scroller }: AxisProps) {
             const lkInfo = lk ? linkInfo[lk.nodeId ?? lk.routeId ?? ""] : undefined;
             const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
             const note = noteOf(row);
-            // 名稱下那一行有沒有小牌（運行中、續、時刻待確認、誤點、長時間運行、預估）——沒有就不畫空的那行，備註直接頂上
+            const focusTags = row ? focusBlockTags({ id: it.span.id, categoryId: it.span.categoryId }, categories, tagMaps) : [];
+            const rowH = axisRowHeight(dur);
+            const narrowTag = it.zero || rowH < 52;
+            // 名稱下那一行有沒有小牌（運行中、續、時刻待確認、誤點、長時間運行、預估、窄塊 #）——沒有就不畫空的那行，備註直接頂上
             const hasChip =
-              it.running || it.contFromPrev || it.contToNext || it.zero || m.kind === "late" || m.kind === "long" || est !== null;
-            const style = { "--c": categoryColorCss(cat, 8), minHeight: axisRowHeight(dur) } as CSSProperties;
+              it.running ||
+              it.contFromPrev ||
+              it.contToNext ||
+              it.zero ||
+              m.kind === "late" ||
+              m.kind === "long" ||
+              est !== null ||
+              (narrowTag && focusTags.length > 0);
+            const style = { "--c": categoryColorCss(cat, 8), minHeight: rowH } as CSSProperties;
             const cls =
               "ns-tt-blk" +
               (it.running ? " is-live" : "") +
@@ -391,6 +403,12 @@ export function Axis({ scroller }: AxisProps) {
                           ) : est !== null ? (
                             <span className="ns-tt-chip is-solid">{TT_TEXT.estimateChip(est)}</span>
                           ) : null}
+                          {narrowTag && focusTags.length > 0 && <TagDotHint keys={focusTags} />}
+                        </span>
+                      )}
+                      {!narrowTag && focusTags.length > 0 && (
+                        <span className="ns-tt-blk-sub ns-tt-axis-tags">
+                          <TagPills keys={focusTags} max={3} compact onPick={false} />
                         </span>
                       )}
                       {/* ⑦（原型題 5）：沒有小牌＝備註就在名稱下那一行；有小牌另起一行（接在小牌後面窄欄會被擠成「…」） */}

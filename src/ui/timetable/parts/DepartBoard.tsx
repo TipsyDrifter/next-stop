@@ -32,7 +32,7 @@ export function DepartBoard() {
 
   return (
     <section className="ns-tt-board" aria-label="發車台">
-      <div className="ns-tt-board-head">
+      <div className="ns-tt-board-head ns-washi-strip">
         <h3 className="ns-tt-board-title">發車台</h3>
       </div>
       <TodayTickets />

@@ -28,7 +28,9 @@ import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { DatePicker, type DateQuick } from "../common/DatePicker";
 import { MobileDatePicker } from "../common/MobileDatePicker";
-import { IconBack, IconChevron } from "../common/icons";
+import { EntityTagPills, TagPills } from "../common/TagPills";
+import { IconBack, IconChevron, IconEdit } from "../common/icons";
+import { MOODS, type MoodOption } from "../complete/moods";
 import { useBackLayer } from "../mobile/backStack";
 import { MdBody } from "../notes/md/MdBody";
 import { MobileMdBody } from "../notes/mobile/MobileMdBody";
@@ -97,6 +99,11 @@ function StampMarkIcon({ size = 12 }: { size?: number }) {
       <circle cx="8" cy="8" r="3.2" />
     </svg>
   );
+}
+
+function moodOptionOf(value: "green" | "yellow" | "red" | null | undefined): MoodOption | null {
+  if (!value) return null;
+  return MOODS.find((o) => o.value === value) ?? null;
 }
 
 export interface ReportDaySpreadProps {
@@ -192,8 +199,18 @@ export function ReportDaySpread({
   const time = detail?.time ?? null;
   const money = detail?.money ?? null;
   const dayNotes = activeSpread?.dayNotes ?? [];
+  const workLogs = activeSpread?.workLogs ?? [];
+  const moods = activeSpread?.moods ?? [];
   const diaries = activeSpread?.diaries ?? null;
   const reflections = activeSpread?.reflections ?? [];
+
+  const moodSummary = useMemo(() => {
+    if (moods.length === 0) return [];
+    return MOODS.map((opt) => ({
+      opt,
+      count: moods.filter((m) => m === opt.value).length,
+    })).filter((x) => x.count > 0);
+  }, [moods]);
 
   const notesOpen = isLineOpen("notes", shell);
   const timetableOpen = isLineOpen("timetable", shell);
@@ -241,6 +258,8 @@ export function ReportDaySpread({
     },
     [day],
   );
+
+  const pillOnPick = shell === "mobile" ? handleMobileOpenTag : undefined;
 
   const initialSkeleton = !activeSpread && loading;
 
@@ -434,24 +453,117 @@ export function ReportDaySpread({
               <ul className="ns-rp-spread-tickets">
                 {seals.map((s) => {
                   const route = resolveRoute(s.routeId);
+                  const moodOpt = moodOptionOf(s.mood);
                   return (
                     <li key={`${s.id}-${s.at}`}>
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         className="ns-rp-spread-ticket"
                         onClick={() => void goNode(s.nodeId, shell)}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter" || ev.key === " ") {
+                            ev.preventDefault();
+                            void goNode(s.nodeId, shell);
+                          }
+                        }}
                       >
                         <RouteBadge route={route} temp={!route} />
-                        <span className="nm">{s.name}</span>
+                        <div className="tkt-main">
+                          <span className="nm">{s.name}</span>
+                          {s.tagKeys.length > 0 && (
+                            <TagPills keys={s.tagKeys} compact max={2} onPick={pillOnPick} className="tkt-tags" />
+                          )}
+                        </div>
+                        {moodOpt && (
+                          <span
+                            className={`ns-rp-mood-badge is-${moodOpt.value}`}
+                            style={{ color: moodOpt.color }}
+                            title={`心情：${moodOpt.label}`}
+                            aria-label={`心情：${moodOpt.label}`}
+                          >
+                            {moodOpt.glyph}
+                          </span>
+                        )}
                         {s.dueOn && <span className="tag-occ">定期</span>}
                         <span className="clk">{s.clock}</span>
-                      </button>
+                      </div>
                     </li>
                   );
                 })}
               </ul>
             )}
+
+            {/* 當日心情三燈彙總（由原日記當天足跡無損交接；MOODS：順暢／平穩／吃力） */}
+            {moods.length > 0 && (
+              <div className="ns-rp-spread-moodbar" aria-label="當日心情三燈">
+                <span className="moodbar-lbl">心情</span>
+                <div className="moodbar-dots">
+                  {moods.map((m, idx) => {
+                    const opt = moodOptionOf(m);
+                    if (!opt) return null;
+                    return (
+                      <span
+                        key={`${m}-${idx}`}
+                        className={`ns-rp-mood-badge is-${opt.value}`}
+                        style={{ color: opt.color }}
+                        title={opt.label}
+                        aria-label={opt.label}
+                      >
+                        {opt.glyph}
+                      </span>
+                    );
+                  })}
+                </div>
+                <span className="moodbar-sum">
+                  {moodSummary.map((x, idx) => (
+                    <span key={x.opt.value} className="moodbar-stat">
+                      {idx > 0 && <span className="sep">·</span>}
+                      <span>{x.opt.label}</span>
+                      <b>{x.count}</b>
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
           </section>
+
+          {/* ①′ 當日乘務記錄（手寫體正文，由原日記當天足跡無損交接） */}
+          {workLogs.length > 0 && (
+            <section className="ns-rp-spread-sec" aria-label="乘務記錄">
+              <header className="ns-rp-spread-shd">
+                <span className="t">
+                  <IconEdit size={14} />
+                  <span>乘務記錄</span>
+                </span>
+                <span className="sum">
+                  <b>{workLogs.length}</b> 則
+                </span>
+              </header>
+
+              <ul className="ns-rp-spread-worklogs">
+                {workLogs.map((l) => (
+                  <li key={l.id} className="ns-rp-spread-wlog">
+                    <span className="wlog-clk">{l.clock}</span>
+                    <div className="wlog-main">
+                      <p className="wlog-hw">{l.body}</p>
+                      {l.nodeMissing ? (
+                        <span className="wlog-of is-gone">{l.nodeName}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="wlog-of is-link"
+                          onClick={() => void goNode(l.nodeId, shell)}
+                        >
+                          {l.nodeName}
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* ② 當日時間投入 */}
           {timetableOpen && (
@@ -519,6 +631,13 @@ export function ReportDaySpread({
                               <div className="blk-head">
                                 <span className="cat-nm">{b.categoryName}</span>
                                 {route && <RouteBadge route={route} />}
+                                <EntityTagPills
+                                  entityType="timetable:block"
+                                  entityId={b.id}
+                                  compact
+                                  max={2}
+                                  onPick={pillOnPick}
+                                />
                               </div>
                               {subText && <p className="blk-sub">{subText}</p>}
                             </div>
@@ -569,6 +688,9 @@ export function ReportDaySpread({
                           <div className="exp-head">
                             <span className="cat-nm">{e.category}</span>
                             {route && <RouteBadge route={route} />}
+                            {e.tagKeys && e.tagKeys.length > 0 && (
+                              <TagPills keys={e.tagKeys} compact max={2} onPick={pillOnPick} />
+                            )}
                             {e.clock && <span className="exp-clk">{e.clock}</span>}
                           </div>
                           {e.note && <p className="exp-note">{e.note}</p>}
@@ -646,6 +768,13 @@ export function ReportDaySpread({
                           {entry.clock ? `寫於 ${entry.clock}` : "當日手札"}
                           {entry.isBackfilled ? "（補記）" : ""}
                         </span>
+                        <EntityTagPills
+                          entityType="note"
+                          entityId={entry.id}
+                          compact
+                          max={2}
+                          onPick={pillOnPick}
+                        />
                         {diaries.length > 1 && (
                           <button
                             type="button"

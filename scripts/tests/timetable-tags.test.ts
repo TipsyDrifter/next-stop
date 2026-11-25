@@ -51,6 +51,7 @@ import {
   carryPairs,
   catDefaults,
   defaultsAfterOff,
+  focusBlockTags,
   isBlockOff,
   tagMapsOf,
   tagShareRows,
@@ -637,6 +638,40 @@ describe("排除：一塊不算某個分類帶的荷札（D-時-134）", () => {
     const src = readFileSync(path.join(ROOT, "src/domain/timetableTags.ts"), "utf8");
     const froms = Array.from(src.matchAll(/^import[\s\S]*?from\s+"([^"]+)";/gm)).map((m) => m[1]);
     assert.deepEqual(Array.from(new Set(froms)).sort(), ["./tags.ts", "./timetable.ts"]);
+  });
+});
+
+/* ───────── 10. focusBlockTags（D-1.36-2：票面／軸上焦點荷札） ───────── */
+
+describe("10. focusBlockTags（D-1.36-2）", () => {
+  const FCATS: TimeCategoryRow[] = [
+    cat("G1", null, "主線"),
+    cat("c1", "G1", "閱讀"),
+    cat("c2", "G1", "寫作"),
+  ];
+  const FM = tagMapsOf([
+    { type: TT_TAG_CATEGORY, id: "G1", keys: ["常駐/主線"] },
+    { type: TT_TAG_CATEGORY, id: "c1", keys: ["深度", "靜心"] },
+    { type: TT_TAG_BLOCK, id: "b1", keys: ["深度", "閱讀", "主線", "人物/阿明", "日文"] },
+    { type: TT_TAG_BLOCK, id: "b2", keys: ["人物/阿明", "深度"] },
+    { type: TT_TAG_BLOCK_OFF, id: "b2", keys: ["深度"] },
+    { type: TT_TAG_BLOCK, id: "b3", keys: ["靜心"] },
+  ]);
+
+  test("優先取手動荷札，自動過濾分類名、組名與 catDefaults 常駐荷札", () => {
+    assert.deepEqual(focusBlockTags({ id: "b1", categoryId: "c1" }, FCATS, FM), ["人物/阿明", "日文"]);
+  });
+  test("過濾已在排除名單（off）內的預設荷札，沒有額外手動荷札回空陣列", () => {
+    assert.deepEqual(focusBlockTags({ id: "b2", categoryId: "c1" }, FCATS, FM), ["人物/阿明"]);
+    assert.deepEqual(focusBlockTags({ id: "b3", categoryId: "c1" }, FCATS, FM), []);
+    assert.deepEqual(focusBlockTags({ id: "b-none", categoryId: "c1" }, FCATS, FM), []);
+  });
+  test("未設預設的分類只濾分類名／組名，手動副活動正常保留", () => {
+    const m = tagMapsOf([
+      { type: TT_TAG_CATEGORY, id: "G1", keys: ["常駐/主線"] },
+      { type: TT_TAG_BLOCK, id: "b4", keys: ["寫作", "常駐/主線", "靈感"] },
+    ]);
+    assert.deepEqual(focusBlockTags({ id: "b4", categoryId: "c2" }, FCATS, m), ["靈感"]);
   });
 });
 

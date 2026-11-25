@@ -135,7 +135,7 @@ export function ScheduleView() {
 
   return (
     <section ref={rootRef} className="ns-tt-sched is-desk" aria-label={TT_TEXT.viewSchedule}>
-      <div className="ns-tt-sched-top">
+      <div className="ns-tt-sched-top ns-washi-strip">
         <ScheduleNav page={page} />
         {!isWeek && <ScheduleSummary page={page} />}
         <span className="ns-tt-sched-keys">{SCHED_UI.deskKeys()}</span>

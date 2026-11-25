@@ -10,10 +10,17 @@
 }
 [data-theme="dark"] .ns-fs mark, [data-theme="dark"] .ns-fs-m mark { background: color-mix(in srgb, var(--accent) 38%, transparent); }
 
-/* ═══════════ 桌機頁 ═══════════ */
-.page.ns-fs { display: flex; flex-direction: column; overflow: hidden; }
-/* 寬度規範（丁 D-主-231）：完整搜尋是清單型——頁首、清單、腳註都是內容 848 在主欄置中（原本左緣 24、全 App 唯一的例外） */
-.ns-fs-head { flex: none; padding: var(--page-pad-top) var(--read-inset) 0; }
+/* ═══════════ 桌機頁（v1.36 D-1.36-3：納入 .ns-washi-card 紙卡托底守護水鏡鎌倉等主題） ═══════════ */
+.page.ns-fs {
+  display: flex; flex-direction: column; overflow: hidden;
+  padding: var(--sp-5) var(--canvas-margin) var(--sp-4);
+}
+.ns-fs-card {
+  flex: 1 1 auto; min-height: 0;
+  width: 100%; max-width: var(--read-w); margin-inline: auto;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.ns-fs-head { flex: none; padding: var(--sp-5) var(--sp-6) 0; }
 .ns-fs-field {
   display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); height: 54px;
   border-bottom: 1px solid var(--color-dash); color: var(--color-ink-faint);
@@ -73,15 +80,14 @@
 .ns-fs-stats .btn-text { font-size: var(--fs-xs); }
 
 /* 清單（自己捲） */
-/* 清單欄兩側各一條捲軸寬（捲軸在不在都左右相等）；列的 hover 底往左右各多吃 8px（同原本），字仍對齊頁首 */
-.ns-fs-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 10px calc(var(--read-inset) - 18px) 0; scroll-padding: 12px 0; }
+.ns-fs-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 10px var(--sp-5) 0; scroll-padding: 12px 0; }
 .ns-fs-list { list-style: none; margin: 0; padding: 0 0 8px; }
 .ns-fs-list.is-stale { opacity: .55; transition: opacity var(--dur) var(--ease-soft); }
 .ns-fs-hint { margin: var(--sp-5) 8px 0; font-size: var(--fs-sm); line-height: 1.9; letter-spacing: .04em; color: var(--color-ink-soft); }
 .ns-fs-more { display: flex; align-items: center; justify-content: center; height: 46px; font-size: var(--fs-xs); letter-spacing: .2em; color: var(--color-ink-faint); }
 .ns-fs-end { display: flex; align-items: center; gap: var(--sp-3); padding: 18px 0 26px; font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-faint); }
 .ns-fs-end::before, .ns-fs-end::after { content: ""; flex: 1; border-top: 1px dashed var(--color-line); }
-.ns-fs-foot { flex: none; display: flex; gap: 18px; margin: 0 var(--read-inset); padding: 9px 0 12px; }
+.ns-fs-foot { flex: none; display: flex; gap: 18px; margin: 0 var(--sp-6); padding: 9px 0 12px; }
 
 /* 結果列（桌機）：徽章｜名稱＋済（済緊跟名稱，整排朱字擺成一欄太搶）｜淡字路線｜日期；命中在概要／乘務記錄 ⇒ 第二行摘錄 */
 .ns-fs-row {
@@ -95,6 +101,7 @@
 .ns-fs-row.is-active { border-left: var(--sel-line); background: var(--sel-bg); }
 .ns-fs-row > .roundel, .ns-fs-row > .ns-kind-badge { grid-row: 1; align-self: center; }
 [data-theme="dark"] .ns-fs-row .roundel { color: var(--on-roundel); }
+.ns-fs-main { grid-row: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ns-fs-nl { grid-row: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-2); }
 .ns-fs-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -161,6 +168,7 @@
 .ns-fs-mrow .l2 { display: flex; align-items: baseline; gap: 10px; margin-top: 1px; font-size: var(--fs-xs); letter-spacing: .05em; color: var(--color-ink-faint); }
 .ns-fs-mrow .l2 .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-fs-mrow .l2 .ns-fs-date { font-size: var(--fs-xs); }
+.ns-fs-mtags { margin-top: 3px; }
 .ns-fs-mrow .ns-fs-x {
   margin-top: 5px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.65;
 }

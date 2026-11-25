@@ -279,7 +279,7 @@
 .ns-notes-tagcount { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 12px; font-size: var(--fs-ui); letter-spacing: .06em; color: var(--color-ink-soft); }
 .ns-notes-tagcount b { font-weight: 500; color: var(--color-ink); }
 .ns-notes-virt { display: inline-block; padding: 0 6px; margin-right: 4px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .1em; }
-.ns-notes-cloud { display: flex; flex-wrap: wrap; gap: 10px 8px; }
+.ns-notes-cloud { display: flex; flex-wrap: wrap; gap: 10px 8px; padding: var(--sp-5); }
 /* 第一次空（E11 總覽、E13 某荷札掛 0 處）：共用 EmptyState 頁級，上下留白 */
 .ns-notes-tagfirst, .ns-notes-tagnone { padding: var(--sp-6) 0; }
 /* ⋯（UI 丙-6 T1）：鈕＝共用 .ns-iconbtn、選單＝共用 PopMenu（portal 到 body）；這裡只留版位——

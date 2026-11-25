@@ -46,7 +46,9 @@ import {
 } from "../common/seating";
 import { toggleStopoverFlow } from "../outline/nodeFlows";
 import { IconDots } from "../common/icons";
-import { SealSuspended } from "../stamps";
+import { NodeCrumb } from "../common/NodeCrumb";
+import { EntityTagPills } from "../common/TagPills";
+import { SealStopover, SealSuspended } from "../stamps";
 // 時刻字（.tm）的樣式在 schedule.css（串流 .ns-sch 與當日清單浮層 .ns-daypop 兩個前綴都寫在那裡）
 import "../schedule/schedule.css";
 import { rowContextMenu } from "../common/contextMenu";
@@ -247,7 +249,8 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
   const serif = !row.route;
   // 時刻（主線②）：赭＝已過、沒入鋏、沒結局。入鋏是節點層的狀態，定期券只算目前那一班（同 TimeGrid 的口徑）
   const time = row.entry.time;
-  const settled = row.done || row.skipped;
+  const paused = row.node?.status === "paused" && !row.done && !row.skipped;
+  const settled = row.done || row.skipped || paused;
   const doing = row.node?.status === "doing" && (!row.isRepeat || row.node.scheduled_on === row.entry.date);
   const past = time !== null && now !== undefined && !settled && !doing && isClockPast(row.entry.date, time, now);
   const canSlot = row.node ? canActAsSeatSlot(row.node, settled || row.isHistory) : false;
@@ -268,15 +271,17 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
     ? canStamp
       ? `本班運休中——再點一次取消（或按 ${hotkeyCaps("daylist.suspend")}）`
       : "過去的班次不能改——只有目前或未來的班次能運休"
-    : row.done
-      ? row.isCurrent
-        ? "取消「済」章"
-        : "過去的班次不能改"
-      : canStamp
-        ? `蓋章：完成（${hotkeyCaps("daylist.complete")}）`
-        : row.isRepeat && (row.ahead || row.isFuture)
-          ? `這班要到 ${mmdd(row.entry.date)} 才能蓋——済只蓋目前班次`
-          : "過去的班次不能改——只能處理目前的班次";
+    : paused
+      ? "途中下車中——點擊解除恢復"
+      : row.done
+        ? row.isCurrent
+          ? "取消「済」章"
+          : "過去的班次不能改"
+        : canStamp
+          ? `蓋章：完成（${hotkeyCaps("daylist.complete")}）`
+          : row.isRepeat && (row.ahead || row.isFuture)
+            ? `這班要到 ${mmdd(row.entry.date)} 才能蓋——済只蓋目前班次`
+            : "過去的班次不能改——只能處理目前的班次";
 
   const effectiveMenu = menu
     ? (anchor: HTMLElement | null): PopMenuItem[] => {
@@ -358,6 +363,11 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
           <SealSuspended title="運休（本班暫停）" />
         </span>
       )}
+      {paused && !row.skipped && !row.done && (
+        <span className="susp-slot stopover-slot" aria-hidden>
+          <SealStopover title="途中下車（點擊解除）" />
+        </span>
+      )}
     </>
   );
 
@@ -368,7 +378,8 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         "prow",
         row.done && "done",
         row.skipped && "skipped",
-        row.late && "late",
+        paused && "is-paused",
+        row.late && !paused && "late",
         row.rin && "rin",
         isPh && "is-placeholder",
         fresh && "fresh",
@@ -492,26 +503,30 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
               />
             </span>
           )}
-          <span
-            className="t"
-            title={!row.isHistory && row.node ? `${displayTitle}（雙擊行內編輯）` : displayTitle}
-            onDoubleClick={(e) => {
-              if (row.isHistory || !row.node) return;
-              e.stopPropagation();
-              setInlineEdit({ picker: null });
-            }}
-          >
-            {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點；v1.31：點擊直接開優先級小選單 */}
-            {row.node?.priority === "high" && !row.isHistory ? (
-              <QuickPriorityChip nodeId={row.node.id} priority={row.node.priority} className="ns-prio-btn">
-                <PriorityMark priority={row.node.priority} />
-              </QuickPriorityChip>
-            ) : (
-              <PriorityMark priority={row.node?.priority} />
-            )}
-            {displayTitle}
-            {customTitle && <span className="ns-run-origin">（{formatRunOriginText(name, effEst)}）</span>}
-          </span>
+          <div className="prow-main">
+            <NodeCrumb parentId={row.node?.parent_id} compact />
+            <span
+              className="t"
+              title={!row.isHistory && row.node ? `${displayTitle}（雙擊行內編輯）` : displayTitle}
+              onDoubleClick={(e) => {
+                if (row.isHistory || !row.node) return;
+                e.stopPropagation();
+                setInlineEdit({ picker: null });
+              }}
+            >
+              {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點；v1.31：點擊直接開優先級小選單 */}
+              {row.node?.priority === "high" && !row.isHistory ? (
+                <QuickPriorityChip nodeId={row.node.id} priority={row.node.priority} className="ns-prio-btn">
+                  <PriorityMark priority={row.node.priority} />
+                </QuickPriorityChip>
+              ) : (
+                <PriorityMark priority={row.node?.priority} />
+              )}
+              {displayTitle}
+              {customTitle && <span className="ns-run-origin">（{formatRunOriginText(name, effEst)}）</span>}
+            </span>
+            {row.node && <EntityTagPills entityType="node" entityId={row.node.id} max={3} compact />}
+          </div>
           {seatedInto ? (
             <span className="ns-seat-badge" title="已入座預留席">
               {formatSeatBadgeText(seatedInto)}
@@ -578,7 +593,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
           tabIndex={-1}
           className="stamp-s"
           aria-pressed={row.done}
-          aria-label={row.skipped ? "取消本班運休" : row.done ? "取消完成" : "蓋章完成"}
+          aria-label={row.skipped ? "取消本班運休" : paused ? "解除途中下車" : row.done ? "取消完成" : "蓋章完成"}
           title={stampTitle}
           onClick={(e: MouseEvent<HTMLButtonElement>) => {
             e.stopPropagation();
@@ -759,9 +774,13 @@ export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
         </span>
       )}
       {reattach.picker}
-      <span className="t" title={name}>
-        {name}
-      </span>
+      <div className="prow-main">
+        <NodeCrumb parentId={node?.parent_id} compact />
+        <span className="t" title={name}>
+          {name}
+        </span>
+        {node && <EntityTagPills entityType="node" entityId={node.id} max={3} compact />}
+      </div>
       <DetailButton nodeId={node?.id} />
       {node && !isRepeat ? (
         <QuickExecChip

@@ -22,6 +22,8 @@ export interface TicketCardModel {
   /** 優先順序（回饋甲 D-主-133：只有「高」在票名前畫赭色小點）；沒給＝不畫 */
   priority?: Priority;
   routeId: string | null;
+  /** 上層節點 id（v1.36 D-1.36-2：票面向上認親 NodeCrumb 用） */
+  parentId?: string | null;
   /** null＝不畫票號（§0-1 第 12 條：手機沒載過票號表） */
   serial: string | null;
   /** MobileTicket.tsx:68 同一條（第四梯 4A 補上「預留席」） */
@@ -90,6 +92,7 @@ export function cardFromTodayRow(row: TodayRow, _today: string): TicketCardModel
     kind: row.kind,
     priority: row.priority,
     routeId: row.route_id,
+    parentId: row.parent_id,
     serial: row.serial,
     fare: fareOf(rule !== null, row.parent_id, isPh),
     ruleText: rule ? describeRule(rule) : null,
@@ -146,6 +149,7 @@ export function cardFromDayRow(row: DayRowModel, serial: string | null, _today: 
     kind: node?.kind ?? "ticket",
     priority: node?.priority,
     routeId: node?.route_id ?? null,
+    parentId: node?.parent_id ?? null,
     serial,
     fare: fareOf(row.isRepeat, node?.parent_id ?? null, isPh),
     ruleText: rule ? describeRule(rule) : null,
@@ -190,6 +194,7 @@ export function cardFromDue(node: NodeRow, date: string, serial: string | null, 
     kind: node.kind,
     priority: node.priority,
     routeId: node.route_id,
+    parentId: node.parent_id,
     serial,
     fare: fareOf(rule !== null, node.parent_id, isPh),
     ruleText: rule ? describeRule(rule) : null,

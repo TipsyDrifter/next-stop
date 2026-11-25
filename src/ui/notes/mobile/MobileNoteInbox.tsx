@@ -30,6 +30,7 @@ import type { NodeRow } from "../../../domain";
 import type { NoteListItem } from "../../../data/noteRepository";
 import { UketsukeSeal } from "../UketsukeSeal";
 import { EmptyState } from "../../common/EmptyState";
+import { EntityTagPills } from "../../common/TagPills";
 import { MobileAttachPicker } from "../../common/MobileAttachPicker";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
@@ -302,14 +303,21 @@ function NoteCard({
   return (
     <li className={"ns-notes-mitem" + (sel ? " is-sel" : "") + (selecting ? " is-selecting" : "") + (picked ? " is-picked" : "")}>
       <div className="ns-notes-mslip">
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className="ns-notes-mslip-body"
           aria-expanded={selecting ? undefined : sel}
           aria-pressed={selecting ? picked : undefined}
           onClick={() => {
             if (hold.consumeHold()) return;
             onToggle();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onToggle();
+            }
           }}
           {...hold.bind}
         >
@@ -330,7 +338,15 @@ function NoteCard({
               </>
             )}
           </span>
-        </button>
+          <EntityTagPills
+            entityType="note"
+            entityId={n.id}
+            max={3}
+            compact
+            onPick={selecting ? false : undefined}
+            className="ns-notes-mitags"
+          />
+        </div>
         {sel && (
           <div className="ns-notes-mdest is-four" role="group" aria-label="去處">
             <button type="button" className="ns-notes-mact" onClick={() => openPreviewFromNote(n.id)}>
@@ -391,14 +407,21 @@ function TicketCard({
   return (
     <li className={"ns-notes-mitem" + (sel ? " is-sel" : "") + (selecting ? " is-selecting" : "") + (picked ? " is-picked" : "")}>
       <article className="ns-notes-mtk">
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           className="ns-notes-mtk-face"
           aria-expanded={selecting ? undefined : sel}
           aria-pressed={selecting ? picked : undefined}
           onClick={() => {
             if (hold.consumeHold()) return;
             onToggle();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onToggle();
+            }
           }}
           {...hold.bind}
         >
@@ -416,11 +439,19 @@ function TicketCard({
                 {shortDay(day)} {inboxSort === "updated" && t.updated_at !== t.created_at ? "修改" : "建立"}
               </span>
             </span>
+            <EntityTagPills
+              entityType="node"
+              entityId={t.id}
+              max={3}
+              compact
+              onPick={selecting ? false : undefined}
+              className="ns-notes-mitags"
+            />
           </span>
           <span className="ns-notes-mtk-stamp">
             <UketsukeSeal day={stampDay} size={42} />
           </span>
-        </button>
+        </div>
         {sel && (
           // 己-2 A5（D-主-414）：面上留排日期的三顆＋「更多」；掛進列車、掛上路線、荷札、刪除收進「更多」的動作清單
           <div className="ns-notes-mdest is-four" role="group" aria-label="去處">

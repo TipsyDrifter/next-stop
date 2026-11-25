@@ -42,6 +42,8 @@ export interface DiaryHeaderProps {
   searchOpen: boolean;
   /** 放大鏡 */
   onSearchButton(): void;
+  /** 前往當日一日運行專頁（運行實績 ›） */
+  onOpenReport?(): void;
 }
 
 /** 大標裡 DateNav 的 class（DatePicker 的 anchor 用它找標題鈕：G 鍵開的時候沒有點擊事件可拿） */
@@ -59,6 +61,7 @@ export function DiaryHeader({
   onWrite,
   searchOpen,
   onSearchButton,
+  onOpenReport,
 }: DiaryHeaderProps) {
   // DatePicker 掛 body、貼著大日期開（anchor 模式）：點大字或按 G 都從 DOM 找標題鈕
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -97,6 +100,16 @@ export function DiaryHeader({
           <>
             <span>週{weekdayZh(day)}</span>
             <span>{day.slice(0, 4)}年</span>
+            {onOpenReport && (
+              <button
+                type="button"
+                className="ns-btn ns-btn--sm btn-ghost ns-notes-dreport"
+                title={`前往 ${m}月${d}日 一日運行專頁`}
+                onClick={onOpenReport}
+              >
+                運行實績 ›
+              </button>
+            )}
           </>
         }
         stamp={<DateSeal date={dateOfKey(day)} size={92} rotate={-4} className="ns-notes-dateseal" title={`日付印 ${day}`} />}

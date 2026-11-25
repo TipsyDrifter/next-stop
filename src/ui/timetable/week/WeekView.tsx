@@ -96,7 +96,7 @@ export function WeekView({ shell }: { shell: "desktop" | "mobile" }) {
 
   return (
     <section className={"ns-tt-week" + (isDesk ? " is-desk" : "")} aria-label={T.tagThisWeek}>
-      <div className="ns-tt-week-bar">
+      <div className="ns-tt-week-bar ns-washi-strip">
         {/* UI 丙-4 D9：‹ 週 › ＋「回到本週」膠囊換共用 DateNav（「今天」chip＝回到本週，同行程表週視圖）。
             動作＝鍵盤 ←／→／T 的同一支 weekStep／weekToCurrent；已在本週 › 停用、chip 原地不動 */}
         <DateNav

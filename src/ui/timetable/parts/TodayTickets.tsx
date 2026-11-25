@@ -85,7 +85,7 @@ export function TodayTickets() {
 
   return (
     <>
-      <div className="ns-tt-sec ns-tt-todaytix-sec">
+      <div className="ns-tt-sec ns-tt-todaytix-sec ns-washi-strip">
         <h3>{TT_TEXT.TODAY_TICKETS}</h3>
         <span className="ns-tt-sec-rule" />
         <span className="ns-tt-sec-note">

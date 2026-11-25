@@ -8,7 +8,17 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { MIN, blockThresholdOf, planEditRunning, planMerge, runMarker, type BlockLink, type Span } from "../../src/domain/timetable.ts";
+import {
+  MIN,
+  blockRunMarker,
+  blockThresholdOf,
+  planEditRunning,
+  planMerge,
+  planResolveLongRun,
+  runMarker,
+  type BlockLink,
+  type Span,
+} from "../../src/domain/timetable.ts";
 
 const at = (h: number, mi = 0): number => new Date(2026, 9, 22, h, mi).getTime();
 const NOW = at(15, 0);
@@ -111,5 +121,73 @@ describe("D-時-152 planEditRunning：改運行中那一班", () => {
     assert.deepEqual(run.plan.absorbedInto, [{ from: "s", to: "N", off: true }]);
     const ended = [mk("s", "read", at(9, 0), at(10, 0)), mk("N", "meal", at(10, 0), at(11, 0))];
     assert.deepEqual(planMerge(ended, { id: "s", dir: "next", bound: at(23, 0), now: NOW })!.plan.absorbedInto, [{ from: "N", to: "s" }]);
+  });
+});
+
+describe("D-1.36-1 1A-1：blockRunMarker 解耦待確認與唯讀印記 + planEditRunning ack", () => {
+  const cat = { default_min: 60 };
+  const MAX = 14 * 60;
+
+  test("其實到幾點 → 其實在做別的（planResolveLongRun cat），原塊仍逾分類預設長度 ⇒ 保留唯讀長時間運行且 pending: false", () => {
+    const running = mk("r", "read", at(9, 0), null, false);
+    const plan = planResolveLongRun([running], { id: "r", end: at(11, 30), choice: "cat", categoryId2: "meal", now: NOW });
+    const patch = plan.patches.find((p) => p.id === "r");
+    assert.equal(patch?.end, at(11, 30));
+    assert.equal(patch?.ack, true);
+    const resolvedOrig = mk("r", "read", at(9, 0), at(11, 30), true); // 2.5h > 1h (cat.default_min)
+    assert.equal(blockThresholdOf(true, null, cat, MAX, null)?.min, MAX, "統計門檻仍不看分類預設");
+    assert.deepEqual(blockRunMarker(resolvedOrig, true, null, cat, MAX, null, NOW), { kind: "long", pending: false });
+  });
+
+  test("其實到幾點 → 留白（gap）或 切完後不超預設長度 ⇒ 逾門檻留唯讀、未逾門檻為 none", () => {
+    const overOrig = mk("r1", "read", at(9, 0), at(10, 30), true); // 90m > 60m
+    assert.deepEqual(blockRunMarker(overOrig, true, null, cat, MAX, null, NOW), { kind: "long", pending: false });
+    const underOrig = mk("r2", "read", at(9, 0), at(9, 45), true); // 45m <= 60m
+    assert.deepEqual(blockRunMarker(underOrig, true, null, cat, MAX, null, NOW), { kind: "none" });
+  });
+
+  test("一般到着／換車結束連有車票預計時長之超時塊 ⇒ 保留唯讀 誤點 +X（pending: false）", () => {
+    const s = mk("t1", "read", at(9, 0), at(10, 15), false); // 75m > taskEstimateMin 45m
+    assert.deepEqual(blockRunMarker(s, true, null, cat, MAX, 45, NOW), {
+      kind: "late",
+      overMs: 30 * MIN,
+      pending: false,
+    });
+    // 若改回未超 taskEstimateMin ⇒ none
+    const ok = mk("t2", "read", at(9, 0), at(9, 40), false);
+    assert.deepEqual(blockRunMarker(ok, true, null, cat, MAX, 45, NOW), { kind: "none" });
+    // 若連有車票預計時長又同時超過 globalMaxMin 且未 ack ⇒ pending: true（忘記停車）
+    const forgot = mk("t3", "read", at(0, 0), NOW, false); // 15h > 14h
+    assert.deepEqual(blockRunMarker(forgot, true, null, cat, MAX, 45, NOW), {
+      kind: "late",
+      overMs: (15 * 60 - 45) * MIN,
+      pending: true,
+    });
+  });
+
+  test("正常結束塊超過分類預設但未 ack、無預估與車票預計 ⇒ 不標記也不觸發待確認", () => {
+    const normal = mk("n1", "read", at(9, 0), at(12, 0), false); // 3h > cat 1h, < global 14h
+    assert.deepEqual(blockRunMarker(normal, true, null, cat, MAX, null, NOW), { kind: "none" });
+    // 但若超過 globalMaxMin 且未 ack ⇒ 仍待確認
+    const extreme = mk("n2", "read", at(0, 0), NOW, false); // 15h > 14h
+    assert.deepEqual(blockRunMarker(extreme, true, null, cat, MAX, null, NOW), { kind: "long", pending: true });
+    // 若為班次自訂預估（estimateMin）且未 ack ⇒ 仍為 pending: true
+    const estLate = mk("n3", "read", at(9, 0), at(10, 0), false);
+    assert.deepEqual(blockRunMarker(estLate, true, 30, cat, MAX, null, NOW), { kind: "late", overMs: 30 * MIN, pending: true });
+  });
+
+  test("planEditRunning 編輯運行中塊超過 12 小時並確認（ack: true）⇒ 寫入 ack: true（含換分類覆蓋歸 0）", () => {
+    const spans = [mk("r", "read", at(12, 0), null, false)];
+    const longStart = at(1, 0); // 14h ago at NOW=15:00
+    const pSameCat = planEditRunning(spans, { id: "r", categoryId: "read", start: longStart, now: NOW, ack: true });
+    assert.deepEqual(pSameCat.patches, [{ id: "r", start: longStart, ack: true }]);
+
+    const pSwitchCat = planEditRunning(spans, { id: "r", categoryId: "meal", start: longStart, now: NOW, ack: true });
+    assert.deepEqual(pSwitchCat.patches, [{ id: "r", start: longStart, categoryId: "meal", ack: true }]);
+
+    // 本來就已確認過、未換分類 ⇒ 不重寫 ack
+    const ackedSpans = [mk("r", "read", at(12, 0), null, true)];
+    const pAlreadyAcked = planEditRunning(ackedSpans, { id: "r", categoryId: "read", start: longStart, now: NOW, ack: true });
+    assert.deepEqual(pAlreadyAcked.patches, [{ id: "r", start: longStart }]);
   });
 });

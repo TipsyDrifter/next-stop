@@ -10,8 +10,12 @@
 import { useMemo, type CSSProperties } from "react";
 import { categoryColorCss, fmtClock, fmtDur, noteOf, segmentsOfDay, toSpan, type AxisItem, type TimeBlockRow } from "../../../domain/timetable";
 import { linkLabelOf } from "../../../domain/timetableLink";
+import { focusBlockTags } from "../../../domain/timetableTags";
+import { useTagStore } from "../../../store/tagStore";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
+import { TagDotHint, TagPills } from "../../common/TagPills";
+import { useTimetableTagMaps } from "../parts/TimetableTagChips";
 import { pct } from "./scheduleModel";
 import type { SchedulePage } from "./useSchedulePage";
 
@@ -20,9 +24,12 @@ type BlockItem = Extract<AxisItem, { kind: "block" }>;
 export function ActualColumn({ page, hourPx }: { page: SchedulePage; hourPx: number }) {
   const dayBlocks = useTimetableStore((s) => s.dayBlocks);
   const ttDay = useTimetableStore((s) => s.dayKey);
+  const categories = useTimetableStore((s) => s.categories);
   const catById = useTimetableStore((s) => s.catById);
   const linkInfo = useTimetableStore((s) => s.linkInfo);
   const setHover = useTimetableScheduleStore((s) => s.setHover);
+  const tagIndex = useTagStore((s) => s.index);
+  const tagMaps = useTimetableTagMaps();
   const { win, now, activeBlocks, nodes, shell } = page;
   const desk = shell === "desktop";
   // 實績跟預定要是同一天：時刻表的那一天還沒換過來（refresh 在跑）時先不畫，免得閃一下別天的塊
@@ -62,8 +69,12 @@ export function ActualColumn({ page, hourPx }: { page: SchedulePage; hourPx: num
         const to = it.running ? Math.min(now, win.end) : it.to;
         const hpx = ((to - it.from) / 3_600_000) * hourPx;
         const whole = (it.span.end ?? now) - it.span.start;
+        const focusTags = focusBlockTags({ id: it.span.id, categoryId: it.span.categoryId }, categories, tagMaps);
+        const tagLine = focusTags.length > 0 ? focusTags.map((k) => `#${tagIndex?.byKey[k]?.name ?? k}`).join("  ") : null;
         const tip = `${catName}${linked ? "・" + label : ""}　${fmtClock(it.span.start)}–${it.span.end === null ? TT_TEXT.weekUi.running : fmtClock(it.span.end)}（${fmtDur(whole)}）`;
         const note = noteOf(row); // ⑦：備註進 tooltip（塊太矮放不下字，只進這裡）
+        const fullTip = [tip, tagLine, note].filter(Boolean).join("\n");
+        const ariaTip = [tip, tagLine, note].filter(Boolean).join("　");
         const style = {
           "--c": categoryColorCss(cat, 8),
           top: pct((it.from - win.start) / D),
@@ -81,8 +92,8 @@ export function ActualColumn({ page, hourPx }: { page: SchedulePage; hourPx: num
             key={it.span.id + ":" + it.from}
             className={cls}
             style={style}
-            title={note ? `${tip}\n${note}` : tip}
-            aria-label={note ? `${tip}　${note}` : tip}
+            title={fullTip}
+            aria-label={ariaTip}
             onPointerEnter={(e) => {
               if (e.pointerType === "mouse") setHover({ kind: "block", id: it.span.id });
             }}
@@ -95,9 +106,12 @@ export function ActualColumn({ page, hourPx }: { page: SchedulePage; hourPx: num
             }}
           >
             {hpx >= 13 && (
-              <span className="ns-tt-sched-bn">
-                {linked ? label : catName}
-                {linked && desk && <i>・{catName}</i>}
+              <span className="ns-tt-sched-bn-row">
+                <span className="ns-tt-sched-bn">
+                  {linked ? label : catName}
+                  {linked && desk && <i>・{catName}</i>}
+                </span>
+                {focusTags.length > 0 && hpx < 54 && <TagDotHint keys={focusTags} />}
               </span>
             )}
             {hpx >= 28 && (
@@ -105,6 +119,11 @@ export function ActualColumn({ page, hourPx }: { page: SchedulePage; hourPx: num
                 {fmtClock(it.span.start)}
                 {it.running ? ` 起・${TT_TEXT.weekUi.running}` : `–${fmtClock(it.span.end ?? to)}`}
               </small>
+            )}
+            {hpx >= 54 && focusTags.length > 0 && (
+              <span className="ns-tt-sched-blk-tags">
+                <TagPills keys={focusTags} max={2} compact onPick={false} />
+              </span>
             )}
           </button>
         );

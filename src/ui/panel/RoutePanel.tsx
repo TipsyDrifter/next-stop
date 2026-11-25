@@ -155,8 +155,8 @@ export function RoutePanel({ route }: { route: NodeRow }) {
           />
         </FieldRow>
 
-        {/* 別線登記的路線欄位列（插槽 nodeFields，kinds 含 route 才出）；沒有就零 DOM */}
-        <LineRows node={route} />
+        {/* 別線登記的路線欄位列（插槽 nodeFields，kinds 含 route 才出；all 涵蓋 meta／status／footprint 不遺漏）；沒有就零 DOM */}
+        <LineRows node={route} section="all" />
       </div>
 
       <StationList routeId={route.id} />

@@ -54,7 +54,7 @@ export function CategoryGrid({ selected, onPick, compact = false, totals, runnin
     <>
       {groups.map(({ group, children }) => (
         <div className="ns-tt-group" key={group.id}>
-          <span className="ns-tt-group-name">{group.name}</span>
+          <span className={"ns-tt-group-name" + (!compact ? " ns-washi-strip" : "")}>{group.name}</span>
           <div className={"ns-tt-cats" + (compact ? " is-compact" : "")}>
             {children.map((c) => {
               const live = runningId !== null && runningId === c.id;

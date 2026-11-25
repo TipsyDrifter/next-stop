@@ -39,13 +39,8 @@ import { useBackLayer } from "../../mobile/backStack";
 import { useDiaryPickMarks } from "../useDiaryPickMarks";
 import { MobileDiaryStrip } from "./MobileDiaryStrip";
 import { MobileDiaryDraft, MobileDiaryEntry, type DraftHandle } from "./MobileDiaryEntry";
-import { MobileFootprints } from "./MobileFootprints";
 import { IconLeft, IconPen, IconPlus, IconRight, IconSearch, IconX, highlight, useTodayKey } from "./mobileDiaryBits";
-import { preloadLocalFlag, useLocalFlag } from "../../common/useLocalFlag";
-
-/** 己-2 B4（D-主-419）：當天足跡區開合（本機、不同步；手機殼才有這個摺疊）。模組層先讀，進頁不先展開再收 */
-const KEY_FP_OPEN_MOBILE = "notes_diary_fp_open_mobile";
-preloadLocalFlag(KEY_FP_OPEN_MOBILE);
+import { openReportDaySpread } from "../../report/reportJumps";
 
 export function MobileDiary() {
   const diaryDay = useNotesStore((s) => s.diaryDay);
@@ -54,8 +49,6 @@ export function MobileDiary() {
   const draftOpen = useNotesStore((s) => s.diaryDraftOpen);
   const diaryQuery = useNotesStore((s) => s.diaryQuery);
   const hits = useNotesStore((s) => s.diaryHits);
-  const fpDay = useNotesStore((s) => s.fpDay);
-  const footprint = useNotesStore((s) => s.footprint);
   const marksMonth = useNotesStore((s) => s.marksMonth);
   const diaryMarks = useNotesStore((s) => s.diaryMarks);
   const footprintDays = useNotesStore((s) => s.footprintDays);
@@ -63,14 +56,11 @@ export function MobileDiary() {
   const openDiaryDraft = useNotesStore((s) => s.openDiaryDraft);
   const setDiaryQuery = useNotesStore((s) => s.setDiaryQuery);
   const openDiaryHit = useNotesStore((s) => s.openDiaryHit);
-  const stepFpDay = useNotesStore((s) => s.stepFpDay);
-  const fpBackToDiaryDay = useNotesStore((s) => s.fpBackToDiaryDay);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = useTodayKey();
   // 剛翻日、新的一天還沒載回來時，store 裡仍是前一天的篇：只畫屬於這一天的（與桌機 NotesDiary 同法，免得閃一下）
   const entries = useMemo(() => allEntries.filter((n) => n.entry_date === diaryDay), [allEntries, diaryDay]);
 
-  const [fpOpen, setFpOpen] = useLocalFlag(KEY_FP_OPEN_MOBILE, true); // 己-2 B4：記住上次
   const [pickDay, setPickDay] = useState(false);
   // 磨光① 返回層：日期面板＝同「取消」
   //   UI 丙-6 S9：日期面板傳同一個 id＋kind（backId／backKind）⇒ MSheet 殼合併成這一層
@@ -86,11 +76,10 @@ export function MobileDiary() {
   const scrollTo = useRef<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // 進頁：以 store 目前的日把三份資料補一次（第一次進日記由 setSection 載過；切 tab 回來時別台可能已改過）
+  // 進頁：以 store 目前的日把資料補一次（切 tab 回來時別台可能已改過）
   useEffect(() => {
     const st = useNotesStore.getState();
     void st.loadDiary();
-    void st.loadFootprint();
     void st.loadMarks();
     return () => window.clearTimeout(timer.current);
   }, []);
@@ -186,6 +175,14 @@ export function MobileDiary() {
         <button type="button" className="ns-notes-mtodaybtn" aria-current={isToday ? "date" : undefined} onClick={() => { if (!isToday) goDay(today); }}>
           今天
         </button>
+        <button
+          type="button"
+          className="ns-notes-mreportbtn"
+          aria-label={`前往 ${fmtMonthDay(diaryDay)} 一日運行專頁`}
+          onClick={() => void leaveDay(() => openReportDaySpread(diaryDay, "mobile"))}
+        >
+          運行實績 ›
+        </button>
       </div>
 
       <div className="ns-notes-mtools">
@@ -274,17 +271,6 @@ export function MobileDiary() {
           )}
         </article>
       )}
-
-      <MobileFootprints
-        open={fpOpen}
-        onToggle={() => setFpOpen(!fpOpen)}
-        fpDay={fpDay}
-        diaryDay={diaryDay}
-        today={today}
-        footprint={footprint}
-        onStep={stepFpDay}
-        onBack={fpBackToDiaryDay}
-      />
 
       {pickDay && (
         <MobileDatePicker

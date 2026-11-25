@@ -13,7 +13,7 @@
  * 推導一律用**含封存**的分類清單（封存的分類仍有歷史塊，同 ③ 0-5）；呼叫端傳整張 `categories`，這裡不濾封存。
  */
 import type { TimeCategoryRow } from "./timetable.ts";
-import { isUnder, parentOf } from "./tags.ts";
+import { isUnder, keyOf, parentOf } from "./tags.ts";
 
 /* ───────────────────────── 1. entity_type ───────────────────────── */
 
@@ -149,6 +149,36 @@ export function blockTags(b: { id: string; categoryId: string }, cats: readonly 
   const out: string[] = [];
   if (manual) for (const k of manual) if (!out.includes(k)) out.push(k);
   for (const list of [own, group]) if (list) for (const k of list) if (!out.includes(k) && !(off && off.includes(k))) out.push(k);
+  return out.sort(asc);
+}
+
+/**
+ * D-1.36-2（1B-1）：時間塊於票面／軸上應顯影的「焦點荷札」：
+ * - 優先取手動掛載的荷札（`m.block[b.id]`）
+ * - 自動過濾掉與該分類名稱（或其所屬組名）相同的荷札
+ * - 自動過濾掉屬於分類／組預設自帶（`catDefaults`）與已在排除名單（`m.off[b.id]`）內的荷札
+ * 藉此突顯使用者手動掛載的副活動與人物荷札，避免時間軸與看板重複堆砌常駐分類標籤。
+ */
+export function focusBlockTags(b: { id: string; categoryId: string }, cats: readonly TimeCategoryRow[], m: TimetableTagMaps): string[] {
+  const manual = m.block[b.id];
+  if (!manual || manual.length === 0) return [];
+  const idx = catIndexOf(cats);
+  const cat = idx.get(b.categoryId);
+  const parent = cat?.parent_id ? idx.get(cat.parent_id) : undefined;
+  const redundant = new Set<string>();
+  const ck = cat?.name ? keyOf(cat.name) : null;
+  if (ck) redundant.add(ck);
+  const pk = parent?.name ? keyOf(parent.name) : null;
+  if (pk) redundant.add(pk);
+  const defaults = catDefaults(b.categoryId, cats, m);
+  for (const k of defaults.own) redundant.add(k);
+  for (const k of defaults.fromGroup) redundant.add(k);
+  const off = m.off?.[b.id];
+  if (off) for (const k of off) redundant.add(k);
+  const out: string[] = [];
+  for (const k of manual) {
+    if (!redundant.has(k) && !out.includes(k)) out.push(k);
+  }
   return out.sort(asc);
 }
 

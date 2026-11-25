@@ -80,10 +80,11 @@ import {
   resultSummary,
   routeCtx,
 } from "../../domain/ticketView";
-import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../domain/ticketTags";
+import { TK_TAG_ENTRY, TK_TAG_REPEAT, entityTagMap, tagNameOf } from "../../domain/ticketTags";
 import { PageHeader } from "../common/PageHeader";
 import { DateNav } from "../common/DateNav";
 import { EmptyState } from "../common/EmptyState";
+import { TagPills, useMergedEntityTagKeys } from "../common/TagPills";
 import { IconBack, IconPlus } from "../common/icons";
 import { runOnBlankClick } from "../common/selection/desktopSelection";
 // 第②階段（②契約 §5.1）：頁首視圖切換／搜尋列／篩選 chips、月曆與統計視圖
@@ -474,63 +475,39 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
     return () => clearTimeout(t);
   }, [dayNotice]);
 
-  /* 一筆帳簿行（月份清單與搜尋結果共用）；day＝平面清單（金額排序）每列前面的日期字 */
-  const rowOf = (e: EntryRow, day?: string): ReactNode => {
-    const active = panelOpen && selectedId === e.id;
-    const amt = rowAmount(e, filterAccountId, accById, mainCode);
-    const cur = curByCode[amt.currency];
-    const foreign = amt.currency !== mainCode;
-    const route = e.route_id ? routeById[e.route_id] : undefined;
-    return (
-      <li
-        key={e.id}
-        id={`tk-row-${e.id}`}
-        role="option"
-        aria-selected={selectedId === e.id}
-        className={`ns-tk-row${active ? " is-active" : ""}`}
-        data-kind={e.kind}
-        onMouseDown={(ev) => ev.preventDefault() /* 焦點留在清單（鍵盤表接得到） */}
-        onClick={() => {
-          store().select(e.id);
-          listRef.current?.focus({ preventScroll: true });
-        }}
-        onDoubleClick={() => onOpen(e.id)}
-      >
-        <span className="ns-tk-sign" aria-hidden>
-          {amt.prefix}
-        </span>
-        {day !== undefined && <span className="ns-tk-rday">{day}</span>}
-        <span className="ns-tk-main">
-          <span className="ns-tk-cat" title={entryCatTitle(e, catById)}>
-            <EntryCat e={e} />
-          </span>
-          {/* 第③階段（③契約 §5.4、✎-5）：定期記的帳（規則已刪也照標） */}
-          {e.repeat_id && (
-            <span className="ns-tk-rep" title="定期帳記的">
-              定期
-            </span>
-          )}
-          {e.note && <span className="ns-tk-note">{e.note}</span>}
-        </span>
-        <span className="ns-tk-route">
-          {route && (
-            <>
-              <TkRoundel route={route} />
-              {route.code}
-            </>
-          )}
-        </span>
-        <span
-          className="ns-tk-amt"
-          title={!masked && foreign && amt.convMain !== null ? `≈ ${mainSym} ${moneyText(amt.convMain, mainDec, { whole: true })}` : undefined}
-        >
-          <b>{masked ? maskedMoneyText(amt.currency) : moneyText(amt.minor, cur?.decimals ?? 2)}</b>
-          {!masked && foreign && <span className="cur">{amt.currency}</span>}
-        </span>
-        <i className="rule" aria-hidden />
-      </li>
-    );
+  const onPickTag = (key: string) => {
+    const st = useTicketStore.getState();
+    const cur = st.searchOpen ? st.filter.tagKeys : st.listFilter.tagKeys;
+    const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
+    if (st.searchOpen) void st.patchFilter({ tagKeys: next });
+    else void st.patchListFilter({ tagKeys: next });
   };
+
+  /* 一筆帳簿行（月份清單與搜尋結果共用）；day＝平面清單（金額排序）每列前面的日期字 */
+  const rowOf = (e: EntryRow, day?: string): ReactNode => (
+    <LedgerRow
+      key={e.id}
+      e={e}
+      day={day}
+      selected={selectedId === e.id}
+      active={panelOpen && selectedId === e.id}
+      filterAccountId={filterAccountId}
+      accById={accById}
+      catById={catById}
+      curByCode={curByCode}
+      mainCode={mainCode}
+      mainDec={mainDec}
+      mainSym={mainSym}
+      masked={masked}
+      route={e.route_id ? routeById[e.route_id] : undefined}
+      onSelect={() => {
+        store().select(e.id);
+        listRef.current?.focus({ preventScroll: true });
+      }}
+      onOpen={() => onOpen(e.id)}
+      onPickTag={onPickTag}
+    />
+  );
 
   /* 一天：分組頭（日付小字＋當日小計）＋帳簿行；withYear＝搜尋結果跨月時印年 */
   const pushDay = (out: ReactNode[], g: DayGroup, withYear: boolean) => {
@@ -844,5 +821,104 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         </div>
       )}
     </main>
+  );
+}
+
+function LedgerRow({
+  e,
+  day,
+  selected,
+  active,
+  filterAccountId,
+  accById,
+  catById,
+  curByCode,
+  mainCode,
+  mainDec,
+  mainSym,
+  masked,
+  route,
+  onSelect,
+  onOpen,
+  onPickTag,
+}: {
+  e: EntryRow;
+  day?: string;
+  selected: boolean;
+  active: boolean;
+  filterAccountId: string | null;
+  accById: Readonly<Record<string, AccountRow>>;
+  catById: Readonly<Record<string, CategoryRow>>;
+  curByCode: Readonly<Record<string, { code: string; decimals: number }>>;
+  mainCode: string;
+  mainDec: number;
+  mainSym: string;
+  masked: boolean;
+  route: NodeRow | undefined;
+  onSelect(): void;
+  onOpen(): void;
+  onPickTag(key: string): void;
+}) {
+  const tagRefs = useMemo(
+    () =>
+      e.repeat_id
+        ? ([
+            [TK_TAG_ENTRY, e.id],
+            [TK_TAG_REPEAT, e.repeat_id],
+          ] as const)
+        : ([[TK_TAG_ENTRY, e.id]] as const),
+    [e.id, e.repeat_id],
+  );
+  const tagKeys = useMergedEntityTagKeys(tagRefs);
+  const amt = rowAmount(e, filterAccountId, accById, mainCode);
+  const cur = curByCode[amt.currency];
+  const foreign = amt.currency !== mainCode;
+  return (
+    <li
+      id={`tk-row-${e.id}`}
+      role="option"
+      aria-selected={selected}
+      className={`ns-tk-row${active ? " is-active" : ""}`}
+      data-kind={e.kind}
+      onMouseDown={(ev) => ev.preventDefault() /* 焦點留在清單（鍵盤表接得到） */}
+      onClick={onSelect}
+      onDoubleClick={onOpen}
+    >
+      <span className="ns-tk-sign" aria-hidden>
+        {amt.prefix}
+      </span>
+      {day !== undefined && <span className="ns-tk-rday">{day}</span>}
+      <span className="ns-tk-main">
+        <span className="ns-tk-cat" title={entryCatTitle(e, catById)}>
+          <EntryCat e={e} />
+        </span>
+        {/* 第③階段（③契約 §5.4、✎-5）：定期記的帳（規則已刪也照標） */}
+        {e.repeat_id && (
+          <span className="ns-tk-rep" title="定期帳記的">
+            定期
+          </span>
+        )}
+        {e.note && <span className="ns-tk-note">{e.note}</span>}
+        {tagKeys.length > 0 && (
+          <TagPills keys={tagKeys} max={3} compact onPick={onPickTag} className="ns-tk-rtags" />
+        )}
+      </span>
+      <span className="ns-tk-route">
+        {route && (
+          <>
+            <TkRoundel route={route} />
+            {route.code}
+          </>
+        )}
+      </span>
+      <span
+        className="ns-tk-amt"
+        title={!masked && foreign && amt.convMain !== null ? `≈ ${mainSym} ${moneyText(amt.convMain, mainDec, { whole: true })}` : undefined}
+      >
+        <b>{masked ? maskedMoneyText(amt.currency) : moneyText(amt.minor, cur?.decimals ?? 2)}</b>
+        {!masked && foreign && <span className="cur">{amt.currency}</span>}
+      </span>
+      <i className="rule" aria-hidden />
+    </li>
   );
 }

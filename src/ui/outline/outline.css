@@ -151,13 +151,27 @@
   }
 }
 /* 運休也是「結局」：延着照 done 那一套退到右下小號（techo.css `.ticket.done .late-seal` 的座標；同 today.css） */
-.ns-outline .ticket.is-suspended .late-seal {
+.ns-outline .ticket.is-suspended .late-seal,
+.ns-outline .ticket.is-paused .late-seal {
   position: absolute; right: 114px; bottom: 9px;
   align-self: auto; margin-right: 0;
   border-width: 1.4px;
   font-size: 10px; letter-spacing: .24em; text-indent: .24em; /* 印章專用（小號角印），同 techo.css 原型定值 */
   padding: 2px 5px;
   opacity: .38; pointer-events: none;
+}
+/* 途中下車（v1.36 D-1.36-6）：検印欄蓋墨色角印，收起虛線「検印」提示與淡化標題 */
+.ns-outline .ticket.is-paused .stamp { border-color: transparent; }
+.ns-outline .ticket.is-paused .stamp .hint { opacity: 0; }
+.ns-outline .ticket.is-paused .title { color: var(--color-ink-faint); }
+/* 頁尾在水鏡鎌倉等實景天空底圖上鋪宣紙薄襯帶（v1.36 D-1.36-3） */
+.ns-outline .page-foot {
+  padding: 10px 14px;
+  background: var(--washi-strip-bg);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
 }
 
 /* ═══ 頁首（UI 丙-3 B1：PageHeader；頁首本體樣式在 common/pageheader.css） ═══ */

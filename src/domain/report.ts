@@ -150,6 +150,8 @@ export interface ReportSealItemFact {
   kind?: "train" | "car" | "ticket";
   /** 定期券班次日 YYYY-MM-DD；一般單發票為 null */
   dueOn?: string | null;
+  /** 跟著済章讀的心情燈號（nodes.mood 或 occurrences.mood）；沒點＝null */
+  mood?: "green" | "yellow" | "red" | null;
   tagKeys?: readonly string[];
 }
 
@@ -297,6 +299,8 @@ export interface ReportDaySealItem {
   clock: string;
   /** 定期券班次日（非 null 代表定期券某回班次） */
   dueOn: string | null;
+  /** 蓋章時的心情燈號（順暢 green／平穩 yellow／吃力 red） */
+  mood?: "green" | "yellow" | "red" | null;
   tagKeys: readonly string[];
 }
 
@@ -327,6 +331,7 @@ export interface ReportDayExpenseItem {
   routeId: string | null;
   at: string;
   clock: string;
+  tagKeys?: readonly string[];
 }
 
 export interface ReportDayMoneyDetail {
@@ -373,6 +378,19 @@ export interface ReportSpreadReflection {
   createdAt: string;
 }
 
+export interface ReportWorkLogFact {
+  id: string;
+  nodeId: string;
+  nodeName: string;
+  body: string;
+  at: string;
+  nodeMissing: boolean;
+}
+
+export interface ReportWorkLogItem extends ReportWorkLogFact {
+  clock: string;
+}
+
 export interface ReportDaySpreadData {
   day: string;
   isToday: boolean;
@@ -380,6 +398,10 @@ export interface ReportDaySpreadData {
   routes: Readonly<Record<string, ReportRouteRef>>;
   /** 當日車站／路線到站等記事章 */
   dayNotes: readonly string[];
+  /** 當日乘務記錄手記（手寫體正文，依時刻升冪；由原日記當天足跡無損交接） */
+  workLogs: readonly ReportWorkLogItem[];
+  /** 當日心情三色燈彙總列（依完成時刻升冪，不含 null） */
+  moods: readonly ("green" | "yellow" | "red")[];
   /** 旅客筆記通車時為當日日記全文陣列（空陣列＝尚未寫日記）；未通車為 null */
   diaries: readonly ReportSpreadDiaryEntry[] | null;
   /** 當日「車窓の問い」問答手札（無回答時為空陣列） */
@@ -392,6 +414,8 @@ export interface SingleDaySpreadFacts {
   dayStartHour: number;
   routes: Readonly<Record<string, ReportRouteRef>>;
   seals: readonly ReportSealItemFact[];
+  /** 當日乘務記錄手記原始列（未傳預設空陣列） */
+  workLogs?: readonly ReportWorkLogFact[];
   time: ReportTimeFacts | null;
   money: { expenses: readonly ReportExpenseFact[]; decimals: number } | null;
   /** 旅客筆記通車時傳入當日日記列；未通車傳 null */
@@ -760,6 +784,7 @@ export function buildOperationReport(f: ReportFacts, now: number): OperationRepo
         at: s.at,
         clock: wallClockOfIso(s.at),
         dueOn: s.dueOn ?? null,
+        mood: s.mood ?? null,
         tagKeys: s.tagKeys ?? [],
       };
       const arr = sealItemsByDay.get(d);
@@ -786,6 +811,7 @@ export function buildOperationReport(f: ReportFacts, now: number): OperationRepo
           routeId: e.routeId && f.routes[e.routeId] ? e.routeId : null,
           at: e.at,
           clock: wallClockOfIso(e.at),
+          tagKeys: e.tagKeys ?? [],
         };
         const arr = expItemsByDay.get(e.day);
         if (arr) arr.push(item);
@@ -1180,6 +1206,7 @@ function buildDayDetailFromRaw(input: {
       at: s.at,
       clock: wallClockOfIso(s.at),
       dueOn: s.dueOn ?? null,
+      mood: s.mood ?? null,
       tagKeys: s.tagKeys ?? [],
     });
   }
@@ -1220,6 +1247,7 @@ function buildDayDetailFromRaw(input: {
         routeId: e.routeId && routes[e.routeId] ? e.routeId : null,
         at: e.at,
         clock: wallClockOfIso(e.at),
+        tagKeys: e.tagKeys ?? [],
       });
     }
     entries.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
@@ -1319,12 +1347,29 @@ export function buildSingleDaySpread(input: SingleDaySpreadFacts, now: number): 
     uniqueNotes.push(clean);
   }
 
+  const workLogs: ReportWorkLogItem[] = (input.workLogs ?? [])
+    .slice()
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+    .map((l) => ({
+      ...l,
+      clock: wallClockOfIso(l.at),
+    }));
+
+  const moods: ("green" | "yellow" | "red")[] = [];
+  for (const s of detail.seals) {
+    if (s.mood === "green" || s.mood === "yellow" || s.mood === "red") {
+      moods.push(s.mood);
+    }
+  }
+
   return {
     day,
     isToday: day === today,
     detail,
     routes,
     dayNotes: uniqueNotes,
+    workLogs,
+    moods,
     diaries,
     reflections,
   };

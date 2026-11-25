@@ -50,12 +50,14 @@ export function MobileTtSchedule() {
   const isWeek = page.scheduleMode === "week";
   return (
     <div className="ns-tt-sched is-phone" data-no-fab aria-label={TT_TEXT.viewSchedule}>
-      <ScheduleNav page={page} />
+      <div className="ns-tt-sched-mtop ns-washi-strip">
+        <ScheduleNav page={page} />
+        {!isWeek && <ScheduleSummary page={page} />}
+      </div>
       {isWeek ? (
         <ScheduleWeekGrid page={page} />
       ) : (
         <>
-          <ScheduleSummary page={page} />
           {page.error && !page.grid && <p className="ns-tt-sched-err">⚠ {page.error}</p>}
           <UnscheduledTray page={page} mode="chips" drag={drag} onDragStart={onPointerDown} swallowClick={swallowClick} />
           <ScheduleGrid

@@ -51,7 +51,7 @@ export function PeriodBar({ today, h, ws, desktop }: { today: string; h: number;
   const pn = periodName(period, shownKey, today, h, ws);
 
   return (
-    <div className="ns-tt-stats-pbar">
+    <div className="ns-tt-stats-pbar ns-washi-strip">
       <span className="ns-tt-stats-seg" role="group" aria-label={T.periodGroup}>
         {PERIODS.map((p) => {
           const cap = desktop ? capOf(KEY_ID[p]) : null;

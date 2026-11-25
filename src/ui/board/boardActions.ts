@@ -20,7 +20,7 @@ import { todayKey } from "../../lib/date";
 import { APPEND, moveWithUndo } from "../../store/batchActions";
 import { isSettling, useNodeStore, whileSettling } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
-import { changeStatusFlow, openKidsOf } from "../outline/nodeFlows";
+import { changeStatusFlow, openKidsOf, toggleStopoverFlow } from "../outline/nodeFlows";
 
 const ns = () => useNodeStore.getState();
 const ui = () => useUiStore.getState();
@@ -115,6 +115,10 @@ export async function stampCard(node: TaskRow): Promise<boolean> {
     return false;
   }
   if (isSettling(node.id)) return false;
+  if (node.status === "paused") {
+    await toggleStopoverFlow(node.id);
+    return false;
+  }
   if (node.has_kids) {
     changeStatusFlow(node, "done", openKidsOf(node));
     return false;

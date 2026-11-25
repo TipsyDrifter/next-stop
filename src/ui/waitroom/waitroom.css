@@ -90,6 +90,7 @@
 .ns-wr-row .main { min-width: 0; display: grid; gap: 4px; }
 .ns-wr-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-body); font-weight: 500; letter-spacing: .05em; color: var(--color-ink); }
 .ns-wr-row .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-wr-tags { margin-top: 1px; }
 .ns-wr-row .amt { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線照原型 */
 .ns-wr-row .amt small { margin-right: 3px; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-faint); }
 .ns-wr-row .amt small.none { margin-right: 0; }
@@ -195,6 +196,7 @@
 [data-shell="mobile"] .ns-wr-mrow .main:active { background: var(--hover-bg); }
 [data-shell="mobile"] .ns-wr-mrow .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-body); font-weight: 500; letter-spacing: .05em; color: var(--color-ink); }
 [data-shell="mobile"] .ns-wr-mrow .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-wr-mtags { margin-top: 2px; }
 [data-shell="mobile"] .ns-wr-mrow .amt { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線照原型 */
 [data-shell="mobile"] .ns-wr-mrow .amt small { margin-right: 3px; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-wr-mrow .amt small.none { margin-right: 0; }

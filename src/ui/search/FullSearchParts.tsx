@@ -21,6 +21,8 @@ import {
 } from "../../domain/fullSearch";
 import { useSearchStore } from "../../store/searchStore";
 import { ResultBadge } from "../common/QuickJump";
+import { NodeCrumb } from "../common/NodeCrumb";
+import { EntityTagPills } from "../common/TagPills";
 import { IconSearch } from "../common/icons";
 import type { FullSearchAimRowModel, FullSearchRowModel, RouteOption } from "./useFullSearchResults";
 import "./full-search.css";
@@ -78,15 +80,19 @@ export function FullSearchRow({ row, term, id, active, onPick, onGo }: RowProps)
       onDoubleClick={onGo}
     >
       <ResultBadge node={hit.node} done={done} />
-      <span className="ns-fs-nl">
-        <span className="ns-fs-name">
-          <Marked text={hit.node.name} term={hit.field === "name" ? term : ""} />
-        </span>
-        {done && (
-          <span className="ns-fs-seal" aria-label="已完成">
-            済
+      <span className="ns-fs-main">
+        <NodeCrumb parentId={hit.node.parent_id} compact />
+        <span className="ns-fs-nl">
+          <span className="ns-fs-name">
+            <Marked text={hit.node.name} term={hit.field === "name" ? term : ""} />
           </span>
-        )}
+          {done && (
+            <span className="ns-fs-seal" aria-label="已完成">
+              済
+            </span>
+          )}
+        </span>
+        <EntityTagPills entityType="node" entityId={hit.node.id} max={3} compact />
       </span>
       <span className="ns-fs-ctx">{context}</span>
       <DateText cell={date} />
@@ -102,6 +108,7 @@ export function FullSearchMobileRow({ row, term, id, active, onPick }: RowProps)
     <li id={id} role="option" aria-selected={active} className={`ns-fs-mrow${done ? " is-done" : ""}`} onClick={onPick}>
       <ResultBadge node={hit.node} done={done} />
       <span className="min-w-0">
+        <NodeCrumb parentId={hit.node.parent_id} compact />
         <span className="l1">
           <span className="ns-fs-name">
             <Marked text={hit.node.name} term={hit.field === "name" ? term : ""} />
@@ -116,6 +123,7 @@ export function FullSearchMobileRow({ row, term, id, active, onPick }: RowProps)
           <span className="ctx">{context}</span>
           {date && <DateText cell={date} />}
         </span>
+        <EntityTagPills entityType="node" entityId={hit.node.id} max={3} compact className="ns-fs-mtags" />
         <Excerpt row={row} term={term} />
       </span>
     </li>

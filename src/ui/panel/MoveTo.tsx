@@ -139,7 +139,16 @@ function refocusPanel(): void {
  * Bug 5：任務詳情側板上方統一「掛在」欄位（列車／車廂／車票／支線共用，取代舊版只給臨時票的平鋪所屬路線）。
  * 顯示完整階層路徑（如「路線圓牌 日文 › 單字 › 第1週」或「無路線（臨時券）」），點擊直接展開全階層挑選器完成改掛。
  */
-export function LocationFieldRow({ node, info }: { node: NodeRow; info?: NodeLocationInfo }) {
+export function LocationFieldRow({
+  node,
+  info,
+  bare = false,
+}: {
+  node: NodeRow;
+  info?: NodeLocationInfo;
+  /** true＝由外部 .fields 歸屬帶容器包覆，不再多包一層 .fields.panel-loc-fields */
+  bare?: boolean;
+}) {
   const loc = useNodeLocationInfo(node);
   const resolved = info ?? loc;
   const rule = moveTargetRule(node.kind);
@@ -179,8 +188,8 @@ export function LocationFieldRow({ node, info }: { node: NodeRow; info?: NodeLoc
   if (!rule) return null;
   const pathText = resolved.route ? resolved.segments.join(" › ") : "無路線（臨時券）";
 
-  return (
-    <div className="fields panel-loc-fields">
+  const inner = (
+    <>
       <FieldRow label="掛在">
         <button
           ref={btnRef}
@@ -234,8 +243,11 @@ export function LocationFieldRow({ node, info }: { node: NodeRow; info?: NodeLoc
           />
         </div>
       )}
-    </div>
+    </>
   );
+
+  if (bare) return inner;
+  return <div className="fields panel-loc-fields">{inner}</div>;
 }
 
 export function useMoveTo(node: NodeRow): { button: ReactNode; picker: ReactNode } {

@@ -42,12 +42,16 @@ import type { TodayRow as TodayRowData } from "../../data";
 import { effectiveEstimateMin, isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
 import { isClockPast } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
+import { useUiStore } from "../../store/uiStore";
 import { TicketTime } from "../calendar/DayRow";
 import { PunchNick, SealCarryOver, SealStopover, SealSuspended } from "../stamps";
 import { lineTodayRowActions } from "../../lines/runtime";
 import { PriorityMark } from "../common/PriorityMark";
 import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
 import { IconDots } from "../common/icons";
+import { NodeCrumb } from "../common/NodeCrumb";
+import { EntityTagPills } from "../common/TagPills";
+import { SubTicketsDrawer } from "./SubTicketsDrawer";
 import { InlineTicketEditor } from "../common/quickadd";
 import type { QuickChipKey } from "../common/quickadd/quickAddModel";
 import { rowContextMenu } from "../common/contextMenu";
@@ -111,15 +115,47 @@ function RepeatGlyph() {
   );
 }
 
-/** 車廂格（直屬子項進度；≤5 格畫格子，超過只給數字）——今日列的子項數由 repository 帶出來 */
-function Cars({ total, done, label }: { total: number; done: number; label: string }) {
+/** 車廂格（直屬子項進度；≤5 格畫格子，超過只給數字；v1.36 點擊原地展開直屬子車票） */
+function Cars({
+  total,
+  done,
+  label,
+  open,
+  onToggle,
+}: {
+  total: number;
+  done: number;
+  label: string;
+  open: boolean;
+  onToggle(): void;
+}) {
   return (
-    <span className="cars" role="img" aria-label={`${label} ${done}／${total}`} title="已完成／全部直屬子項">
-      {total <= 5 && Array.from({ length: total }, (_, i) => <i key={i} className={i < done ? "full" : undefined} />)}
-      <em>
-        {label} {done}/{total}
-      </em>
-    </span>
+    <button
+      type="button"
+      tabIndex={-1}
+      className="ns-cars-btn"
+      aria-expanded={open}
+      aria-label={`${label} ${done}／${total}——點擊${open ? "收合" : "展開"}子車票`}
+      title={open ? "收合直屬子車票" : "原地展開直屬子車票"}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
+      <span className="cars" aria-hidden>
+        {total <= 5 && Array.from({ length: total }, (_, i) => <i key={i} className={i < done ? "full" : undefined} />)}
+        <em>
+          {label} {done}/{total}
+        </em>
+      </span>
+      <span className="ns-cars-caret" aria-hidden>
+        {open ? "▴" : "▾"}
+      </span>
+    </button>
   );
 }
 
@@ -263,6 +299,7 @@ export function TodayRow({
   const [inlineEdit, setInlineEdit] = useState<{ picker: Exclude<QuickChipKey, "dest"> | null } | null>(null);
   const [runFillOpen, setRunFillOpen] = useState(false);
   const [runDraft, setRunDraft] = useState("");
+  const [kidsOpen, setKidsOpen] = useState(false);
   const runInputRef = useRef<HTMLInputElement>(null);
   /** 票根改掛（v1.31 D-1.31-5）：挑選器收起後焦點還給今日容器（鍵盤流接得下去） */
   const reattach = useReattach(row, actions.focusContainer);
@@ -420,11 +457,22 @@ export function TodayRow({
   ) : null;
 
   const remDays = rangeDrawer && row.scheduled_end ? rangeRemainingDays(row.scheduled_end, dateKey) : null;
+  const carsItem =
+    row.child_total > 0 ? (
+      <Cars
+        total={row.child_total}
+        done={row.child_done}
+        label={carsLabel(row.kind)}
+        open={kidsOpen}
+        onToggle={() => setKidsOpen((v) => !v)}
+      />
+    ) : null;
 
   const metaItems: ReactNode[] = rangeDrawer
     ? [
         timeItem,
         paused ? null : statusItem,
+        carsItem,
         effEst && time === null ? <span>預計 {effEst} 分</span> : null,
         row.scheduled_on && row.scheduled_end ? deferChip(`期間 ${formatDateRangeBadge(row.scheduled_on, row.scheduled_end)}`, false) : null,
         remDays !== null ? (
@@ -499,13 +547,14 @@ export function TodayRow({
               原定 {isRange && row.scheduled_on ? formatDateRangeBadge(row.scheduled_on, row.scheduled_end) : railDate ? mmdd(railDate) : "—"}
             </button>,
             railDate ? <LateNote days={diffDays(dateKey, railDate)} /> : null,
+            carsItem,
             seatItems,
             row.due_on ? dueChip(dueLate) : null,
           ]
       : due
         ? settled
-          ? [timeItem, statusItem, dueChip(true)]
-          : [timeItem, dueChip(true)]
+          ? [timeItem, statusItem, carsItem, dueChip(true)]
+          : [timeItem, carsItem, dueChip(true)]
         : [
             timeItem,
             paused ? null : statusItem,
@@ -515,7 +564,7 @@ export function TodayRow({
                 {describeRule(rule)}
               </span>
             ) : null,
-            row.child_total > 0 ? <Cars total={row.child_total} done={row.child_done} label={carsLabel(row.kind)} /> : null,
+            carsItem,
             effEst && time === null ? (
               <span
                 role="button"
@@ -699,14 +748,16 @@ export function TodayRow({
               <span className="ns-run-hint">Enter 存入 · 清空還原 · Esc 取消</span>
             </div>
           ) : (
-            <p
-              className="title"
-              title="雙擊行內編輯"
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setInlineEdit({ picker: null });
-              }}
-            >
+            <>
+              <NodeCrumb parentId={row.parent_id} compact className="ns-tk-crumb" />
+              <p
+                className="title"
+                title="雙擊行內編輯"
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  setInlineEdit({ picker: null });
+                }}
+              >
               {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點；v1.31：點擊直接開優先級小選單 */}
               {row.priority === "high" && (
                 <QuickPriorityChip
@@ -738,12 +789,14 @@ export function TodayRow({
                   （{formatRunOriginText(row.name, effEst)}）
                 </span>
               )}
-            </p>
+              </p>
+            </>
           )}
 
           {!inlineEdit && (
           <div className="meta">
             <MetaItems items={metaItems} />
+            <EntityTagPills entityType="node" entityId={row.id} max={3} compact />
             {/* Mode A：定期券本班填空入口（hover／選中現身） */}
             {rule && !settled && !row.seated_into && railDate && !runFillOpen && (
               <span className="meta-hover">
@@ -816,9 +869,17 @@ export function TodayRow({
           <button
             type="button"
             tabIndex={-1}
-            aria-label={suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
+            aria-label={suspended ? "取消本班運休" : paused ? "解除途中下車" : done ? "取消完成" : "蓋章完成"}
             aria-pressed={done}
-            title={suspended ? `本班運休中——再點一次取消（或按 ${hotkeyCaps("today.suspend")}）` : done ? "取消「済」章" : `蓋章：完成（${hotkeyCaps("today.complete")}）`}
+            title={
+              suspended
+                ? `本班運休中——再點一次取消（或按 ${hotkeyCaps("today.suspend")}）`
+                : paused
+                  ? "途中下車中——點擊解除恢復"
+                  : done
+                    ? "取消「済」章"
+                    : `蓋章：完成（${hotkeyCaps("today.complete")}）`
+            }
             onClick={(e) => {
               e.stopPropagation();
               actions.complete(row.id);
@@ -841,11 +902,24 @@ export function TodayRow({
           )}
           {paused && !suspended && (
             <span className="stopover-slot">
-              <SealStopover title="途中下車（暫停）" />
+              <SealStopover title="途中下車（點擊解除）" />
             </span>
           )}
         </div>
       </article>
+      {kidsOpen && row.child_total > 0 && (
+        <SubTicketsDrawer
+          parentId={row.id}
+          childDone={row.child_done}
+          childTotal={row.child_total}
+          onOpenChild={(id) => {
+            const ui = useUiStore.getState();
+            ui.select(id);
+            ui.setPanelOpen(true);
+          }}
+          onAfterAction={actions.focusContainer}
+        />
+      )}
     </li>
   );
 }

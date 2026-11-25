@@ -756,13 +756,19 @@ button.ns-rp-row:hover .ns-rp-row-go { opacity: .88; color: var(--accent); trans
 .ns-rp-spread-ticket:hover { background: var(--hover-bg); }
 .ns-rp-spread-ticket:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-rp-spread-ticket .ns-rp-badge { margin-top: 1px; }
-.ns-rp-spread-ticket .nm {
+.ns-rp-spread-ticket .tkt-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ns-rp-spread-ticket .nm {
   line-height: 1.5;
   white-space: normal;
   overflow-wrap: anywhere;
 }
+.ns-rp-spread-ticket .tkt-tags { margin-top: 1px; }
 .ns-rp-spread-ticket .tag-occ {
   flex: none;
   margin-top: 2px;
@@ -778,6 +784,146 @@ button.ns-rp-row:hover .ns-rp-row-go { opacity: .88; color: var(--accent); trans
   font-family: var(--font-latin);
   font-size: var(--fs-xs);
   color: var(--color-ink-soft);
+}
+
+/* 心情燈小圓章（順／平／難；顏色由行內 style 讀 MOODS → --mood-good／-ok／-hard） */
+.ns-rp-mood-badge {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.3px solid currentColor;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-micro);
+  line-height: 1;
+}
+
+/* 當日心情三燈彙總列 */
+.ns-rp-spread-moodbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-line);
+}
+.ns-rp-spread-moodbar .moodbar-lbl {
+  font-size: var(--fs-xs);
+  letter-spacing: .16em;
+  color: var(--color-ink-soft);
+  flex: none;
+}
+.ns-rp-spread-moodbar .moodbar-dots {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.ns-rp-spread-moodbar .moodbar-dots .ns-rp-mood-badge {
+  margin-top: 0;
+}
+.ns-rp-spread-moodbar .moodbar-sum {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-moodbar .moodbar-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.ns-rp-spread-moodbar .moodbar-stat .sep {
+  margin-right: 3px;
+  color: var(--color-ink-faint);
+}
+.ns-rp-spread-moodbar .moodbar-stat b {
+  font-family: var(--font-latin);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+/* ①′ 當日乘務記錄（手寫體正文） */
+.ns-rp-spread-worklogs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ns-rp-spread-wlog {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 2px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-line) 72%, transparent);
+}
+.ns-rp-spread-wlog:last-child {
+  border-bottom: 0;
+}
+.ns-rp-spread-wlog .wlog-clk {
+  flex: none;
+  width: 40px;
+  padding-top: 3px;
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: .04em;
+}
+.ns-rp-spread-wlog .wlog-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.ns-rp-spread-wlog .wlog-hw {
+  margin: 0;
+  font-family: var(--font-hand);
+  font-size: var(--fs-ticket);
+  line-height: 1.65;
+  letter-spacing: .04em;
+  color: var(--color-ink);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.ns-rp-spread-wlog .wlog-of {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: .05em;
+}
+.ns-rp-spread-wlog .wlog-of.is-link {
+  padding: 1px 4px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.ns-rp-spread-wlog .wlog-of.is-link:hover {
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+.ns-rp-spread-wlog .wlog-of.is-link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.ns-rp-spread-wlog .wlog-of.is-gone {
+  font-style: italic;
+  opacity: .78;
 }
 
 /* ② 當日時間投入台帳 */
@@ -892,6 +1038,7 @@ button.ns-rp-row:hover .ns-rp-row-go { opacity: .88; color: var(--accent); trans
 .ns-rp-spread-entry .entry-meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 8px;
   font-size: var(--fs-xs);
@@ -1134,6 +1281,7 @@ button.ns-rp-hist-dhead:hover .ns-rp-hist-go { opacity: .9; color: var(--accent)
 [data-shell="mobile"] .ns-rp-spread-datebtn,
 [data-shell="mobile"] .ns-rp-spread-go,
 [data-shell="mobile"] .ns-rp-spread-ticket,
+[data-shell="mobile"] .ns-rp-spread-wlog .wlog-of.is-link,
 [data-shell="mobile"] .ns-rp-spread-writebtn { min-height: 44px; }
 
 [data-shell="mobile"] .ns-report .ns-rp-row .rc-d { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px 4px; }

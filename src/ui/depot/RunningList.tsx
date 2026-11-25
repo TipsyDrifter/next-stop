@@ -16,7 +16,7 @@ export interface RunningListProps {
 export function RunningList({ routes, openedOn, onOpen }: RunningListProps) {
   if (!routes.length) return null;
   return (
-    <div className="ns-depot-running">
+    <div className="ns-depot-running ns-washi-card">
       <p className="ns-depot-run-h">
         還在跑
         <RunPill />

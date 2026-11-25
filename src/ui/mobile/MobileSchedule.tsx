@@ -63,6 +63,8 @@ import { MobileTimeDays, pageStartOf, type MobileTimeDaysHandle } from "./Mobile
 import { MonthOverlay } from "../schedule/MonthOverlay";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
+import { NodeCrumb } from "../common/NodeCrumb";
+import { EntityTagPills } from "../common/TagPills";
 import { moveNodeTo } from "../common/moveTo";
 import { moveRunFlow } from "../outline/nodeFlows";
 import { useSubSwipe } from "./MobileSegmentedBar";
@@ -829,9 +831,15 @@ const DaySection = memo(function DaySection({
   );
 
   // 標題右側的 note（契約 §4.3）：済＋運休算交代；只數 rows（班次），不數 dues
-  // 磨光⑤ N11：完成數走 domain/dayCount（済才算完成、済＋運休算結清），與桌機／手機今日、串流同一把尺
+  // 磨光⑤ N11／v1.36 D-1.36-6：済才算完成、済＋運休＋途中下車算結清
   const count = dayCount(
-    rows.map((r) => ({ done: r.entry.is_done, settled: r.entry.is_done || r.entry.occurrence_status === "skipped" })),
+    rows.map((r) => ({
+      done: r.entry.is_done,
+      settled:
+        r.entry.is_done ||
+        r.entry.occurrence_status === "skipped" ||
+        nodes[r.entry.node_id]?.status === "paused",
+    })),
   );
   const { total, left } = count;
   const countParts = dayCountParts(count);
@@ -986,7 +994,11 @@ const DaySection = memo(function DaySection({
                     {x.route?.code ?? (x.route ? x.route.name.slice(0, 1) : "臨")}
                   </span>
                 </span>
-                <span className="m-sch-due-name">{x.node.name}</span>
+                <span className="m-sch-due-main">
+                  <NodeCrumb parentId={x.node.parent_id} compact />
+                  <span className="m-sch-due-name">{x.node.name}</span>
+                  <EntityTagPills entityType="node" entityId={x.node.id} max={2} compact onPick={false} />
+                </span>
                 <span className="m-sch-due-when">執行 {mmdd(x.when)}</span>
               </button>
             ) : null,

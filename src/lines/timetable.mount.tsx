@@ -76,7 +76,7 @@ export const TIMETABLE_MOUNT: LineMount = {
   // ②段一 #A1：側板／手機路線圖詳情的「時間」列（車票、支線、路線；狀態段）
   // ②段二 #F1：列車、車廂的「時間」畫在「分量」段，取代「花費」列（列車、車廂才有手填，〈原型拍板〉3）
   nodeFields: [
-    { id: "timetable.time", label: "時間", kinds: ["ticket", "branch", "route"], top: true, Desktop: TimeField, Mobile: TimeFieldMobile },
+    { id: "timetable.time", label: "時間", kinds: ["ticket", "branch", "route"], top: true, section: "footprint", Desktop: TimeField, Mobile: TimeFieldMobile },
     { id: "timetable.time.task", label: "時間", kinds: ["train", "car"], top: true, section: "amount", Desktop: TimeField, Mobile: TimeFieldMobile },
     // ⑦ §4 入口①：車票第二段起（time_plans）。回饋甲 D-主-129 起畫在時段組裡（時段 → 長度 → 〔其他時段〕→ 締切日；契約 ☎-1）
     { id: "timetable.slots", label: "其他時段", kinds: ["ticket"], top: true, section: "schedule", Desktop: SlotsField, Mobile: SlotsFieldMobile },

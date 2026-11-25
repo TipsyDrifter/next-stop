@@ -551,6 +551,43 @@ header.day::after { /* 手帳式雙細線 */
   box-shadow: var(--glass-hi), var(--shadow-card-hover);
 }
 
+/* 內容區霧面紙卡（D-1.36-3）：供行程表串流、車庫、完整搜尋與荷札總覽使用，同票紙材質但採靜態陰影不搶浮層層級 */
+.ns-washi-card {
+  background-color: var(--color-paper-high);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-card);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+}
+
+/* 手帳宣紙薄襯帶（D-1.36-3）：供畫布區段標、幹線頭、看板欄頭、時刻表工具列與頁首下篩選膠囊條托底 */
+.ns-washi-strip {
+  background-color: var(--washi-strip-bg);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  border: 1px solid var(--washi-strip-border);
+  border-radius: var(--radius-card);
+}
+
+/* 途中下車（paused）全站統一淡化態（D-1.36-6）：與 done 對稱，淡化票面但不加刪除線（非取消，而是暫停結案） */
+.ticket.is-paused::before,
+.row.is-paused {
+  background-color: var(--color-paper-used);
+}
+.ticket.is-paused .title,
+.row.is-paused .title,
+.prow.is-paused .t {
+  color: var(--color-ink-faint);
+}
+.ticket.is-paused .meta,
+.ticket.is-paused .stub .badge,
+.ticket.is-paused .stub .line-name,
+.row.is-paused .meta,
+.prow.is-paused .tm {
+  opacity: 0.65;
+}
+
 /* 手帳式捲軸（快速跳轉結果列） */
 .techo-scroll::-webkit-scrollbar { width: 10px; }
 .techo-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 22%, transparent); border-radius: var(--radius-pill); }

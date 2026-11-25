@@ -115,6 +115,8 @@ export function StatusRows({ node }: { node: NodeRow }) {
         />
       </Row>
 
+      <PriorityRow node={node} />
+
       <Row label="結案印記" tall>
         <div className="m-dt-seals-wrap">
           <div role="group" aria-label="結案印記" className="m-dt-seals-row">
@@ -179,8 +181,6 @@ export function StatusRows({ node }: { node: NodeRow }) {
           )}
         </div>
       </Row>
-
-      <PriorityRow node={node} />
     </>
   );
 }

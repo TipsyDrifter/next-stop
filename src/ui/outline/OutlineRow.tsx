@@ -29,7 +29,8 @@ import { KIND_LABEL, describeRule, parseRule, type NodeKind, type NodeRow, type 
 import { isRangeTicket } from "../../domain/dateRange";
 import type { CurrentOccurrence } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
-import { SealSuspended } from "../stamps";
+import { SealStopover, SealSuspended } from "../stamps";
+import { EntityTagPills } from "../common/TagPills";
 import { Chevron } from "../common/Chevron";
 import { IconDots } from "../common/icons";
 import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
@@ -413,8 +414,10 @@ export function OutlineRow({
   const done = occurrence ? occurrence.status === "done" : node.status === "done";
   /** 本班運休（只有定期券蓋得到） */
   const suspended = occurrence?.status === "skipped";
-  /** 済／運休都是「結局」：過期判定與誤點註記都要讓位 */
-  const settled = done || suspended;
+  /** 途中下車（第二結案印記，v1.36 D-1.36-6） */
+  const paused = !done && !suspended && node.status === "paused";
+  /** 済／運休／途中下車都是「結局」：過期判定與誤點註記都要讓位 */
+  const settled = done || suspended || paused;
 
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: "nearest" });
@@ -724,6 +727,7 @@ export function OutlineRow({
           (picked ? " is-picked" : "") +
           (done ? " done" : "") +
           (suspended ? " is-suspended" : "") +
+          (paused ? " is-paused" : "") +
           (fresh ? " fresh" : "")
         }
       >
@@ -811,6 +815,7 @@ export function OutlineRow({
           {!editingTicket && (
           <div className="meta">
             <MetaItems items={metaItems} />
+            <EntityTagPills entityType="node" entityId={node.id} max={3} compact />
             {/* 原型沒有的控件：空日期／優先級輕量快改入口 hover／選中才現身（定期券的乘車日由規則排定，不給入口） */}
             {!settled && ((!chipDate && !rule) || !node.due_on || node.priority !== "high") && (
               <span className="meta-hover">
@@ -874,9 +879,17 @@ export function OutlineRow({
           <button
             type="button"
             tabIndex={-1}
-            aria-label={suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
+            aria-label={suspended ? "取消本班運休" : paused ? "解除途中下車" : done ? "取消完成" : "蓋章完成"}
             aria-pressed={done}
-            title={suspended ? `本班運休中——再點一次取消（或按 ${hotkeyCaps("outline.suspend")}）` : done ? "取消「済」章" : `蓋章：完成（${hotkeyCaps("outline.complete")}）`}
+            title={
+              suspended
+                ? `本班運休中——再點一次取消（或按 ${hotkeyCaps("outline.suspend")}）`
+                : paused
+                  ? "途中下車中——點擊解除恢復"
+                  : done
+                    ? "取消「済」章"
+                    : `蓋章：完成（${hotkeyCaps("outline.complete")}）`
+            }
             onClick={(e) => {
               e.stopPropagation();
               actions.complete(node.id);
@@ -894,6 +907,11 @@ export function OutlineRow({
           {suspended && (
             <span className="stopover-slot">
               <SealSuspended title="運休（本班暫停）" />
+            </span>
+          )}
+          {paused && !suspended && (
+            <span className="stopover-slot">
+              <SealStopover title="途中下車（點擊解除）" />
             </span>
           )}
         </div>
