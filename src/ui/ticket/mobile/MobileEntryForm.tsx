@@ -43,6 +43,8 @@ import { MFullPage } from "../../common/MFullPage";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { Segmented } from "../../common/Segmented";
 import { ClockInput, clockDraftsOkIn } from "../../common/ClockInput";
+import { PhotoAttachmentField } from "../../common/attachments/PhotoAttachmentField";
+import type { AttachmentDraft } from "../../../domain/attachments";
 import { useBackLayer } from "../../mobile/backStack";
 import { shortDayKey } from "../../common/DatePicker";
 import {
@@ -115,13 +117,15 @@ function NewEntry({ draft }: { draft: TicketDraft }) {
   const wishName = useTicketStore((s) => (draft.wishId ? (s.wishes.find((w) => w.id === draft.wishId)?.name ?? null) : null));
   const amtRef = useRef<HTMLInputElement | null>(null);
   const busy = useRef(false);
+  const [photoDrafts, setPhotoDrafts] = useState<AttachmentDraft[]>([]);
 
   const save = async (again: boolean) => {
     if (busy.current) return;
     busy.current = true;
     try {
-      const ok = await saveDraft({ again });
+      const ok = await saveDraft({ again, attachments: photoDrafts });
       if (!ok) return;
+      setPhotoDrafts([]);
       if (again) amtRef.current?.focus();
       else closePanel();
     } finally {
@@ -140,6 +144,8 @@ function NewEntry({ draft }: { draft: TicketDraft }) {
       onCancel={requestEscape}
       tags={draft.tags}
       onTags={(tags) => setDraft({ tags })}
+      photoDrafts={photoDrafts}
+      onChangePhotoDrafts={setPhotoDrafts}
       quick={draft.repeat}
       onQuickFreq={setDraftRepeat}
       onQuick={(repeat) => setDraft({ repeat })}
@@ -386,6 +392,8 @@ function FormShell({
   instRows = null,
   tags,
   onTags,
+  photoDrafts = [],
+  onChangePhotoDrafts,
   quick,
   onQuickFreq,
   onQuick,
@@ -409,6 +417,9 @@ function FormShell({
   /** 荷札草稿（名稱；按「存」才寫） */
   tags: readonly string[];
   onTags(names: string[]): void;
+  /** v1.39 4A：新票暫存票根相片 */
+  photoDrafts?: readonly AttachmentDraft[];
+  onChangePhotoDrafts?(next: AttachmentDraft[]): void;
   /** 定期快設：新票＝草稿的 repeat；舊票＝按了「設成定期…」才有（null＝收著） */
   quick: RepeatQuick | null;
   onQuickFreq(f: RepeatQuickFreq): void;
@@ -939,6 +950,26 @@ function FormShell({
               </button>
             </div>
           ) : null}
+          {/* v1.39 4A：票根・相片（新票草稿，舊票即時寫入；手機端點選自動呼出相機與相簿） */}
+          <div className="ns-tk-mf-field top ns-tk-mf-att">
+            <span className="lbl">票根・相片</span>
+            {isNew && onChangePhotoDrafts ? (
+              <PhotoAttachmentField
+                mode="draft"
+                drafts={photoDrafts}
+                onChangeDrafts={onChangePhotoDrafts}
+                addLabel="拍票根／選相片"
+                sourceLabel="新記帳・票根"
+              />
+            ) : entry ? (
+              <PhotoAttachmentField
+                entityType="ticket:entry"
+                entityId={entry.id}
+                addLabel="拍票根／選相片"
+                sourceLabel={d.item.trim() || (selCat ? bareName(selCat.name) || selCat.name : "售票口票根")}
+              />
+            ) : null}
+          </div>
         </div>
 
         <div className="ns-tk-mf-more">
@@ -979,7 +1010,7 @@ function FormShell({
                     aria-pressed={d.routeId === null}
                     onClick={() => onPatch({ routeId: null })}
                   >
-                    不掛
+                    不選
                   </button>
                   {routeGroups.map((g) => (
                     <Fragment key={g.lineId ?? "other"}>

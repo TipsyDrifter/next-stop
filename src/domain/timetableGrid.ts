@@ -354,12 +354,15 @@ export interface PaintUndo {
   touched: { id: string; before: PaintCells; afterUpdatedAt: string }[];
   /** plan 有改備註的列寫之前的備註（合併會把被吞那塊的備註抄過來；塗色不改備註＝沒這欄） */
   notes?: { id: string; before: string | null }[];
+  /** v1.39 4A：plan 有改地點的列寫之前的地點（合併撤回用） */
+  locations?: { id: string; before: string | null }[];
 }
 
 /** 撤回快照要看的一列（`TimeBlockRow` 的子集） */
 export interface PaintRow extends PaintCells {
   updated_at: string;
   note?: string | null;
+  location?: string | null;
 }
 
 const CELL_KEYS = ["started_at", "ended_at", "deleted_at"] as const;
@@ -396,15 +399,24 @@ export function buildPaintUndo(
     if (a && !inserted.some((x) => x.id === id)) inserted.push({ id, updated_at: a.updated_at });
   }
   const notes: NonNullable<PaintUndo["notes"]> = [];
+  const locations: NonNullable<PaintUndo["locations"]> = [];
   for (const p of plan.patches) {
     const b = before[p.id];
     if (p.note !== undefined && b) notes.push({ id: p.id, before: b.note ?? null });
+    if (p.location !== undefined && b) locations.push({ id: p.id, before: b.location ?? null });
   }
-  return notes.length ? { inserted, touched, notes } : { inserted, touched };
+  return {
+    inserted,
+    touched,
+    ...(notes.length ? { notes } : {}),
+    ...(locations.length ? { locations } : {}),
+  };
 }
 
 /** 撤回要寫的一筆：`delete`＝軟刪除這次新增的列；`set`＝把這幾欄寫回塗之前（只帶真的不同的欄） */
-export type UndoPaintWrite = { id: string; op: "delete" } | { id: string; op: "set"; cols: Partial<PaintCells> & { note?: string | null } };
+export type UndoPaintWrite =
+  | { id: string; op: "delete" }
+  | { id: string; op: "set"; cols: Partial<PaintCells> & { note?: string | null; location?: string | null } };
 
 /**
  * 撤回的守門與寫入計畫（0-5、〈原型定案〉6）。`current`＝每個 `inserted`／`touched` id 的現況（**含已刪除的列**）。
@@ -428,10 +440,12 @@ export function planUndoPaint(
   const out: UndoPaintWrite[] = undo.inserted.map((x) => ({ id: x.id, op: "delete" as const }));
   for (const x of undo.touched) {
     const c = current[x.id]!;
-    const cols: Partial<PaintCells> & { note?: string | null } = {};
+    const cols: Partial<PaintCells> & { note?: string | null; location?: string | null } = {};
     for (const k of CELL_KEYS) if (c[k] !== x.before[k]) (cols as Record<string, string | null>)[k] = x.before[k];
     const note = undo.notes?.find((n) => n.id === x.id);
     if (note && (c.note ?? null) !== note.before) cols.note = note.before;
+    const loc = undo.locations?.find((l) => l.id === x.id);
+    if (loc && (c.location ?? null) !== loc.before) cols.location = loc.before;
     if (Object.keys(cols).length) out.push({ id: x.id, op: "set", cols });
   }
   return out;

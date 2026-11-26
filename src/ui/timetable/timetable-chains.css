@@ -1,0 +1,892 @@
+/* ═══════════════════════════════════════════════════════
+ * timetable-chains.css — 時刻表行為鏈（v1.39 4B）
+ *
+ * 嚴守視覺規範 v2.3：
+ * - 零裸 #hex / rgb() 色碼，全面使用語意層 CSS Tokens
+ * - 嚴守 5 階圓角（--radius-ctl / --radius-card / --radius-badge / --radius-plate / --radius-pill）
+ * - 朱紅 --seal 只給 済，行為鏈運行用赭 --color-late、選中與動作強調用 --accent、主鈕實心墨 --stamp-ink
+ * - 桌機與手機（[data-shell="mobile"]）雙端同源，觸控目標 ≥ 44px
+ * ═══════════════════════════════════════════════════════ */
+
+/* ═══ 一、發車台行為鏈快選列（ChainStrip，嵌於 DepartBoard） ═══ */
+
+.ns-tt-chainsec {
+  margin: 12px 0 6px;
+}
+
+.ns-tt-chainsec-mgr {
+  flex: none;
+  padding: 0 2px;
+  min-height: 22px;
+  font-size: var(--fs-xs);
+  letter-spacing: .1em;
+}
+
+.ns-tt-chainstrip {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 6px;
+  margin-bottom: 6px;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(to right, var(--color-ink) calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(to right, var(--color-ink) calc(100% - 20px), transparent 100%);
+}
+
+.ns-tt-chainstrip.is-end {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.ns-tt-chaincard {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 174px;
+  max-width: 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 11px 8px;
+  text-align: left;
+  font-family: inherit;
+  color: var(--color-ink);
+  background: var(--color-paper-high);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft), box-shadow var(--dur-fast) var(--ease-soft), transform var(--dur-fast) var(--ease-soft);
+}
+
+.ns-tt-chaincard:hover {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--color-line));
+  box-shadow: var(--shadow-card-hover);
+}
+
+.ns-tt-chaincard:active {
+  transform: scale(.98);
+}
+
+.ns-tt-chaincard:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ns-tt-chaincard.is-live {
+  border-color: var(--color-late);
+  box-shadow: var(--shadow-card);
+}
+
+.ns-tt-chaincard-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ns-tt-chaincard-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  letter-spacing: .06em;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ns-tt-chaincard-go {
+  flex: none;
+  font-size: var(--fs-micro);
+  letter-spacing: .1em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.ns-tt-chaincard.is-live .ns-tt-chaincard-go {
+  color: var(--color-late);
+  font-weight: 500;
+}
+
+.ns-tt-chaincard-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 10px;
+}
+
+.ns-tt-chaincard-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c, var(--color-ink-faint));
+  flex: none;
+}
+
+.ns-tt-chaincard-rail {
+  width: 10px;
+  height: 0;
+  border-top: 1px dashed var(--color-dash);
+  flex: none;
+}
+
+.ns-tt-chaincard-more {
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+  margin-left: 2px;
+}
+
+.ns-tt-chaincard-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--color-dash);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: .04em;
+}
+
+.ns-tt-chaincard-steps {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 尚無行為鏈時的極簡柔和入口（不佔大面積） */
+.ns-tt-chainempty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 4px;
+  padding: 5px 10px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-high) 52%, transparent);
+}
+
+.ns-tt-chainempty-hint {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: .05em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-tt-chainempty-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  min-height: 24px;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+[data-shell="mobile"] .ns-tt-chainstrip {
+  margin-right: calc(var(--m-gutter) * -1);
+  padding-right: var(--m-gutter);
+}
+
+[data-shell="mobile"] .ns-tt-chainstrip::-webkit-scrollbar {
+  display: none;
+}
+
+[data-shell="mobile"] .ns-tt-chaincard {
+  min-width: 186px;
+  padding: 10px 12px;
+}
+
+[data-shell="mobile"] .ns-tt-chainempty {
+  padding: 6px 10px;
+}
+
+[data-shell="mobile"] .ns-tt-chainempty-btn {
+  min-height: 36px;
+}
+
+/* ═══ 二、RunDock 進行中行為鏈列控（桌機＋手機共用） ═══ */
+
+.ns-tt-dock.has-chain {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.ns-tt-dock-chain {
+  flex: 1 1 100%;
+  order: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px 7px;
+  margin-top: 2px;
+  border-top: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.ns-tt-dock-chain-info {
+  flex: 1 1 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ns-tt-dock-chain-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.ns-tt-dock-chain-name {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .08em;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 12em;
+}
+
+.ns-tt-dock-chain-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: var(--radius-badge);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--color-line));
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+}
+
+.ns-tt-dock-chain-step {
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ns-tt-dock-chain-track {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+}
+
+.ns-tt-dock-chain-node {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  border: 1px solid var(--color-dash);
+  background: transparent;
+}
+
+.ns-tt-dock-chain-node.is-done {
+  border-color: var(--stamp-ink);
+  background: var(--stamp-ink);
+}
+
+.ns-tt-dock-chain-node.is-cur {
+  width: 8px;
+  height: 8px;
+  border-color: var(--color-late);
+  background: var(--color-late);
+}
+
+.ns-tt-dock-chain-seg {
+  width: 10px;
+  height: 1px;
+  background: var(--color-line);
+  flex: none;
+}
+
+.ns-tt-dock-chain-seg.is-done {
+  background: var(--stamp-ink);
+}
+
+.ns-tt-dock-chain-nextlbl {
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+  letter-spacing: .04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ns-tt-dock-chain-acts {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ns-tt-dock-chain-exit {
+  padding: 0 6px;
+  min-height: var(--ctl-h-sm);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+}
+
+.ns-tt-dock-chain-exit:hover {
+  color: var(--color-ink);
+}
+
+.ns-tt-dock-chain-next {
+  min-height: var(--ctl-h-sm);
+  padding: 0 10px;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--color-dash));
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ns-tt-dock-chain-next:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--color-ink);
+}
+
+.ns-tt-dock-chain-next.is-final {
+  border-color: var(--stamp-ink);
+  background: color-mix(in srgb, var(--stamp-ink) 12%, transparent);
+  color: var(--color-ink);
+}
+
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-chain {
+  margin: 2px calc(-1 * var(--m-gutter)) 0;
+  padding: 8px var(--m-gutter) 4px;
+  border-radius: 0;
+  gap: 8px;
+}
+
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-chain-next {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: var(--fs-ui);
+}
+
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-chain-exit {
+  min-height: 44px;
+  padding: 0 8px;
+}
+
+/* 手機運行列含行為鏈時抬高高度變數，避免浮鈕與 Toast 遮擋 */
+[data-shell="mobile"]:has(.ns-tt-mdock .ns-tt-dock-chain) {
+  --ns-tt-mdock-h: 134px;
+}
+
+[data-shell="mobile"]:has(.ns-tt-mdock .ns-tt-dock-chain):has(.ns-tt-mdock .ns-tt-dock-ask) {
+  --ns-tt-mdock-h: 158px;
+}
+
+/* ═══ 三、桌機頂部列車牌 TitleBar 行為鏈控制 ═══ */
+
+.ns-tb-timer-chainbadge {
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: var(--radius-badge);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--color-line));
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  flex: none;
+}
+
+.ns-tb-timer-act.is-chain-next {
+  border-radius: 0;
+  color: var(--sel-fg);
+  padding: 0 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-tb-timer-act.is-chain-next:hover {
+  background: var(--sel-bg);
+  color: var(--color-ink);
+}
+
+.ns-tb-timer-act.is-chain-next:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -1px;
+}
+
+/* ═══ 四、「分類與設定」6 分頁橫向防爆版 ＋ 行為鏈管理分頁（ChainsTab） ═══ */
+
+.ns-tt-mgr-tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ns-tt-mgr-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ns-tt-mgr-tabs .ns-tabs {
+  flex-wrap: nowrap;
+}
+
+.ns-tt-mgr-tabs .ns-tabs [role="tab"] {
+  white-space: nowrap;
+  flex: none;
+}
+
+.ns-tt-chains-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 內建範本快速套用列 */
+.ns-tt-chains-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ns-tt-chains-presets-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ns-tt-chains-k {
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: var(--color-ink-faint);
+}
+
+.ns-tt-chains-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ns-tt-chains-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  text-align: left;
+  font-family: inherit;
+  background: var(--color-paper-high);
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-card);
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-tt-chains-preset:hover {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--sel-bg);
+}
+
+.ns-tt-chains-preset:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ns-tt-chains-preset-name {
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  letter-spacing: .06em;
+  color: var(--color-ink);
+}
+
+.ns-tt-chains-preset-meta {
+  font-size: var(--fs-micro);
+  color: var(--sel-fg);
+  letter-spacing: .04em;
+}
+
+.ns-tt-chains-preset-desc {
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+[data-shell="mobile"] .ns-tt-chains-preset-grid {
+  grid-template-columns: 1fr;
+}
+
+/* 列表中的步驟預覽副行 */
+.ns-tt-chains-subrow {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: calc(var(--sp-2) * -1);
+  padding: 0 2px var(--sp-2);
+  border-bottom: 1px dashed var(--color-line);
+}
+
+.ns-tt-chains-subrow:last-child {
+  border-bottom: 0;
+}
+
+.ns-mgr-row:has(+ .ns-tt-chains-subrow) {
+  border-bottom-color: transparent;
+}
+
+.ns-tt-chains-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: .04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ns-tt-chains-runbtn {
+  flex: none;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+}
+
+[data-shell="mobile"] .ns-tt-chains-runbtn {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+/* ═══ 五、行為鏈新增／編輯表單（ChainsTab Editor） ═══ */
+
+.ns-tt-chain-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ns-tt-chain-edhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--color-dash);
+}
+
+.ns-tt-chain-back {
+  padding: 0 4px;
+  min-height: 28px;
+  font-size: var(--fs-sm);
+}
+
+.ns-tt-chain-edtitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  letter-spacing: .16em;
+  color: var(--color-ink);
+}
+
+.ns-tt-chain-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ns-tt-chain-namein {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: var(--fs-body);
+}
+
+.ns-tt-chain-stepshd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ns-tt-chain-total {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+  letter-spacing: .06em;
+}
+
+.ns-tt-chain-steplist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ns-tt-chain-stepcard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
+  background: var(--color-paper-high);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+}
+
+.ns-tt-chain-steptop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ns-tt-chain-stepno {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .1em;
+  color: var(--color-ink-soft);
+}
+
+.ns-tt-chain-stepacts {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ns-tt-chain-stepbtn {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-faint);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-tt-chain-stepbtn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--color-ink);
+}
+
+.ns-tt-chain-stepbtn.is-danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.ns-tt-chain-stepbtn:disabled {
+  opacity: .3;
+  cursor: not-allowed;
+}
+
+.ns-tt-chain-stepbtn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-tt-chain-steprow {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(0, 1.2fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.ns-tt-chain-catpick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ns-tt-chain-catpick .ns-select-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.ns-tt-chain-catpick .ns-select-btn {
+  width: 100%;
+}
+
+.ns-tt-chain-durrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ns-tt-chain-durpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink);
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-tt-chain-durpill:hover,
+.ns-tt-chain-durpill.is-open {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+}
+
+.ns-tt-chain-durpill:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-tt-chain-quickmins {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ns-tt-chain-qmin {
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-tt-chain-qmin:hover {
+  border-color: var(--accent);
+  color: var(--color-ink);
+}
+
+.ns-tt-chain-qmin.is-on {
+  border-color: var(--accent);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-weight: 600;
+}
+
+.ns-tt-chain-qmin:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-tt-chain-durbox {
+  padding-top: 4px;
+  border-top: 1px dashed var(--color-line);
+}
+
+.ns-tt-chain-extras {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.ns-tt-chain-extras .techo-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: var(--fs-xs);
+}
+
+.ns-tt-chain-err {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-late);
+  letter-spacing: .04em;
+}
+
+.ns-tt-chain-edfoot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-line);
+}
+
+[data-shell="mobile"] .ns-tt-chain-steprow,
+[data-shell="mobile"] .ns-tt-chain-extras {
+  grid-template-columns: 1fr;
+}
+
+[data-shell="mobile"] .ns-tt-chain-stepbtn {
+  min-width: 38px;
+  height: 38px;
+}
+
+[data-shell="mobile"] .ns-tt-chain-durpill,
+[data-shell="mobile"] .ns-tt-chain-qmin {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+[data-shell="mobile"] .ns-tt-chain-edfoot {
+  justify-content: stretch;
+}
+
+[data-shell="mobile"] .ns-tt-chain-edfoot > .ns-btn {
+  flex: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-chaincard,
+  .ns-tt-chains-preset,
+  .ns-tt-chain-stepbtn,
+  .ns-tt-chain-durpill,
+  .ns-tt-chain-qmin,
+  .ns-tb-timer-act.is-chain-next {
+    transition: none;
+  }
+}

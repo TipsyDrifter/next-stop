@@ -44,7 +44,7 @@ const CALL_WAIT: Duration = Duration::from_secs(5);
 const INSTRUCTIONS: &str = "這是使用者的私鐵手帳（Next Stop）：任務（車票）、時刻表、筆記、日記與帳目都在這裡。\
 先呼叫 get-overview 看今天的狀況；要一次排好幾張車票，先用 propose-schedule 提案、跟使用者確認後再 apply-schedule。";
 
-const NOT_READY: &str = "App 還在啟動，請稍後再試。";
+const NOT_READY: &str = "私鐵手帳還在啟動中，請稍後再試一次。";
 const TIMEOUT_MSG: &str =
     "私鐵手帳 30 秒內沒有回應（可能還在忙）。如果是寫入，請先查一下有沒有做完，再決定要不要重試。";
 const DROPPED_MSG: &str =
@@ -226,7 +226,7 @@ impl NextStopServer {
                     BridgeError::Timeout => TIMEOUT_MSG.to_string(),
                     BridgeError::Dropped => DROPPED_MSG.to_string(),
                     BridgeError::Emit(e) => {
-                        format!("私鐵手帳的主視窗沒有回應（{e}），請確認 App 開著再試一次。")
+                        format!("私鐵手帳的主視窗沒有回應，請確認私鐵手帳已經打開再試一次（{e}）。")
                     }
                 };
                 self.state
@@ -299,9 +299,9 @@ fn bind_error_message(port: u16, e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::AddrInUse {
         // 收官磨光 A2：不再說「其他程式」——體檢實測卡住它的是 App 自己重啟前的殘留（已修，見 bind_listener），
         // 真遇到時先指路最常見的解法
-        format!("連接埠 {port} 已被占用，外部助理連不進來。完全結束私鐵手帳（系統匣圖示 →「結束」）再打開試試。")
+        format!("連接埠 {port} 已被占用，外部助理連不進來。請從系統匣圖示選「結束」徹底關閉私鐵手帳，再重新打開試試。")
     } else {
-        format!("連接埠 {port} 開不起來（{e}），外部助理連不進來。")
+        format!("外部助理的本機連線埠 {port} 打不開（{e}），目前無法連接外部助理。")
     }
 }
 
@@ -364,7 +364,7 @@ pub async fn serve(state: Arc<McpState>, emit: Emit) {
         .nest_service("/mcp", service)
         .layer(middleware::from_fn_with_state(state.clone(), gate));
     if let Err(e) = axum::serve(listener, app).await {
-        let msg = format!("外部助理的連接埠 {port} 停了（{e}）。");
+        let msg = format!("外部助理的連線中斷了（連接埠 {port}：{e}），請重新啟動私鐵手帳試試。");
         eprintln!("[mcp] {msg}");
         state.set_listen_error(msg);
     }

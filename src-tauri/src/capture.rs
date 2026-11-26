@@ -311,18 +311,22 @@ fn default_hotkey() -> Shortcut {
 
 /// 前端送來的 `Ctrl+Alt+N` 格式（global-hotkey 的 `FromStr`）；格式不對回 Err，鍵維持原樣。
 fn parse_accel(accel: &str) -> Result<Shortcut, String> {
-    accel.parse::<Shortcut>().map_err(|e| e.to_string())
+    accel
+        .parse::<Shortcut>()
+        .map_err(|e| format!("這組快捷鍵格式看不懂（{e}）"))
 }
 
 /// 執行期註冊（**不用** `with_shortcuts`：被佔走會讓 `build()` 回 Err、App 開不起來，查證 Q1）。
 fn try_register<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let Some(shell) = app.try_state::<CaptureShell>() else {
-        return Err("尚未初始化".to_string());
+        return Err("快捷小窗還沒準備好，請稍後再試".to_string());
     };
     let shortcut = *lock(&shell.shortcut);
     // plugin 的 `register` 內部 `run_on_main_thread` 再 `rx.recv()` 等結果；在主執行緒（setup、window event）呼叫時
     // tauri-runtime-wry 的 `send_user_message` 當場執行，不會死等（已對照 2.11.2 原始碼）
-    app.global_shortcut().register(shortcut).map_err(|e| e.to_string())
+    app.global_shortcut()
+        .register(shortcut)
+        .map_err(|e| format!("這組全域快捷鍵可能已被其他程式占用，暫時無法使用（{e}）"))
 }
 
 /// 註冊並把結果寫進 `CaptureShell.hotkey`；失敗只 log。
@@ -408,11 +412,11 @@ fn build_capture_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .iter()
         .find(|c| c.label == CAPTURE_WINDOW)
         .cloned()
-        .ok_or_else(|| format!("tauri.conf.json 沒有 `{CAPTURE_WINDOW}` 視窗設定"))?;
+        .ok_or_else(|| format!("找不到快捷小窗設定（`{CAPTURE_WINDOW}`），無法開啟"))?;
     tauri::WebviewWindowBuilder::from_config(app, &cfg)
         .and_then(|b| b.build())
         .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("建立快捷小窗失敗（{e}）"))
 }
 
 /// 帶 `--minimized` 啟動時，主視窗一直藏著；萬一系統匣沒建起來（tray::init 失敗）就沒有任何入口了。
@@ -494,7 +498,7 @@ fn hide_window<R: Runtime>(app: &AppHandle<R>, w: &tauri::WebviewWindow<R>) -> R
     if let Some(shell) = app.try_state::<CaptureShell>() {
         *lock(&shell.stamp) = StampState::default();
     }
-    let result = w.hide().map_err(|e| e.to_string());
+    let result = w.hide().map_err(|e| format!("收起快捷小窗失敗（{e}）"));
     let _ = w.set_ignore_cursor_events(false);
     let _ = w.set_focusable(true);
     result
@@ -668,7 +672,7 @@ pub async fn capture_fit(app: AppHandle, height: f64) -> Result<(), String> {
         return Ok(());
     };
     w.set_size(LogicalSize::new(WIN_W, fit_height(height)))
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("調整快捷小窗大小失敗（{e}）"))
 }
 
 #[derive(Debug, Serialize)]
@@ -757,7 +761,9 @@ fn autostart_info<R: Runtime>(app: &AppHandle<R>) -> Result<AutostartInfo, Strin
         }),
         Some(m) => Ok(AutostartInfo {
             available: true,
-            enabled: m.is_enabled().map_err(|e| e.to_string())?,
+            enabled: m
+                .is_enabled()
+                .map_err(|e| format!("讀取開機自動啟動狀態失敗（{e}）"))?,
             name,
             debug_build: cfg!(debug_assertions),
         }),
@@ -773,7 +779,7 @@ pub fn autostart_get(app: AppHandle) -> Result<AutostartInfo, String> {
 pub async fn autostart_set(app: AppHandle, enabled: bool) -> Result<AutostartInfo, String> {
     {
         let Some(m) = app.try_state::<AutoLaunchManager>() else {
-            return Err("開機自啟外掛沒有掛成功".to_string());
+            return Err("這台裝置目前無法調整開機自動啟動".to_string());
         };
         let result = if enabled { m.enable() } else { m.disable() };
         if let Err(e) = result {
@@ -782,7 +788,7 @@ pub async fn autostart_set(app: AppHandle, enabled: bool) -> Result<AutostartInf
             if now == enabled {
                 eprintln!("[capture] autostart 切換回報錯誤但狀態已符合：{e}");
             } else {
-                return Err(e.to_string());
+                return Err(format!("無法調整開機自動啟動設定（{e}）"));
             }
         }
     }

@@ -41,6 +41,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type RefObject } from "react";
 import { isTicketAmountMasked, isTicketManageTab, useTicketStore } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
+import { useAttachmentStore } from "../../../store/attachmentStore";
+import { attachmentEntityKey } from "../../../domain/attachments";
+import { AttachmentCountBadge } from "../../common/attachments/AttachmentCountBadge";
 import { TK_TAG_ENTRY, TK_TAG_REPEAT, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
 import { TagPills, useMergedEntityTagKeys } from "../../common/TagPills";
 import { useNodeStore } from "../../../store/nodeStore";
@@ -192,6 +195,11 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const [sheet, setSheet] = useState<"archived" | null>(null);
   const [searchSheet, setSearchSheet] = useState(false);
   useBackLayer("ticket.office.sheet", sheet !== null, () => setSheet(null));
+
+  // v1.39 4A：僅載入輕量相片計數（零 photo_data 記憶體負載）
+  useEffect(() => {
+    void useAttachmentStore.getState().loadCounts("ticket:entry");
+  }, []);
 
   // 0-16：月曆點到沒帳的日 ⇒ 淡字 3 秒
   useEffect(() => {
@@ -737,6 +745,8 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
     [e.id, e.repeat_id],
   );
   const tagKeys = useMergedEntityTagKeys(tagRefs);
+  const attKey = attachmentEntityKey("ticket:entry", e.id);
+  const attCount = useAttachmentStore((s) => s.counts[attKey] ?? 0);
   const onPickTag = (key: string) => {
     const st = useTicketStore.getState();
     const cur = st.searchOpen ? st.filter.tagKeys : st.listFilter.tagKeys;
@@ -851,6 +861,7 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
             <span className="ct">{primary}</span>
             {instBadge && <span className="ns-tk-minst">{instBadge}</span>}
             {e.repeat_id && <span className="ns-tk-mrep">定期</span>}
+            <AttachmentCountBadge count={attCount} />
           </span>
           {hasSubLine && (
             <span className="nt">

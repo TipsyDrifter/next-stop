@@ -81,7 +81,7 @@ mod imp {
             }))?;
             ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(aumid))?.Show(&toast)
         };
-        send().map_err(|e| format!("送提醒通知失敗：{e}"))
+        send().map_err(|e| format!("無法送出提醒通知（{e}）"))
     }
 }
 
@@ -95,10 +95,11 @@ pub async fn reminder_toast(
     body: String,
     target: String,
 ) -> Result<(), String> {
-    let exe = tauri::utils::platform::current_exe().map_err(|e| format!("找不到執行檔：{e}"))?;
+    let exe = tauri::utils::platform::current_exe()
+        .map_err(|e| format!("找不到程式執行檔，無法送出提醒（{e}）"))?;
     let exe_dir = exe
         .parent()
-        .ok_or_else(|| "找不到執行檔所在的資料夾".to_string())?
+        .ok_or_else(|| "找不到程式所在的資料夾，無法送出提醒".to_string())?
         .display()
         .to_string();
     let identifier = app.config().identifier.clone();
@@ -114,7 +115,7 @@ pub async fn reminder_toast(
         )
     })
     .await
-    .map_err(|e| format!("送提醒通知的工作沒跑完：{e}"))?
+    .map_err(|e| format!("送出提醒通知時發生中斷（{e}）"))?
 }
 
 #[cfg(not(windows))]
@@ -125,7 +126,7 @@ pub async fn reminder_toast(
     _body: String,
     _target: String,
 ) -> Result<(), String> {
-    Err("這個平台沒有可點回 App 的提醒通知".to_string())
+    Err("此裝置暫不支援點開通知直接回到私鐵手帳".to_string())
 }
 
 #[cfg(all(test, windows))]

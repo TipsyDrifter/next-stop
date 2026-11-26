@@ -225,7 +225,7 @@ fn stamp_iso(at: DateTime<Utc>) -> String {
 pub async fn upload(app: &AppHandle, pool: &Pool<Sqlite>, kind: SnapshotKind) -> Result<SnapshotEntry, String> {
     let st = app
         .try_state::<SyncState>()
-        .ok_or_else(|| "同步模組還沒初始化。".to_string())?;
+        .ok_or_else(|| "同步功能還在準備中，請稍後再試。".to_string())?;
     let _busy = BusyGuard::acquire(&st.busy).ok_or_else(|| "同步正在進行中，請稍候再試。".to_string())?;
     upload_held(app, pool, kind).await
 }
@@ -252,7 +252,7 @@ pub(crate) async fn upload_held(
     let meta = engine::meta_all(pool).await?;
     let blocked = |k: &str| meta.get(k).is_some_and(|v| !v.is_empty());
     if blocked("locked") || blocked("pending_epoch") {
-        return Err("這台的同步狀態還沒處理完（改正待ち／鍵違い）——先到同步頁處理，再備份到雲端。".into());
+        return Err("這台的同步還有狀況還沒處理（改正待ち／鍵違い），請先到設定裡的「同步」處理完再備份到雲端。".into());
     }
     let k = engine::keyed_client(app, pool).await?;
     // 封裝與 PUT 的那一段＝`engine::put_cloud_snapshot`（WP-A 為輪替與 adopt 那三個呼叫點抽的共用核心：
@@ -284,7 +284,7 @@ pub async fn upload_auto(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<Option<
     }
     let st = app
         .try_state::<SyncState>()
-        .ok_or_else(|| "同步模組還沒初始化。".to_string())?;
+        .ok_or_else(|| "同步功能還在準備中，請稍後再試。".to_string())?;
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
         return Ok(None);
     };
@@ -556,7 +556,7 @@ pub fn validate_full_json(json: &str) -> Result<Map<String, Value>, String> {
 }
 
 pub(crate) fn validate_full_json_with(reg: &Registry, json: &str) -> Result<Map<String, Value>, String> {
-    let incomplete = || "這份備份的內容不完整。".to_string();
+    let incomplete = || "這份備份的內容不完整，無法還原。".to_string();
     let doc: Value = serde_json::from_str(json).map_err(|_| incomplete())?;
     let Value::Object(doc) = doc else {
         return Err(incomplete());
@@ -597,7 +597,7 @@ async fn prune_orphans(reg: &Registry, tx: &mut sqlx::Transaction<'_, Sqlite>) -
     loop {
         rounds += 1;
         if rounds > PRUNE_ORPHAN_ROUNDS {
-            return Err("這份備份裡有太多互相依賴的壞資料，沒辦法安全地還原。".into());
+            return Err("這份備份裡的資料關聯太多損壞，沒辦法安全地還原。".into());
         }
         let mut hit = false;
         for tbl in &checked {
@@ -725,7 +725,7 @@ async fn insert_row(
     }
     q.execute(&mut **tx).await.map_err(|_| {
         let id = row.get("id").and_then(Value::as_str).unwrap_or("?");
-        format!("這份備份有一筆資料不合法（{tbl} {id}）。")
+        format!("這份備份裡有一筆資料格式不合法，無法還原（{tbl} {id}）。")
     })?;
     Ok(true)
 }
@@ -754,21 +754,21 @@ pub async fn cloud_restore(
 ) -> Result<(), String> {
     let st = app
         .try_state::<SyncState>()
-        .ok_or_else(|| "同步模組還沒初始化。".to_string())?;
+        .ok_or_else(|| "同步功能還在準備中，請稍後再試。".to_string())?;
     let _busy = BusyGuard::acquire(&st.busy).ok_or_else(|| "同步正在進行中，請稍候再試。".to_string())?;
     let pool = engine::pool(app).await?;
     let k = engine::keyed_client(app, &pool).await?;
 
     // 0. 形狀與歸屬：只還原自己這個根底下、鍵名長得像快照的物件（UI 只會帶列表回來的鍵，這是保險）
     if parse_snapshot_key(key).is_none() || !key.starts_with(&engine::snapshots_prefix(&k.root)) {
-        return Err("這不是一份雲端快照。".into());
+        return Err("這不是私鐵手帳的雲端備份，無法讀取。".into());
     }
 
     // 1. 下載→拆→驗（**動本機之前**；拆不開＝這台的鑰匙已被輪替換掉，或物件壞了）
     let blob = k.client.get(key).await?;
     let plain = crypto::open(&k.data_key, key, &blob)
-        .map_err(|_| "這份雲端快照用這台的鑰匙打不開（可能已在另一台換過鑰匙）。".to_string())?;
-    let text = String::from_utf8(plain).map_err(|_| "這份備份的內容不完整。".to_string())?;
+        .map_err(|_| "這台的鑰匙打不開這份雲端備份（可能已在另一台換過鑰匙，請先用新密語重新加入）。".to_string())?;
+    let text = String::from_utf8(plain).map_err(|_| "這份雲端備份的內容不完整，無法讀取。".to_string())?;
     validate_full_json(&text)?;
 
     // 2. 留底（D-2：桌機拍本機 safety 備份／手機先拍一份 manual 雲端快照，用當下這把鑰匙）。
@@ -776,11 +776,11 @@ pub async fn cloud_restore(
     #[cfg(not(mobile))]
     crate::backup::safety_snapshot(app)
         .await
-        .map_err(|e| format!("還原前的保險備份沒拍成：{e}"))?;
+        .map_err(|e| format!("還原前先在本機留底失敗，已取消還原（{e}）"))?;
     #[cfg(mobile)]
     upload_held(app, &pool, SnapshotKind::Safety)
         .await
-        .map_err(|e| format!("還原前的雲端備份沒拍成：{e}"))?;
+        .map_err(|e| format!("還原前先在雲端留底失敗，已取消還原（{e}）"))?;
 
     // 3. 未送出的另存（**只落檔，先不清 outbox、也先不寫 meta**；工程評審 S-1）。
     //    新紀元號要重啟後的 `finish_restore(Past)` 才決定得了，所以 JSON 裡的 `new_epoch` 留空。
@@ -864,12 +864,12 @@ pub async fn cloud_snapshot_read(app: &AppHandle, key: &str) -> Result<SnapshotC
     let pool = engine::pool(app).await?;
     let k = engine::keyed_client(app, &pool).await?;
     if !is_own_snapshot_key(key, &k.root) {
-        return Err("這不是一份雲端快照。".into());
+        return Err("這不是私鐵手帳的雲端備份，無法讀取。".into());
     }
     let blob = k.client.get(key).await?;
     let plain = crypto::open(&k.data_key, key, &blob)
-        .map_err(|_| "這份雲端快照用這台的鑰匙打不開（可能已在另一台換過鑰匙）。".to_string())?;
-    let text = String::from_utf8(plain).map_err(|_| "這份備份的內容不完整。".to_string())?;
+        .map_err(|_| "這台的鑰匙打不開這份雲端備份（可能已在另一台換過鑰匙，請先用新密語重新加入）。".to_string())?;
+    let text = String::from_utf8(plain).map_err(|_| "這份雲端備份的內容不完整，無法讀取。".to_string())?;
     snapshot_content(Registry::production(), &text)
 }
 
@@ -882,16 +882,16 @@ fn write_picked_bytes(app: &AppHandle, target: &str, bytes: &[u8]) -> Result<(),
     use std::str::FromStr;
     use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
 
-    let path = FilePath::from_str(target).map_err(|_| "看不懂這個存檔位置。".to_string())?;
+    let path = FilePath::from_str(target).map_err(|_| "看不懂這個存檔位置，請重新選擇資料夾。".to_string())?;
     let mut opts = OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     let mut file = app
         .fs()
         .open(path, opts)
-        .map_err(|e| format!("打不開你選的位置：{e}"))?;
+        .map_err(|e| format!("打不開你選擇的存檔位置（{e}）"))?;
     file.write_all(bytes)
-        .map_err(|e| format!("寫入匯出檔失敗：{e}"))?;
-    file.flush().map_err(|e| format!("寫入匯出檔失敗：{e}"))
+        .map_err(|e| format!("無法把匯出資料寫進你選的位置（{e}）"))?;
+    file.flush().map_err(|e| format!("無法把匯出資料寫進你選的位置（{e}）"))
 }
 
 /// 資料匯出（失物招領 §4；D-主-322、323）：前端把 JSON／zip 組好、以 base64 傳過來，這裡解碼後寫到主人在存檔畫面選的位置。
@@ -903,11 +903,11 @@ pub fn export_write_picked(app: &AppHandle, target: &str, base64_text: &str) -> 
 
     let target = target.trim();
     if target.is_empty() {
-        return Err("沒有指定存檔位置。".to_string());
+        return Err("請先選擇要存檔的位置。".to_string());
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(base64_text.trim())
-        .map_err(|_| "匯出內容解不開（資料在傳遞時壞掉了），請再按一次匯出。".to_string())?;
+        .map_err(|_| "匯出資料在準備時出了點問題，請再按一次匯出。".to_string())?;
     write_picked_bytes(app, target, &bytes)
 }
 

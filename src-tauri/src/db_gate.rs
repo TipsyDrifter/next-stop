@@ -179,7 +179,7 @@ pub(crate) fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()
         .map(|d| d.join(DB_FILE))
-        .map_err(|e| format!("找不到 App 設定資料夾（{e}）。"))
+        .map_err(|e| format!("找不到私鐵手帳的資料夾，無法檢查資料庫（{e}）。"))
 }
 
 /// 前端 `lib/db.ts::getDb()` 每個頁面開庫前叫一次；`Err`＝不要 load（人話直接給 `⚠` 那一列）。

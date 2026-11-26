@@ -118,7 +118,7 @@ pub async fn sync_change_passphrase(
 pub async fn sync_cloud_snapshot_now(app: AppHandle, kind: Option<String>) -> Result<SnapshotEntry, String> {
     let kind = kind
         .as_deref()
-        .map(|k| SnapshotKind::parse(k).ok_or_else(|| "快照種類只能是 auto／manual／safety。".to_string()))
+        .map(|k| SnapshotKind::parse(k).ok_or_else(|| "備份類型不正確，請重新操作一次。".to_string()))
         .transpose()?
         .unwrap_or(SnapshotKind::Manual);
     let pool = engine::pool(&app).await?;

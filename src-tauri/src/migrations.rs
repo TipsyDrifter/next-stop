@@ -92,6 +92,8 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(26, "0026_multi_day_schedule", "multi-day schedule: nodes.is_multi_day (1 = continuous multi-day scheduled ticket; NULL/0 = flexible range ticket)"),
     // 第八本第三梯（v1.38 · D-1.36-5）：售票口品項／來源雙欄分離、手續費、刷卡分期與信用卡帳單週期
     mig!(27, "0027_ticket_v138", "ticket v1.38: item column, fee_minor/fee_main_minor, installment group fields, and credit card billing cycle fields"),
+    // 第八本第四梯（v1.39 · D-1.36-5）：跨模組輕量相片附件櫃、時間塊地點標記與時刻表行為鏈
+    mig!(28, "0028_attachments_and_chains", "attachments & chains: attachments table (on-demand compressed photos), time_blocks.location, and time_chains templates"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -272,6 +274,12 @@ mod tests {
             27,
             "0027_ticket_v138",
             "ab1f578b1aaba45bcb1bee95d44a6cd8fc7b6780460a57e0718b88fb652d57f4b2c4cc6c52f4354a7540161c9b4f10b9",
+        ),
+        // v1.39.0 發行（跨模組輕量相片附件櫃、時間塊地點標記與時刻表行為鏈）
+        (
+            28,
+            "0028_attachments_and_chains",
+            "21816052f3e54bce1d66475f14caed284100c84412c011135d031d65340289967428bb248a7af68522a5441756bea0b3",
         ),
     ];
 

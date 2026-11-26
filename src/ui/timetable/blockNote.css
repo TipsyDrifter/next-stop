@@ -8,11 +8,17 @@
  * - 週視圖 tooltip 第二行、方眼色帶的原生 title（桌機色帶要吃得到滑鼠才出得來）。
  * ───────────────────────────────────────────────────── */
 
-/* BlockPanel 備註列 */
+/* BlockPanel 備註列與地點列 */
 .ns-tt-noterow { position: relative; z-index: 5; }
-.ns-tt-noterow .ns-tt-row-v { display: block; }
+.ns-tt-locrow { position: relative; z-index: 4; }
+.ns-tt-noterow:focus-within,
+.ns-tt-locrow:focus-within { z-index: 6; }
+.ns-tt-noterow .ns-tt-row-v,
+.ns-tt-locrow .ns-tt-row-v { display: block; }
 /* 標籤跟輸入框同一條中線（同 .is-time 的時刻列；手機框 44px） */
-.ns-tt-row.is-top.ns-tt-noterow .ns-tt-row-k { padding-top: 0; line-height: var(--ctl-input); }
+.ns-tt-row.is-top.ns-tt-noterow .ns-tt-row-k,
+.ns-tt-row.is-top.ns-tt-locrow .ns-tt-row-k { padding-top: 0; line-height: var(--ctl-input); }
+.ns-tt-attrow .ns-tt-row-v { display: block; min-width: 0; }
 input.ns-tt-note-in {
   width: 100%; height: var(--ctl-input); padding: 0 2px; box-sizing: border-box;
   border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; background: transparent;
@@ -21,6 +27,25 @@ input.ns-tt-note-in {
 }
 input.ns-tt-note-in:focus { border-bottom-color: var(--accent); }
 input.ns-tt-note-in::placeholder { color: var(--color-ink-faint); }
+
+/* 軸的塊：地點小標（@ 地點，貼齊紙本手帳淡墨感） */
+.ns-tt-blk-loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-ink-soft);
+  font-size: var(--fs-xs);
+  letter-spacing: .02em;
+}
+.ns-tt-blk-loc svg {
+  flex: none;
+  color: var(--color-ink-faint);
+}
 
 /* 軸的塊：名稱下那一行（沒有小牌時就是那一行；有小牌另起一行） */
 .ns-tt-blk-note {

@@ -368,3 +368,41 @@ pub const IDEAL_TABLES: &[SyncTableSpec] = &[
         }),
     },
 ];
+
+/// attachments 的「主人資料」欄（第八本第四梯 v1.39；migration `attachments_and_chains`）。
+/// 跨模組按需載入輕量相片附件（收據票根照與時間塊活動照；WebP/JPEG ≤180KB）。
+const ATTACHMENTS_COLS: &[(&str, bool)] = &[
+    ("entity_type", false),
+    ("entity_id", false),
+    ("caption", false),
+    ("mime", false),
+    ("photo_data", false),
+    ("width", true),
+    ("height", true),
+    ("byte_size", true),
+    ("position", true),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// 跨模組輕量相片附件櫃（v1.39）：接在理想手札之後、notes 之前（`tables/mod.rs` 的 `production_groups`；probe 照 `name:` 出現順序對帳）。
+pub const ATTACHMENT_TABLES: &[SyncTableSpec] = &[SyncTableSpec {
+    name: "attachments",
+    pk: "id",
+    columns: ATTACHMENTS_COLS,
+    required: &["entity_type", "entity_id", "photo_data"],
+    kind: Kind::Rows(RowsSpec {
+        stamp_filter: "",
+        outbox: OutboxQuery::Plain {
+            order_by: "entity_type, entity_id, position, created_at",
+            filter: "",
+        },
+        outbox_row_fix: None,
+        full_json_order: "created_at",
+        fk_checked: false,
+        conflict_anchor: ConflictAnchor::None,
+        alive_filter: Some("deleted_at IS NULL"),
+        since: Some("attachments_and_chains"),
+    }),
+}];

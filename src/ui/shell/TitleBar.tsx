@@ -19,8 +19,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useUiStore } from "../../store/uiStore";
 import { useNavHistoryStore } from "../../store/navHistoryStore";
 import { useTimetableStore } from "../../store/timetableStore";
+import { useTimetableChainStore } from "../../store/timetableChainStore";
 import { useNotesStore } from "../../store/notesStore";
 import { categoryColorCss, durOf, fmtHMS, leafCategories, toSpan } from "../../domain/timetable";
+import { chainTotalMin, formatChainDuration, resolveStepTitle } from "../../domain/timetableChain";
+import "../timetable/timetable-chains.css";
 import { darkThemeName, lightThemeName } from "../../lib/themeSystem";
 import { linkLabelOf } from "../../domain/timetableLink";
 import { noticeTiles } from "../../domain/timetableNotice";
@@ -185,7 +188,17 @@ function TitleBarDestSign() {
   const recentIds = useTimetableStore((s) => s.recentCategoryIds);
   const noticePins = useTimetableStore((s) => s.noticePins);
   const linkInfo = useTimetableStore((s) => s.linkInfo);
+  const chains = useTimetableChainStore((s) => s.chains);
+  const chainsLoaded = useTimetableChainStore((s) => s.loaded);
+  const activeChain = useTimetableChainStore((s) => s.active);
+  const loadChains = useTimetableChainStore((s) => s.loadChains);
+  const startChain = useTimetableChainStore((s) => s.startChain);
+  const advanceChainStep = useTimetableChainStore((s) => s.advanceChainStep);
   const now = useNow(running ? 1000 : 60_000);
+
+  useEffect(() => {
+    if (ready && !chainsLoaded) void loadChains();
+  }, [ready, chainsLoaded, loadChains]);
 
   const btnRef = useRef<HTMLButtonElement>(null);
   const [menuItems, setMenuItems] = useState<PopMenuItem[] | null>(null);
@@ -197,6 +210,8 @@ function TitleBarDestSign() {
     return leafCategories(categories).slice(0, 6);
   }, [categories, recentIds, noticePins]);
 
+  const activeChains = useMemo(() => chains.filter((c) => c.archivedAt === null), [chains]);
+
   if (!ready) return null;
 
   if (running) {
@@ -207,9 +222,35 @@ function TitleBarDestSign() {
     const elapsed = fmtHMS(durOf(toSpan(running), now));
     const dotColor = categoryColorCss(cat, 1);
 
+    const chainOn =
+      activeChain !== null &&
+      (activeChain.runningBlockId === null || activeChain.runningBlockId === running.id) &&
+      activeChain.steps.length > 0 &&
+      activeChain.stepIndex >= 0 &&
+      activeChain.stepIndex < activeChain.steps.length;
+    const curStep = chainOn ? activeChain.steps[activeChain.stepIndex] : null;
+    const nextStep =
+      chainOn && activeChain.stepIndex + 1 < activeChain.steps.length
+        ? activeChain.steps[activeChain.stepIndex + 1]
+        : null;
+    const isFinalStep = chainOn && nextStep === null;
+    const curStepTitle = curStep ? resolveStepTitle(curStep, catById[curStep.categoryId]?.name) : "";
+    const nextStepTitle = nextStep ? resolveStepTitle(nextStep, catById[nextStep.categoryId]?.name) : "";
+    const timerTitle =
+      chainOn && activeChain
+        ? `行為鏈「${activeChain.chainName}」· ${activeChain.stepIndex + 1}/${activeChain.steps.length} ${curStepTitle}${
+            nextStep ? `｜下一站：${nextStepTitle}（${formatChainDuration(nextStep.estimateMin)}）` : "｜最後一站"
+          }（點擊前往時刻表）`
+        : `正在運行：${label}（點擊前往時刻表）`;
+
     const onJumpToRunning = () => {
       useUiStore.getState().setPage("timetable");
       useTimetableStore.getState().openSheet({ kind: "edit", blockId: running.id });
+    };
+
+    const onAdvanceChain = (e: MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      void advanceChainStep();
     };
 
     const onArrive = (e: MouseEvent<HTMLButtonElement>) => {
@@ -218,12 +259,16 @@ function TitleBarDestSign() {
     };
 
     return (
-      <div className="ns-tb-timer is-running" title={`正在運行：${label}（點擊前往時刻表）`}>
+      <div className="ns-tb-timer is-running" title={timerTitle}>
         <button
           type="button"
           className="ns-tb-timer-main"
           onClick={onJumpToRunning}
-          aria-label={`運行中：${label}，已計時 ${elapsed}`}
+          aria-label={
+            chainOn && activeChain
+              ? `行為鏈「${activeChain.chainName}」第 ${activeChain.stepIndex + 1}/${activeChain.steps.length} 站：${curStepTitle}，已計時 ${elapsed}`
+              : `運行中：${label}，已計時 ${elapsed}`
+          }
         >
           <span
             className="ns-tb-timer-dot"
@@ -231,8 +276,28 @@ function TitleBarDestSign() {
             aria-hidden="true"
           />
           <span className="ns-tb-timer-clock">{elapsed}</span>
-          <span className="ns-tb-timer-label">{label}</span>
+          {chainOn && activeChain && (
+            <span className="ns-tb-timer-chainbadge" aria-hidden="true">
+              {activeChain.stepIndex + 1}/{activeChain.steps.length}
+            </span>
+          )}
+          <span className="ns-tb-timer-label">{chainOn ? curStepTitle : label}</span>
         </button>
+        {chainOn && activeChain && (
+          <button
+            type="button"
+            className="ns-tb-timer-act is-chain-next"
+            onClick={onAdvanceChain}
+            title={
+              isFinalStep
+                ? `完成行為鏈「${activeChain.chainName}」並到着`
+                : `切換至下一站：${nextStepTitle}（${formatChainDuration(nextStep!.estimateMin)}）`
+            }
+            aria-label={isFinalStep ? "完成行為鏈並到着" : `切換至下一站：${nextStepTitle}`}
+          >
+            {isFinalStep ? "終點 ✓" : "下一站 ›"}
+          </button>
+        )}
         <button
           type="button"
           className="ns-tb-timer-act is-arrive"
@@ -254,6 +319,19 @@ function TitleBarDestSign() {
         void useTimetableStore.getState().depart(c.id, Date.now());
       },
     }));
+    if (activeChains.length > 0) {
+      activeChains.slice(0, 5).forEach((c, idx) => {
+        const total = formatChainDuration(chainTotalMin(c.steps));
+        items.push({
+          key: `chain:${c.id}`,
+          label: `直通 · ${c.name}（${c.steps.length}站 ${total}）`,
+          cut: idx === 0 && items.length > 0,
+          onSelect: () => {
+            void startChain(c.id);
+          },
+        });
+      });
+    }
     items.push({
       key: "goto-tt",
       label: "前往時刻表…",

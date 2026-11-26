@@ -60,7 +60,9 @@ import {
   canUndoArrive,
   currentRunning,
   insertLinkOf,
+  insertLocationOf,
   insertNoteOf,
+  locationOf,
   noteOf,
   groupedCategories,
   isoOf,
@@ -159,11 +161,11 @@ interface Snapshot {
   spans: Span[];
 }
 
-/** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去）。⑦：多帶備註（D-時-164） */
+/** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去）。⑦：多帶備註（D-時-164）；v1.39 4A：多帶地點 */
 function mergeInfoOf(rowsById: Record<string, TimeBlockRow>): (id: string) => MergeInfo | undefined {
   return (x) => {
     const r = rowsById[x];
-    return r ? { estimateMin: r.estimate_min, link: linkOfRow(r), note: noteOf(r) } : undefined;
+    return r ? { estimateMin: r.estimate_min, link: linkOfRow(r), note: noteOf(r), location: locationOf(r) } : undefined;
   };
 }
 
@@ -284,6 +286,11 @@ export class SqliteTimetableRepository implements TimetableRepository {
         sets.push(`note = $${args.length}`);
         cols.note = p.note;
       }
+      if (p.location !== undefined && !(cur && locationOf(cur) === p.location)) {
+        args.push(p.location);
+        sets.push(`location = $${args.length}`);
+        cols.location = p.location;
+      }
       if (!sets.length) continue;
       args.push(nowIso);
       sets.push(`updated_at = $${args.length}`);
@@ -311,16 +318,18 @@ export class SqliteTimetableRepository implements TimetableRepository {
         long_run_ack: i.ack ? 1 : 0,
         // ⑦ D-時-164：明寫的備註優先；否則照 fromId 那一列抄（noTagCarry 的不抄）；規則在純函式 insertNoteOf
         note: insertNoteOf(i, src),
+        // v1.39 4A：地點繼承規則同 note
+        location: insertLocationOf(i, src),
       };
       b.stmts.push({
         sql: `INSERT INTO time_blocks
-           (id, category_id, started_at, ended_at, estimate_min, node_id, route_id, long_run_ack, note, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+           (id, category_id, started_at, ended_at, estimate_min, node_id, route_id, long_run_ack, note, location, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
          ON CONFLICT(id) DO UPDATE SET
            category_id = excluded.category_id, started_at = excluded.started_at, ended_at = excluded.ended_at,
            estimate_min = excluded.estimate_min, node_id = excluded.node_id, route_id = excluded.route_id,
-           long_run_ack = excluded.long_run_ack, note = excluded.note, updated_at = excluded.updated_at, deleted_at = NULL`,
-        args: [id, row.category_id, row.started_at, row.ended_at, row.estimate_min, row.node_id, row.route_id, row.long_run_ack, row.note, nowIso],
+           long_run_ack = excluded.long_run_ack, note = excluded.note, location = excluded.location, updated_at = excluded.updated_at, deleted_at = NULL`,
+        args: [id, row.category_id, row.started_at, row.ended_at, row.estimate_min, row.node_id, row.route_id, row.long_run_ack, row.note, row.location, nowIso],
       });
       // 收到方沒有這列時必填欄要齊（engine 新列缺必填就跳過）⇒ 完整列
       addOp(b, "time_blocks", id, "upsert", { ...row, created_at: nowIso, updated_at: nowIso, deleted_at: null });
@@ -605,7 +614,14 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const now = Date.now();
     const at = Math.min(msOf(atIso), now);
     const snap = await this.loadSnapshot(db, isoOf(at));
-    const plan = planDepart(snap.spans, { categoryId, at, now, estimateMin: opts?.estimateMin ?? null, link: opts?.link ?? null });
+    const plan = planDepart(snap.spans, {
+      categoryId,
+      at,
+      now,
+      estimateMin: opts?.estimateMin ?? null,
+      link: opts?.link ?? null,
+      location: opts?.location,
+    });
     const b = newWriteBatch();
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
@@ -662,14 +678,23 @@ export class SqliteTimetableRepository implements TimetableRepository {
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null },
+    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null; location?: string | null },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
     const db = await getDb();
     const now = Date.now();
     const start = msOf(startIso);
     const snap = await this.loadSnapshot(db, isoOf(start));
-    // 磨光⑤ 收尾：ack＝按了「確定記這麼長」（新塊直接記成已確認）；⑦：note＝補記面板的備註
-    const plan = planFill(snap.spans, { categoryId, start, end: msOf(endIso), now, link: opts?.link ?? null, ack: opts?.ack, note: opts?.note });
+    // 磨光⑤ 收尾：ack＝按了「確定記這麼長」（新塊直接記成已確認）；⑦：note＝補記面板的備註；v1.39 4A：location
+    const plan = planFill(snap.spans, {
+      categoryId,
+      start,
+      end: msOf(endIso),
+      now,
+      link: opts?.link ?? null,
+      ack: opts?.ack,
+      note: opts?.note,
+      location: opts?.location,
+    });
     const b = newWriteBatch();
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
@@ -681,7 +706,15 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   async editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
+    input: {
+      categoryId: string;
+      startIso: string;
+      endIso: string;
+      link?: BlockLink | null;
+      ack?: boolean;
+      note?: string | null;
+      location?: string | null;
+    },
   ): Promise<CoverSummary> {
     const db = await getDb();
     const now = Date.now();
@@ -698,6 +731,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
       ack: input.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
       note: input.note, // ⑦：undefined＝不動
       curNote: snap.rowsById[id] ? noteOf(snap.rowsById[id]) : undefined,
+      location: input.location, // v1.39 4A
+      curLocation: snap.rowsById[id] ? locationOf(snap.rowsById[id]) : undefined,
     });
     const b = newWriteBatch();
     await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
@@ -707,7 +742,14 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   async editRunning(
     id: string,
-    input: { categoryId: string; startIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
+    input: {
+      categoryId: string;
+      startIso: string;
+      link?: BlockLink | null;
+      ack?: boolean;
+      note?: string | null;
+      location?: string | null;
+    },
   ): Promise<CoverSummary> {
     const db = await getDb();
     const now = Date.now();
@@ -723,6 +765,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
       ack: input.ack,
       note: input.note, // ⑦：undefined＝不動
       curNote: snap.rowsById[id] ? noteOf(snap.rowsById[id]) : undefined,
+      location: input.location, // v1.39 4A
+      curLocation: snap.rowsById[id] ? locationOf(snap.rowsById[id]) : undefined,
     });
     const b = newWriteBatch();
     await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
@@ -1329,6 +1373,20 @@ export class SqliteTimetableRepository implements TimetableRepository {
        WHERE ${ALIVE} AND note IS NOT NULL AND note <> ''
        GROUP BY note, category_id ORDER BY last DESC`,
     );
+  }
+
+  async listBlockLocations(limit = 50): Promise<string[]> {
+    if (limit <= 0) return [];
+    const db = await getDb();
+    const rows = await db.select<{ location: string }[]>(
+      `SELECT location FROM time_blocks
+       WHERE ${ALIVE} AND location IS NOT NULL AND location <> ''
+       GROUP BY location
+       ORDER BY COUNT(*) DESC, MAX(started_at) DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return rows.map((r) => r.location);
   }
 
   async searchBlocks(term: string, limit: number): Promise<TimeBlockRow[]> {

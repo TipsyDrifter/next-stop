@@ -78,7 +78,21 @@
  * 從運行中開的面板分類格排最後（它最高，排中間會把発車、預估擠到要捲才看得到；看 fromRunning，開著時到站了順序也不跳）；已結束的塊照舊。
  */
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
-import { MIN, findBlockIn, fmtClock, fmtDur, msOf, normalizeNote, noteOf, thresholdOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
+import {
+  MIN,
+  findBlockIn,
+  fmtClock,
+  fmtDur,
+  locationOf,
+  msOf,
+  normalizeLocation,
+  normalizeNote,
+  noteOf,
+  thresholdOf,
+  type BlockLink,
+  type MergePreview,
+} from "../../../domain/timetable";
+import type { AttachmentDraft } from "../../../domain/attachments";
 import { linkLabelOf, linkOfRow, taskEstimateOf } from "../../../domain/timetableLink";
 import { fillContinuation } from "../../../domain/timetableFillCont";
 import { clockDateLabel, clockRangeLabel, longBlockAsk } from "../../../domain/timetableClockInput";
@@ -115,7 +129,9 @@ import {
 } from "./controls";
 import type { ClockInputHandle } from "../../common/ClockInput";
 import { BlockNoteRow } from "./BlockNoteRow";
+import { BlockLocationRow } from "./BlockLocationRow";
 import { EstimateRow } from "./EstimateRow";
+import { PhotoAttachmentField } from "../../common/attachments/PhotoAttachmentField";
 
 type Dir = "prev" | "next";
 
@@ -253,6 +269,17 @@ export function BlockPanel({ onDone }: PanelProps) {
     const want = normalizeNote(noteDraft);
     return want === (block ? noteOf(block) : null) ? undefined : want;
   };
+  // v1.39 4A：地點草稿（規則同 noteDraft）與補記相片草稿
+  const [locationDraft, setLocationDraft] = useState<string | null>(null);
+  const liveLocation = mode === "edit" && block ? (locationOf(block) ?? "") : "";
+  const locationText = locationDraft ?? liveLocation;
+  const locationEdit = (): string | null | undefined => {
+    if (locationDraft === null) return undefined;
+    if (mode === "fill") return normalizeLocation(locationDraft);
+    const want = normalizeLocation(locationDraft);
+    return want === (block ? locationOf(block) : null) ? undefined : want;
+  };
+  const [photoDrafts, setPhotoDrafts] = useState<AttachmentDraft[]>([]);
   // 己：預估草稿（undefined＝還沒動過：跟著這一塊目前的預估）；只有運行中那班有這一列
   const [estDraft, setEstDraft] = useState<number | null | undefined>(undefined);
   const estValue = estDraft !== undefined ? estDraft : (block?.estimate_min ?? null);
@@ -419,13 +446,14 @@ export function BlockPanel({ onDone }: PanelProps) {
     // 軸上不再標「長時間運行・待確認」、待確認清單也不再問一次。只有這條路；12 小時內直接存的照舊不動 ack
     const ackLong = !!ask && longOk;
     const note = noteEdit();
+    const loc = locationEdit();
     if (mode === "fill" && sheet?.kind === "fill") {
       // 連續補（1-4）：先算幾何、不等寫完
       const piece = { start: sheet.start, end: toNow ? now : sheet.end };
       const c = fillContinuation(piece, { start, end }, sheet.cont?.rest ?? [], now);
       if (c.next) openSheet({ kind: "fill", start: c.next.start, end: c.next.end, cont: { rest: c.rest, toNow: toNow && c.next.end >= now } });
       else onDone();
-      void fill(cat, start, end, link, tagDraft ?? [], offNames, ackLong, note);
+      void fill(cat, start, end, link, tagDraft ?? [], offNames, ackLong, note, loc, photoDrafts.length ? photoDrafts : undefined);
     } else if (block) {
       onDone();
       // 只交差集（沒動過／動完跟原本一樣 ⇒ undefined＝不寫荷札）
@@ -440,11 +468,12 @@ export function BlockPanel({ onDone }: PanelProps) {
           tagEdit === undefined &&
           offNames === undefined &&
           note === undefined &&
+          loc === undefined &&
           est === undefined &&
           !ackLong;
-        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames, note, est, ackLong);
+        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames, note, est, ackLong, loc);
       } else {
-        void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong, note);
+        void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong, note, loc);
       }
     }
   };
@@ -657,6 +686,39 @@ export function BlockPanel({ onDone }: PanelProps) {
       <LinkRow value={link} onOpen={() => setPicking(true)} />
       {tagRow}
       <BlockNoteRow value={noteText} onChange={setNoteDraft} catId={cat} shell={desk ? "desktop" : "mobile"} />
+      <BlockLocationRow value={locationText} onChange={setLocationDraft} shell={desk ? "desktop" : "mobile"} />
+      <div className="ns-tt-row is-top ns-tt-attrow">
+        <span className="ns-tt-row-k">相片</span>
+        <span className="ns-tt-row-v">
+          {mode === "edit" && block ? (
+            <PhotoAttachmentField
+              mode="entity"
+              entityType="timetable:block"
+              entityId={block.id}
+              addLabel="貼上相片"
+              sourceLabel={
+                locationText.trim()
+                  ? `${catName(cat ?? block.category_id)} · @ ${locationText.trim()}`
+                  : catName(cat ?? block.category_id)
+              }
+            />
+          ) : (
+            <PhotoAttachmentField
+              mode="draft"
+              drafts={photoDrafts}
+              onChangeDrafts={setPhotoDrafts}
+              addLabel="貼上相片"
+              sourceLabel={
+                locationText.trim()
+                  ? `${cat ? catName(cat) : "補記"} · @ ${locationText.trim()}`
+                  : cat
+                    ? catName(cat)
+                    : "補記"
+              }
+            />
+          )}
+        </span>
+      </div>
       {!fromRunning && <CategoryGrid selected={cat} onPick={setCat} compact />}
       <Row k="発車" time>
         <Stepper

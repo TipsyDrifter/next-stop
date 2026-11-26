@@ -11,6 +11,7 @@ import { nodeRepo, syncRepo } from "../data";
 import { tagRepo } from "../data/tagRepo";
 import { weekAimRepo } from "../data/weekAimRepository";
 import { idealRepo } from "../data/idealRepository";
+import { attachmentRepo } from "../data/attachmentRepo";
 import { followRename } from "../data/tagRepository";
 import { MOCK_FIRST_TICKET, type MergeCellNow, type MergeNotice } from "../data/syncRepository";
 import { CONFLICT_COL_LABEL, KIND_LABEL, ruleValueText, type NodeRow } from "../domain";
@@ -40,6 +41,7 @@ const SETTINGS_LABEL: Readonly<Record<string, string>> = { day_start_hour: "一�
  */
 export function coreCols(tbl: string): Readonly<Record<string, string>> | undefined {
   if (tbl === "settings") return SETTINGS_COL_LABEL;
+  if (tbl === "attachments") return ATTACHMENT_COL_LABEL;
   return CORE_TABLES.has(tbl) ? CONFLICT_COL_LABEL : undefined;
 }
 
@@ -97,6 +99,19 @@ const WEEK_AIM_COL_LABEL: Readonly<Record<string, string>> = {
   position: "順序",
   week_on: "哪一週",
   carried_from: "從哪句帶來",
+};
+
+/** 相片附件櫃的欄名（v1.39 4A；photo_data 永不輸出 base64 原文） */
+const ATTACHMENT_COL_LABEL: Readonly<Record<string, string>> = {
+  caption: "圖說",
+  photo_data: "相片",
+  mime: "格式",
+  width: "寬度",
+  height: "高度",
+  byte_size: "大小",
+  position: "順序",
+  entity_type: "歸屬類型",
+  entity_id: "歸屬項目",
 };
 
 /** 車站、掛在哪的值 → 名字：沒掛講沒掛，節點不在了（硬刪或軟刪）講不在了 */
@@ -168,6 +183,17 @@ export async function resolveMergeLabel(
       return {
         label: clipLabel(`車窓問答「${ref.question}」`, 20),
         cols: { question: "題目", answer: "回答", answered_on: "日期", pinned: "釘選" },
+      };
+    }
+    if (n.tbl === "attachments") {
+      const att = await attachmentRepo.getAttachment(n.row_id, { withDeleted: true });
+      if (!att) return null;
+      const cap = att.caption.trim();
+      return {
+        label: cap ? clipLabel(`相片「${cap}」`, 20) : "一張相片附件",
+        generic: !cap,
+        cols: ATTACHMENT_COL_LABEL,
+        fmt: (col, v) => (col === "photo_data" ? (v ? "相片" : "（無）") : null),
       };
     }
     if (n.tbl === "settings") {

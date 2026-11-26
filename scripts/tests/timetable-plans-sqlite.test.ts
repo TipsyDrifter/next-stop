@@ -84,6 +84,8 @@ function makeDb() {
 const { MIN, isoOf } = await import("../../src/domain/timetable.ts");
 const { SqliteTimetableRepository } = await import("../../src/data/sqliteTimetableRepository.ts");
 const { MemoryTimetableRepository } = await import("../../src/data/memoryTimetableRepository.ts");
+const { SqliteAttachmentRepository } = await import("../../src/data/sqliteAttachmentRepository.ts");
+const { MemoryAttachmentRepository } = await import("../../src/data/memoryAttachmentRepository.ts");
 const { WEEKDAYS_WORK, dayRoutineOf, planApplyRoutine, planEnsureMaterialized, planFillRoutine, serializeRoutineItems } = await import(
   "../../src/domain/timetableRoutine.ts"
 );
@@ -615,5 +617,130 @@ for (const [name, make] of makers) {
         assert.equal(s3.deleted_at, null);
       });
     }
+  });
+
+  describe(`${name}：v1.39 4A 時間塊地點與 listBlockLocations`, () => {
+    test("補記／編輯／切開／合併的 location 讀寫、截斷至 80 字、空白清 null 與 sync op", async () => {
+      const { repo, db } = make();
+      const longLoc = "咖".repeat(95);
+      const r1 = await repo.fill("c-create", at(9), at(11), { location: `  ${longLoc}\n ` });
+      assert.equal(r1.block.location, "咖".repeat(80), "超過 80 字應截斷");
+      if (db) {
+        const op = db.batches[db.batches.length - 1].find((o) => o.row_id === r1.block.id)!;
+        assert.equal(op.cols.location, "咖".repeat(80));
+      }
+
+      // 編輯改地點
+      await repo.editBlock(r1.block.id, { categoryId: "c-create", startIso: at(9), endIso: at(11), location: "  圖書館三樓 " });
+      assert.equal((await repo.getBlock(r1.block.id)).location, "圖書館三樓");
+
+      // 切開沿用地點
+      const second = await repo.split(r1.block.id, at(10), "c-study");
+      assert.ok(second);
+      assert.equal(second.location, "圖書館三樓");
+
+      // 清空第二段地點，再往前合併：保留當前塊（無地點）應吸納前塊地點
+      await repo.editBlock(second.id, { categoryId: "c-study", startIso: at(10), endIso: at(11), location: "   " });
+      assert.equal((await repo.getBlock(second.id)).location, null);
+      const merged = await repo.merge(second.id, "prev", at(8));
+      assert.ok(merged);
+      assert.equal((await repo.getBlock(merged.keepId)).location, "圖書館三樓");
+    });
+
+    test("listBlockLocations 依頻率遞減、同頻依最近開始時刻遞減，且排除已刪除與空值", async () => {
+      const { repo } = make();
+      await repo.fill("c-create", at(8), at(9), { location: "路易莎咖啡" });
+      await repo.fill("c-study", at(9), at(10), { location: "圖書館三樓" });
+      await repo.fill("c-create", at(10), at(11), { location: "路易莎咖啡" });
+      await repo.fill("c-study", at(11), at(12), { location: "管院 204" });
+      const gone = await repo.fill("c-study", at(12), at(13), { location: "已刪地點" });
+      await repo.softDelete(gone.block.id);
+      await repo.fill("c-meal", at(13), at(14), { location: null });
+
+      const locs = await repo.listBlockLocations(10);
+      assert.deepEqual(locs, ["路易莎咖啡", "管院 204", "圖書館三樓"]);
+      assert.deepEqual(await repo.listBlockLocations(2), ["路易莎咖啡", "管院 204"]);
+    });
+  });
+}
+
+const attMakers: [string, () => { repo: Repo; db: ReturnType<typeof makeDb> | null }][] = [
+  [
+    "sqlite",
+    () => {
+      const db = makeDb();
+      (globalThis as Record<string, unknown>).__plansDb = db;
+      return { repo: new SqliteAttachmentRepository(), db };
+    },
+  ],
+  ["memory", () => ({ repo: new MemoryAttachmentRepository({ seedDemo: false }), db: null })],
+];
+
+const MINI_DATA_URL = "data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA=";
+
+for (const [name, makeAtt] of attMakers) {
+  describe(`${name}：v1.39 4A 跨模組相片附件櫃`, () => {
+    test("新增、計數（不吐圖）、查詢、批次查、改圖說、軟刪、上限 4 張與 sync op 欄位對齊", async () => {
+      const { repo, db } = makeAtt();
+      const a1 = await repo.addAttachment({
+        entityType: "ticket:entry",
+        entityId: "tk-1",
+        photoData: MINI_DATA_URL,
+        mime: "image/webp",
+        width: 320,
+        height: 240,
+        byteSize: 42,
+        caption: "  午餐發票  ",
+      });
+      assert.equal(a1.caption, "午餐發票");
+      assert.equal(a1.mime, "image/webp");
+      assert.equal(a1.byte_size, 42);
+      assert.equal(a1.position, 0);
+      if (db) {
+        const op = db.batches[db.batches.length - 1].find((o) => o.tbl === "attachments" && o.row_id === a1.id)!;
+        assert.ok(op);
+        assert.equal(op.cols.mime, "image/webp");
+        assert.equal(op.cols.byte_size, 42);
+        assert.equal(op.cols.entity_type, "ticket:entry");
+      }
+
+      const a2 = await repo.addAttachment({
+        entityType: "timetable:block",
+        entityId: "blk-1",
+        photoData: MINI_DATA_URL,
+        mime: "image/webp",
+        caption: "手寫筆記",
+      });
+
+      // 計數查詢
+      assert.deepEqual(await repo.listCountsByType("ticket:entry"), { "tk-1": 1 });
+      assert.deepEqual(await repo.listAllCounts(), { "ticket:entry:tk-1": 1, "timetable:block:blk-1": 1 });
+
+      // 批次按需讀圖（單日跨頁）
+      const batch = await repo.listByEntities([
+        { entityType: "ticket:entry", entityId: "tk-1" },
+        { entityType: "timetable:block", entityId: "blk-1" },
+      ]);
+      assert.equal(batch.length, 2);
+
+      // 更新圖說
+      await repo.updateCaption(a1.id, "  更新後圖說 ");
+      const reloaded = await repo.listByEntity("ticket:entry", "tk-1");
+      assert.equal(reloaded[0].caption, "更新後圖說");
+
+      // 上限 4 張守門
+      await repo.addAttachment({ entityType: "ticket:entry", entityId: "tk-1", photoData: MINI_DATA_URL });
+      await repo.addAttachment({ entityType: "ticket:entry", entityId: "tk-1", photoData: MINI_DATA_URL });
+      await repo.addAttachment({ entityType: "ticket:entry", entityId: "tk-1", photoData: MINI_DATA_URL });
+      await assert.rejects(
+        repo.addAttachment({ entityType: "ticket:entry", entityId: "tk-1", photoData: MINI_DATA_URL }),
+        /最多附加 4 張/,
+      );
+
+      // 軟刪後計數降 1，且可再新增
+      await repo.deleteAttachment(a2.id);
+      assert.deepEqual(await repo.listCountsByType("timetable:block"), {});
+      assert.equal((await repo.listByEntity("timetable:block", "blk-1")).length, 0);
+    });
   });
 }

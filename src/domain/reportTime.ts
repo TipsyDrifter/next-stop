@@ -20,6 +20,8 @@ export interface ReportTimeBlockMeta {
   categoryName: string;
   taskName: string | null;
   note: string;
+  /** v1.39 4A：時間塊地點（選填） */
+  location?: string | null;
   /** 已解析的有效路線 id（連節點看節點所屬路線；只連路線看塊的 route_id；都沒有＝null） */
   routeId: string | null;
 }
@@ -37,6 +39,8 @@ export interface ReportPreparedSpan {
   routeId: string | null;
   taskName: string | null;
   note: string;
+  /** v1.39 4A：時間塊地點（選填） */
+  location?: string | null;
   tagKeys: readonly string[];
 }
 
@@ -110,6 +114,7 @@ export function reportTimeFacts(input: {
       routeId: meta !== undefined ? meta.routeId : s.routeId,
       taskName: meta?.taskName ?? null,
       note: meta?.note ?? "",
+      location: meta?.location ?? null,
       tagKeys: s.tagKeys ?? [],
     });
   }
@@ -241,6 +246,7 @@ export function slicePreparedTime(input: {
           taskName: b.src.taskName,
           routeId: b.src.routeId,
           note: b.src.note,
+          location: b.src.location ?? null,
         }));
       dayDetails[d] = {
         totalMs: recordedMs,

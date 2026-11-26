@@ -21,7 +21,10 @@
  */
 import { create } from "zustand";
 import { ticketRepo } from "../data/ticketRepository";
+import { attachmentRepo } from "../data/attachmentRepo";
 import { settingsRepo } from "../data";
+import { useAttachmentStore } from "./attachmentStore";
+import type { AttachmentDraft } from "../domain/attachments";
 import { useUiStore } from "./uiStore";
 import { useNodeStore } from "./nodeStore";
 import { addDays, todayKey } from "../lib/date";
@@ -307,7 +310,7 @@ export interface TicketStore {
    * 掛同一組荷札（'ticket:repeat'）＋連上這筆 → 有 wishId ⇒ 願望標成已買 → 實體化一次（起算在過去才會補記）→ toast（復原＝刪這筆＋刪剛建的規則）。
    * again ⇒ 留 kind／帳戶／分類／日期，清金額、備註、荷札、定期（回不重複）、wishId、fromTemplateId
    */
-  saveDraft(opts: { again: boolean }): Promise<boolean>;
+  saveDraft(opts: { again: boolean; attachments?: readonly AttachmentDraft[] }): Promise<boolean>;
   /* 舊票：即時存（UI 用 panel/fields.tsx:76 useDebouncedCommit 去抖後呼叫） */
   openEntry(id: string): void;
   openAccount(id: string): void;
@@ -1651,7 +1654,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       set({ draft: guess ? withGuessedTo(d) : d });
     },
 
-    async saveDraft({ again }) {
+    async saveDraft({ again, attachments }) {
       const d = get().draft;
       if (!d) return false;
       try {
@@ -1678,6 +1681,27 @@ export const useTicketStore = create<TicketStore>((set, get) => {
                 tagFail = true;
               }
             }
+          }
+          if (attachments && attachments.length > 0) {
+            let attWrote = 0;
+            for (const att of attachments) {
+              try {
+                await attachmentRepo.addAttachment({
+                  entityType: "ticket:entry",
+                  entityId: row.id,
+                  photoData: att.photoData,
+                  mime: att.mime,
+                  width: att.width,
+                  height: att.height,
+                  byteSize: att.byteSize,
+                  caption: att.caption,
+                });
+                attWrote++;
+              } catch (e) {
+                console.warn("[ticket] 票根相片沒附上", e);
+              }
+            }
+            if (attWrote > 0) useAttachmentStore.getState().bumpCount("ticket:entry", row.id, attWrote);
           }
           // 帳已寫入：之後每一步失敗都只記下來、不往外丟（往外丟＝回報「沒存」、草稿留著，再按一次就重複記帳）
           let repeatId: string | null = null;

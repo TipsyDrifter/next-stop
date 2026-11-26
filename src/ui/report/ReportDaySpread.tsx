@@ -22,6 +22,7 @@ import { UNCAT_NAME } from "../../domain/ticket";
 import { fmtDur } from "../../domain/timetable";
 import { addDays } from "../../lib/date";
 import { runAtomicNav } from "../../store/navHistoryStore";
+import { useAttachmentStore } from "../../store/attachmentStore";
 import { useNotesStore } from "../../store/notesStore";
 import { useReportStore } from "../../store/reportStore";
 import { useTagStore } from "../../store/tagStore";
@@ -30,6 +31,8 @@ import { useUiStore } from "../../store/uiStore";
 import { DatePicker, type DateQuick } from "../common/DatePicker";
 import { MobileDatePicker } from "../common/MobileDatePicker";
 import { EntityTagPills, TagPills } from "../common/TagPills";
+import { IconCamera } from "../common/attachments/AttachmentCountBadge";
+import { PhotoLightbox, type LightboxPhotoItem } from "../common/attachments/PhotoLightbox";
 import { IconBack, IconChevron, IconEdit } from "../common/icons";
 import { MOODS, type MoodOption } from "../complete/moods";
 import { useBackLayer } from "../mobile/backStack";
@@ -45,6 +48,8 @@ import {
   goIdealTecho,
   goNode,
   goTicketDay,
+  goTicketEntry,
+  goTimetableBlock,
   goTimetableDay,
   isLineOpen,
   type ReportShellKind,
@@ -102,6 +107,24 @@ function StampMarkIcon({ size = 12 }: { size?: number }) {
   );
 }
 
+function LocationPinIcon({ size = 11 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M8 1.5C5.5 1.5 3.5 3.4 3.5 5.9C3.5 9.1 8 14.2 8 14.2C8 14.2 12.5 9.1 12.5 5.9C12.5 3.4 10.5 1.5 8 1.5Z" />
+      <circle cx="8" cy="5.9" r="1.5" />
+    </svg>
+  );
+}
+
 function moodOptionOf(value: "green" | "yellow" | "red" | null | undefined): MoodOption | null {
   if (!value) return null;
   return MOODS.find((o) => o.value === value) ?? null;
@@ -128,9 +151,13 @@ export function ReportDaySpread({
 }: ReportDaySpreadProps) {
   const stepFocusedDay = useReportStore((s) => s.stepFocusedDay);
   const setFocusedDay = useReportStore((s) => s.setFocusedDay);
+  const loadSingleDaySpread = useReportStore((s) => s.loadSingleDaySpread);
   const amountMasked = useTicketStore(isTicketAmountMasked);
+  const attRevision = useAttachmentStore((s) => s.revision);
+  const attRevRef = useRef(attRevision);
 
   const [datePickOpen, setDatePickOpen] = useState(false);
+  const [photoIndex, setPhotoIndex] = useState<number | null>(null);
   const dateBtnRef = useRef<HTMLButtonElement | null>(null);
   const diaryPickMarks = useDiaryPickMarks();
 
@@ -141,10 +168,18 @@ export function ReportDaySpread({
     "dialog",
   );
 
-  // 切換日期時確保日期浮層收合
+  // 切換日期時確保日期浮層與燈箱收合
   useEffect(() => {
     setDatePickOpen(false);
+    setPhotoIndex(null);
   }, [day]);
+
+  // 附件同步或編輯變動時重拉當日跨頁（不影響初始載入）
+  useEffect(() => {
+    if (attRevRef.current === attRevision) return;
+    attRevRef.current = attRevision;
+    void loadSingleDaySpread(day, shell);
+  }, [attRevision, day, shell, loadSingleDaySpread]);
 
   const quickDates = useMemo<readonly DateQuick[]>(
     () => [
@@ -160,7 +195,7 @@ export function ReportDaySpread({
     if (shell !== "desktop") return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
-      if (datePickOpen) return;
+      if (datePickOpen || photoIndex !== null) return;
       if (isEditableElement(e.target)) return;
 
       const ui = useUiStore.getState();
@@ -192,7 +227,7 @@ export function ReportDaySpread({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [shell, day, today, datePickOpen, onClose, stepFocusedDay]);
+  }, [shell, day, today, datePickOpen, photoIndex, onClose, stepFocusedDay]);
 
   const activeSpread = spread?.day === day ? spread : null;
   const detail = activeSpread?.detail ?? null;
@@ -204,6 +239,33 @@ export function ReportDaySpread({
   const moods = activeSpread?.moods ?? [];
   const diaries = activeSpread?.diaries ?? null;
   const reflections = activeSpread?.reflections ?? [];
+  const photos = activeSpread?.photos ?? [];
+
+  const lightboxItems = useMemo<LightboxPhotoItem[]>(
+    () =>
+      photos.map((p) => {
+        const metaParts = [p.sourceLabel, p.timeLabel, p.location ? `@ ${p.location}` : null].filter(Boolean);
+        return {
+          id: p.attachmentId,
+          photoData: p.photoData,
+          caption: p.caption,
+          width: p.width,
+          height: p.height,
+          byteSize: p.byteSize,
+          sourceLabel: metaParts.join(" · "),
+          jumpLabel: p.entityType === "ticket:entry" ? "前往這筆記帳 ›" : "前往這段時刻表 ›",
+          onJump: () => {
+            setPhotoIndex(null);
+            if (p.entityType === "ticket:entry") {
+              void goTicketEntry(day, p.entityId, shell);
+            } else {
+              void goTimetableBlock(day, p.entityId, shell);
+            }
+          },
+        };
+      }),
+    [photos, day, shell],
+  );
 
   const moodSummary = useMemo(() => {
     if (moods.length === 0) return [];
@@ -631,6 +693,12 @@ export function ReportDaySpread({
                             <div className="blk-main">
                               <div className="blk-head">
                                 <span className="cat-nm">{b.categoryName}</span>
+                                {b.location && (
+                                  <span className="ns-rp-spread-loc" title={b.location}>
+                                    <LocationPinIcon size={11} />
+                                    <span>{b.location}</span>
+                                  </span>
+                                )}
                                 {route && <RouteBadge route={route} />}
                                 <EntityTagPills
                                   entityType="timetable:block"
@@ -709,6 +777,50 @@ export function ReportDaySpread({
                   })}
                 </ul>
               )}
+            </section>
+          )}
+
+          {/* ④ 當日生活掠影（售票口票根＋時刻表活動相片；僅有相片時才渲染，無相片零佔位） */}
+          {photos.length > 0 && (
+            <section className="ns-rp-spread-sec ns-rp-spread-photos" aria-label="當日生活掠影">
+              <header className="ns-rp-spread-shd">
+                <span className="t">
+                  <IconCamera size={14} />
+                  <span>當日生活掠影</span>
+                </span>
+                <span className="sum">
+                  <b>{photos.length}</b> 張
+                </span>
+              </header>
+
+              <div className="ns-rp-photo-strip">
+                {photos.map((p, idx) => (
+                  <button
+                    key={p.attachmentId}
+                    type="button"
+                    className="ns-rp-photo-card"
+                    onClick={() => setPhotoIndex(idx)}
+                    title={p.caption || p.sourceLabel}
+                  >
+                    <span className="ns-rp-photo-thumb">
+                      <img src={p.photoData} alt={p.caption || p.sourceLabel} loading="lazy" />
+                      <span className="ns-rp-photo-kind">
+                        {p.entityType === "ticket:entry" ? "票根" : "時刻表"}
+                      </span>
+                    </span>
+                    <span className="ns-rp-photo-meta">
+                      <span className="src">{p.sourceLabel.replace(/^(售票口|時刻表)\s*·\s*/, "")}</span>
+                      {p.location ? (
+                        <span className="sub">@{p.location}</span>
+                      ) : p.caption ? (
+                        <span className="sub">{p.caption}</span>
+                      ) : p.timeLabel ? (
+                        <span className="sub is-num">{p.timeLabel}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </section>
           )}
         </article>
@@ -848,6 +960,16 @@ export function ReportDaySpread({
           )}
         </article>
       </div>
+
+      {photoIndex !== null && lightboxItems.length > 0 && (
+        <PhotoLightbox
+          items={lightboxItems}
+          index={photoIndex}
+          onIndexChange={setPhotoIndex}
+          onClose={() => setPhotoIndex(null)}
+          backId="report.spread.photo"
+        />
+      )}
     </div>
   );
 }

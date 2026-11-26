@@ -20,8 +20,10 @@ import { noteRepo } from "./noteRepo";
 import { timetableRepo } from "./timetableRepository";
 import { ticketRepo } from "./ticketRepository";
 import { tagRepo } from "./tagRepo";
+import { attachmentRepo } from "./attachmentRepo";
 import { reportQueries } from "./reportQueries";
 import { addDays, dayWindow } from "../lib/date";
+import { attachmentEntityKey, type AttachmentEntityRef } from "../domain/attachments";
 import { toStatsSpan, type StatsSpan } from "../domain/timetableStats";
 import type { TimeBlockRow, TimeBlockSlim, TimeCategoryRow } from "../domain/timetable";
 import { EMPTY_TAG_MAPS, blockTags, tagMapsOf } from "../domain/timetableTags";
@@ -35,6 +37,7 @@ import {
   reportFetchWindow,
   resolveReportRange,
   yearAgoDay,
+  type ReportDayPhotoItem,
   type ReportDaySpreadData,
   type ReportDiarySummaryFact,
   type ReportDue,
@@ -207,11 +210,13 @@ async function timeFacts(
     const bTags = blockTags({ id: r.id, categoryId: r.category_id }, cats, tagMaps);
     const mergedTags = mergeUniqueKeys(bTags, r.node_id ? nodeTags[r.node_id] : undefined) ?? [];
     const note = "note" in r && typeof r.note === "string" ? r.note : "";
+    const location = "location" in r && typeof r.location === "string" && r.location.trim() ? r.location.trim() : null;
 
     blockMeta[r.id] = {
       categoryName: cat?.name ?? "已刪除的分類",
       taskName: linkedNode?.name ?? null,
       note,
+      location,
       routeId: effRouteId,
     };
 
@@ -442,10 +447,25 @@ export interface LoadSingleDaySpreadOpts {
   dayNotes: ((from: string, to: string) => Promise<Record<string, string[]> | null>) | null;
 }
 
+interface SingleDayMoneyResult {
+  expenses: ReportExpenseFact[];
+  decimals: number;
+  /** 當日全部存活帳目（含收／支／轉帳），供單日跨頁按需載入票根相片 */
+  allEntries: { id: string; label: string; clock: string }[];
+}
+
+function clockOfIso(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 async function singleDayMoneyFacts(
   day: string,
   tagIdx: TagIndex | null,
-): Promise<{ expenses: ReportExpenseFact[]; decimals: number }> {
+): Promise<SingleDayMoneyResult> {
   const [entries, cats, curs] = await Promise.all([
     ticketRepo.listEntries(day, addDays(day, 1), null),
     ticketRepo.listCategories(),
@@ -456,8 +476,19 @@ async function singleDayMoneyFacts(
   const entryTags = entityTagMap(tagIdx, TK_TAG_ENTRY);
   const repeatTags = entityTagMap(tagIdx, TK_TAG_REPEAT);
 
-  const expenses: ReportExpenseFact[] = entries
-    .filter((e) => e.deleted_at === null && e.kind === "expense" && e.occurred_on === day)
+  const aliveDay = entries.filter((e) => e.deleted_at === null && e.occurred_on === day);
+  const allEntries = aliveDay.map((e) => {
+    const item = e.item?.trim() ?? "";
+    const cat = e.kind === "transfer" ? "轉帳" : topCategoryName(e, catById);
+    return {
+      id: e.id,
+      label: item || cat,
+      clock: clockOfIso(e.occurred_at),
+    };
+  });
+
+  const expenses: ReportExpenseFact[] = aliveDay
+    .filter((e) => e.kind === "expense")
     .map((e) => ({
       id: e.id,
       day: e.occurred_on,
@@ -473,6 +504,7 @@ async function singleDayMoneyFacts(
   return {
     expenses,
     decimals: curs.find((c) => c.is_main === 1)?.decimals ?? 0,
+    allEntries,
   };
 }
 
@@ -513,7 +545,7 @@ export async function loadSingleDaySpread(o: LoadSingleDaySpreadOpts): Promise<R
     o.dayNotes ? o.dayNotes(day, day) : Promise.resolve(null),
   ]);
 
-  return buildSingleDaySpread(
+  const baseSpread = buildSingleDaySpread(
     {
       day,
       today,
@@ -548,4 +580,81 @@ export async function loadSingleDaySpread(o: LoadSingleDaySpreadOpts): Promise<R
     },
     now,
   );
+
+  // v1.39 4A：僅在單日跨頁按需批次載入當日實體的實圖（絕不在運行報告總表載入）
+  const refs: AttachmentEntityRef[] = [];
+  const metaByKey = new Map<
+    string,
+    { sourceLabel: string; location: string | null; timeLabel: string | null; order: number }
+  >();
+  let order = 0;
+
+  if (baseSpread.detail.time) {
+    for (const blk of baseSpread.detail.time.blocks) {
+      const k = attachmentEntityKey("timetable:block", blk.id);
+      if (metaByKey.has(k)) continue;
+      refs.push({ entityType: "timetable:block", entityId: blk.id });
+      const timeLabel = `${blk.startClock}–${blk.running || !blk.endClock ? "運行中" : blk.endClock}`;
+      metaByKey.set(k, {
+        sourceLabel: `時刻表 · ${blk.categoryName}`,
+        location: blk.location ?? null,
+        timeLabel,
+        order: order++,
+      });
+    }
+  }
+  if (money) {
+    for (const ent of money.allEntries) {
+      const k = attachmentEntityKey("ticket:entry", ent.id);
+      if (metaByKey.has(k)) continue;
+      refs.push({ entityType: "ticket:entry", entityId: ent.id });
+      metaByKey.set(k, {
+        sourceLabel: `售票口 · ${ent.label}`,
+        location: null,
+        timeLabel: ent.clock || null,
+        order: order++,
+      });
+    }
+  }
+
+  let photos: ReportDayPhotoItem[] = [];
+  if (refs.length > 0) {
+    try {
+      const rows = await attachmentRepo.listByEntities(refs);
+      photos = rows
+        .map((row) => {
+          const k = attachmentEntityKey(row.entity_type, row.entity_id);
+          const meta = metaByKey.get(k);
+          return {
+            item: {
+              attachmentId: row.id,
+              entityType: row.entity_type,
+              entityId: row.entity_id,
+              photoData: row.photo_data,
+              caption: row.caption,
+              sourceLabel: meta?.sourceLabel ?? (row.entity_type === "ticket:entry" ? "售票口" : "時刻表"),
+              location: meta?.location ?? null,
+              timeLabel: meta?.timeLabel ?? null,
+              width: row.width,
+              height: row.height,
+              byteSize: row.byte_size,
+            } satisfies ReportDayPhotoItem,
+            order: meta?.order ?? Number.MAX_SAFE_INTEGER,
+            pos: row.position,
+            createdAt: row.created_at,
+          };
+        })
+        .sort(
+          (a, b) =>
+            a.order - b.order ||
+            a.pos - b.pos ||
+            (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0),
+        )
+        .map((x) => x.item);
+    } catch (e) {
+      console.warn("[reportFacts] 單日相片附件讀取失敗", e);
+    }
+  }
+
+  return photos.length > 0 ? { ...baseSpread, photos } : baseSpread;
 }

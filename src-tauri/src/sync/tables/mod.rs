@@ -110,7 +110,7 @@ impl Registry {
         }
     }
 
-    fn production_groups() -> [(&'static [SyncTableSpec], &'static [&'static str]); 8] {
+    fn production_groups() -> [(&'static [SyncTableSpec], &'static [&'static str]); 9] {
         [
             (core::TABLES, core::SETTINGS_KEYS),
             // 逐班時刻覆寫（0012）另立一組：core::TABLES 是 G0 金樣鎖住的核心四張，
@@ -122,6 +122,8 @@ impl Registry {
             (core::WEEK_AIM_TABLES, &[]),
             // 車窓・理想手札與車窓の問い（第六本第四梯 v1.30）：接在週方針之後
             (core::IDEAL_TABLES, &[]),
+            // 跨模組輕量相片附件櫃（第八本第四梯 v1.39）：接在理想手札之後
+            (core::ATTACHMENT_TABLES, &[]),
             (notes::TABLES, notes::SETTINGS_KEYS),
             (timetable::TABLES, timetable::SETTINGS_KEYS),
             (ticket::TABLES, ticket::SETTINGS_KEYS),

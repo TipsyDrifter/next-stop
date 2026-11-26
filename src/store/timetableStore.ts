@@ -71,8 +71,11 @@ import {
   type TimetableFilter,
 } from "../domain/timetableFilter";
 import { tagRepo } from "../data/tagRepo";
+import { attachmentRepo } from "../data/attachmentRepo";
 import { applyBlockTagEdit, blockTagEditOf, checkTagNames, receiptWrote, type BlockTagEdit } from "../data/timetableTagCarry";
 import { useTagStore } from "./tagStore";
+import { useAttachmentStore } from "./attachmentStore";
+import type { AttachmentDraft } from "../domain/attachments";
 import {
   MIN,
   currentRunning,
@@ -380,6 +383,7 @@ export const TT_TEXT = {
       estimate_min: "預估",
       long_run_ack: "確認",
       note: "備註", // ⑦
+      location: "地點", // v1.39 4A
     },
     // ④ #73 R5：glyph、position（兩台改同一分類的圓牌字／排序時同步清單印中文）
     time_categories: { name: "名字", parent_id: "分組", color_idx: "顏色", default_min: "預設長度", archived_at: "封存", glyph: "圓牌字", position: "排序" },
@@ -394,10 +398,11 @@ export const TT_TEXT = {
       archived_at: "封存",
       position: "排序", // ④ #73 R5
     },
-    // ⑦：作息範本、預定、釘選統計專題
+    // ⑦：作息範本、預定、釘選統計專題、行為鏈
     time_routines: { name: "名字", items: "段", weekdays: "週幾", position: "排序", archived_at: "封存", start_day: "生效起日", end_day: "生效結束日" },
     time_plans: { day: "日期", start_hm: "開始", end_hm: "結束", category_id: "分類", node_id: "車票", routine_id: "範本", label: "名字", kind: "種類", route_id: "路線" },
     time_stat_topics: { name: "名字", scope: "範圍", day_start_hour: "切日時間", position: "排序", archived_at: "封存" },
+    time_chains: { name: "名字", steps: "步驟", position: "排序", archived_at: "封存" },
   } as {
     time_blocks: Readonly<Record<string, string>>;
     time_categories: Readonly<Record<string, string>>;
@@ -405,6 +410,7 @@ export const TT_TEXT = {
     time_routines: Readonly<Record<string, string>>;
     time_plans: Readonly<Record<string, string>>;
     time_stat_topics: Readonly<Record<string, string>>;
+    time_chains: Readonly<Record<string, string>>;
   },
   /** 期間字、方向字（目標卡與目標面板共用） */
   goalPeriodWord: { day: "每日", week: "每週", month: "每月", since: "從某天起", until: "到某天為止", range: "單一區間" } as Readonly<Record<GoalPeriod, string>>,
@@ -831,8 +837,8 @@ export interface TimetableStore {
   requestFillLatestGap(): void;
 
   /* 寫入（面板確認時叫；成功 ⇒ refresh＋toast；失敗 ⇒ toast 15；全部經 serial 佇列） */
-  /** ①b：第三參數＝這一班的預估（分；舊呼叫照舊成立）。②：第四參數＝新一班的連結 */
-  depart(categoryId: string, at: number, estimateMin?: number | null, link?: BlockLink | null): Promise<void>;
+  /** ①b：第三參數＝這一班的預估（分；舊呼叫照舊成立）。②：第四參數＝新一班的連結。v1.39 4A：第五參數＝地點 */
+  depart(categoryId: string, at: number, estimateMin?: number | null, link?: BlockLink | null, location?: string | null): Promise<void>;
   arrive(at?: number): Promise<void>;
   /**
    * ②：第四參數＝新一塊的連結。⑥（0-12）：第五參數＝面板草稿的手動荷札名稱（不含分類帶的）；拿到新塊的 id 後
@@ -840,6 +846,7 @@ export interface TimetableStore {
    * 磨光③ 2-1：第六參數＝草稿裡排除的分類帶荷札名稱（`timetable:block-off`，同一時間寫）；undefined 或空陣列＝不排除
    * 磨光⑤ 收尾（沙盒 O1）：第七參數 longOk＝面板上按了「確定記這麼長」⇒ 新塊記成已確認（不再標「長時間運行・待確認」）
    * ⑦（D-時-163）：第八參數 note＝備註（undefined／null／空白＝沒寫；去前後空白、換行變空白）
+   * v1.39 4A：第九參數 location＝地點；第十參數 attachments＝新建補記時預選的相片草稿
    */
   fill(
     categoryId: string,
@@ -850,6 +857,8 @@ export interface TimetableStore {
     offNames?: readonly string[],
     longOk?: boolean,
     note?: string | null,
+    location?: string | null,
+    attachments?: readonly AttachmentDraft[],
   ): Promise<void>;
   /**
    * ②：link undefined＝不動連結。⑥（0-12；評審後改）：tagEdit＝面板草稿相對於「面板打開時的手動荷札」的差集
@@ -858,6 +867,7 @@ export interface TimetableStore {
    * store 跟 index 裡現在排除的比出差集再 attach／detach（`timetable:block-off`）。undefined＝不動排除；[]＝全部還原
    * 磨光⑤ 收尾（沙盒 O1）：longOk＝按了「確定記這麼長」⇒ 這一塊記成已確認
    * ⑦（D-時-163）：note＝備註（undefined＝不動；null／空白＝清掉）；跟時間資料同一個 WriteBatch（一次寫入＝一筆 op）
+   * v1.39 4A：location＝地點（同 note）
    */
   editBlock(
     blockId: string,
@@ -869,12 +879,14 @@ export interface TimetableStore {
     offNames?: readonly string[],
     longOk?: boolean,
     note?: string | null,
+    location?: string | null,
   ): Promise<void>;
   /**
    * 磨光⑦（D-時-152）：改運行中那一班——分類、出發時間、連結（undefined＝不動）、荷札差集／排除（同 editBlock）。
    * 什麼都沒變 ⇒ 不寫。toast：換了分類「改成 X・HH:MM 発」；只改出發時間「出發時間改成 HH:MM」。
    * ⑦：note＝備註（同 editBlock；只改備註＝「改好了・X（運行中）」）
    * 己（D-時-171）：estimateMin＝這一班的預估（undefined＝不動、null＝清掉；只改預估＝照舊「預估改成 X」）
+   * v1.39 4A：location＝地點（同 note）
    */
   editRunning(
     blockId: string,
@@ -886,6 +898,7 @@ export interface TimetableStore {
     note?: string | null,
     estimateMin?: number | null,
     longOk?: boolean,
+    location?: string | null,
   ): Promise<void>;
   split(blockId: string, at: number, categoryId2: string): Promise<void>;
   resolveLongRun(blockId: string, end: number, choice: LongRunChoice, categoryId2?: string): Promise<void>;
@@ -1629,11 +1642,11 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
 
     /* ───────── 寫入 ───────── */
 
-    async depart(categoryId, at, estimateMin, link) {
+    async depart(categoryId, at, estimateMin, link, location) {
       const now = Date.now();
       const atMs = Math.min(at, now);
       await write(
-        () => timetableRepo.depart(categoryId, isoOf(atMs), { estimateMin: estimateMin ?? null, link: link ?? null }),
+        () => timetableRepo.depart(categoryId, isoOf(atMs), { estimateMin: estimateMin ?? null, link: link ?? null, location }),
         ({ block }) => {
           const start = msOf(block.started_at);
           const name = catName(block.category_id);
@@ -1675,7 +1688,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async fill(categoryId, start, end, link, tagNames, offNames, longOk, note) {
+    async fill(categoryId, start, end, link, tagNames, offNames, longOk, note, location, attachments) {
       const names = draftTagNames(tagNames); // ⑥ 0-12：先驗名稱（不合法 ⇒ 不寫）
       if (names === false) return;
       const offs = draftTagNames(offNames); // 磨光③ 2-1：排除的是既有的預設荷札，照樣驗
@@ -1683,9 +1696,36 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       let tagErr: unknown = null;
       await write(
         async () => {
-          const r = await timetableRepo.fill(categoryId, isoOf(start), isoOf(end), { link: link ?? null, ack: longOk === true, note: note ?? null });
+          const r = await timetableRepo.fill(categoryId, isoOf(start), isoOf(end), {
+            link: link ?? null,
+            ack: longOk === true,
+            note: note ?? null,
+            location: location ?? null,
+          });
           if (names && names.length) tagErr = await writeBlockTags(r.block.id, names);
           if (offs && offs.length) tagErr = (await writeBlockTags(r.block.id, offs, TT_TAG_BLOCK_OFF)) ?? tagErr;
+          if (attachments && attachments.length) {
+            let attWrote = 0;
+            for (const d of attachments) {
+              try {
+                await attachmentRepo.addAttachment({
+                  entityType: "timetable:block",
+                  entityId: r.block.id,
+                  photoData: d.photoData,
+                  mime: d.mime,
+                  width: d.width,
+                  height: d.height,
+                  byteSize: d.byteSize,
+                  caption: d.caption,
+                });
+                attWrote++;
+              } catch (e) {
+                console.warn("時刻表：補記相片附件寫入失敗（時間資料已存好）", e);
+                tagErr = tagErr ?? e;
+              }
+            }
+            if (attWrote > 0) useAttachmentStore.getState().bumpCount("timetable:block", r.block.id, attWrote);
+          }
           return r;
         },
         ({ block }) => {
@@ -1695,7 +1735,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async editBlock(blockId, categoryId, start, end, link, tagEdit, offNames, longOk, note) {
+    async editBlock(blockId, categoryId, start, end, link, tagEdit, offNames, longOk, note, location) {
       const add = draftTagNames(tagEdit?.add); // 只驗要新掛的名稱（摘的是現有的 key）
       if (add === false) return;
       // 磨光③ 2-1：排除那份交的是整份名稱 ⇒ 跟 index 裡現在排除的比出差集（同手動那份，只 attach／detach 差的；index 沒載＝基準空、只掛不摘）
@@ -1712,6 +1752,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
             link,
             ack: longOk === true ? true : undefined, // 磨光⑤ 收尾：沒按確定鈕＝不給（照舊）
             note, // ⑦：undefined＝不動
+            location, // v1.39 4A
           });
           // 評審後：只套差集（attach／detach），不整份 setTags；排除那份（D-時-134）同一招、改分類也不裁（D-時-135）
           const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];
@@ -1735,7 +1776,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async editRunning(blockId, categoryId, start, link, tagEdit, offNames, note, estimateMin, longOk) {
+    async editRunning(blockId, categoryId, start, link, tagEdit, offNames, note, estimateMin, longOk, location) {
       const add = draftTagNames(tagEdit?.add);
       if (add === false) return;
       const offEdit = offNames === undefined ? null : blockTagEditOf(useTagStore.getState().keysOf(TT_TAG_BLOCK_OFF, blockId), offNames);
@@ -1745,7 +1786,16 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       const catChanged = !before || before.id !== blockId || before.category_id !== categoryId;
       const startChanged = !before || before.id !== blockId || msOf(before.started_at) !== start;
       // 己：只改了預估 ⇒ toast 講預估（同舊預估面板）
-      const onlyEstimate = estimateMin !== undefined && !catChanged && !startChanged && link === undefined && !tagEdit && !offEdit && note === undefined && !longOk;
+      const onlyEstimate =
+        estimateMin !== undefined &&
+        !catChanged &&
+        !startChanged &&
+        link === undefined &&
+        !tagEdit &&
+        !offEdit &&
+        note === undefined &&
+        location === undefined &&
+        !longOk;
       let tagErr: unknown = null;
       await write(
         async () => {
@@ -1757,6 +1807,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
                 link,
                 ack: longOk === true ? true : undefined,
                 note,
+                location,
               });
           if (estimateMin !== undefined) await timetableRepo.setEstimate(blockId, estimateMin);
           const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];

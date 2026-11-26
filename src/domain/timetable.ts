@@ -58,6 +58,8 @@ export interface TimeBlockRow {
   long_run_ack: number;
   /** ⑦（D-時-163）：一句備註；NULL＝沒寫。0014 之前的庫沒有這欄——讀到 undefined 一律當 null（`noteOf`） */
   note: string | null;
+  /** v1.39（4A / 0028）：地點（選填，如咖啡館、教室、圖書館）；NULL＝沒寫。0028 之前的庫或舊測資讀到 undefined 一律當 null（`locationOf`） */
+  location?: string | null;
   account_id: string | null;
   device_id: string | null;
   created_at: string;
@@ -201,6 +203,8 @@ export interface SpanPatch {
   link?: BlockLink;
   /** ⑦（D-時-163）：改備註；null＝清掉；undefined＝不動 */
   note?: string | null;
+  /** v1.39（4A）：改地點；null＝清掉；undefined＝不動 */
+  location?: string | null;
 }
 
 export interface SpanInsert {
@@ -224,7 +228,7 @@ export interface SpanInsert {
   link?: BlockLink;
   /** ②：照 fromId 那一列抄連結（不管 inherit）；切開用（② 契約 0-3） */
   keepLink?: boolean;
-  /** ⑥（D-時-132）：不搬 fromId 那一塊的手動荷札（`carryPairsOfPlan` 略過）；「其實在做別的」切出的那段用。⑦：備註也不抄（D-時-164） */
+  /** ⑥（D-時-132）：不搬 fromId 那一塊的手動荷札（`carryPairsOfPlan` 略過）；「其實在做別的」切出的那段用。⑦：備註與地點也不抄（D-時-164） */
   noTagCarry?: boolean;
   /**
    * ⑦（D-時-164）：明寫備註；給了就蓋過抄來的。insert 的備註規則（sqlite 與 memory 同，`insertNoteOf`）：
@@ -232,6 +236,8 @@ export interface SpanInsert {
    * 整理切出的片段都帶（不管 inherit：分類換了也是同一件事的一段）
    */
   note?: string | null;
+  /** v1.39（4A）：明寫地點；規則同 `note`（見 `insertLocationOf`） */
+  location?: string | null;
 }
 
 /** ⑦：讀列上的備註（0014 之前的庫、舊測資沒有這欄 ⇒ undefined 當 null） */
@@ -254,6 +260,34 @@ export function normalizeNote(raw: string | null | undefined): string | null | u
 export function insertNoteOf(i: Pick<SpanInsert, "note" | "fromId" | "noTagCarry">, src: { note?: string | null } | undefined): string | null {
   if (i.note !== undefined) return i.note;
   if (i.fromId && !i.noTagCarry && src) return noteOf(src);
+  return null;
+}
+
+/** v1.39（4A）：地點長度上限（字元數） */
+export const MAX_BLOCK_LOCATION_CHARS = 80;
+
+/** v1.39（4A）：讀列上的地點（0028 之前的庫、舊測資沒有這欄 ⇒ undefined 當 null） */
+export function locationOf(r: { location?: string | null } | undefined): string | null {
+  return r?.location ?? null;
+}
+
+/** v1.39（4A）：地點正規化：去前後空白、換行與 tab 換成單空白、截斷至 80 字；空字串＝null；undefined 照傳 */
+export function normalizeLocation(raw: string | null | undefined): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const s = raw.replace(/[\r\n\t]+/g, " ").trim();
+  if (s === "") return null;
+  const chars = Array.from(s);
+  return chars.length > MAX_BLOCK_LOCATION_CHARS ? chars.slice(0, MAX_BLOCK_LOCATION_CHARS).join("") : s;
+}
+
+/** v1.39（4A）：insert 這一列最後寫進去的地點（sqlite 與 memory 的 applyPlan 共用）；規則同 `insertNoteOf` */
+export function insertLocationOf(
+  i: Pick<SpanInsert, "location" | "fromId" | "noTagCarry">,
+  src: { location?: string | null } | undefined,
+): string | null {
+  if (i.location !== undefined) return i.location;
+  if (i.fromId && !i.noTagCarry && src) return locationOf(src);
   return null;
 }
 
@@ -760,7 +794,7 @@ export function planCover(
  */
 export function planDepart(
   spans: readonly Span[],
-  input: { categoryId: string; at: number; now: number; estimateMin?: number | null; link?: BlockLink | null },
+  input: { categoryId: string; at: number; now: number; estimateMin?: number | null; link?: BlockLink | null; location?: string | null },
 ): WritePlan {
   const at = Math.min(input.at, input.now);
   const plan = planCover(spans, { start: at, end: null }, null);
@@ -774,6 +808,7 @@ export function planDepart(
     ack: false,
     estimateMin: input.estimateMin ?? null,
     link: input.link ?? NO_LINK, // ②：新一班的連結（不給＝沒連）
+    location: normalizeLocation(input.location) ?? null, // v1.39 4A
   });
   return plan;
 }
@@ -830,6 +865,9 @@ export function planEditRunning(
     /** ⑦：備註（undefined＝不動；null／空白＝清掉）；`curNote`＝現值（Span 不帶，由 repository 從列上給；沒給＝當作不同） */
     note?: string | null;
     curNote?: string | null;
+    /** v1.39（4A）：地點（規則同 note） */
+    location?: string | null;
+    curLocation?: string | null;
   },
 ): WritePlan {
   const s = findSpan(spans, input.id);
@@ -859,6 +897,7 @@ export function planEditRunning(
     }
   }
   if (notePatch(patch, input.note, input.curNote)) changed = true;
+  if (locationPatch(patch, input.location, input.curLocation)) changed = true;
   if (changed) plan.patches.push(patch);
   return plan;
 }
@@ -869,6 +908,15 @@ function notePatch(patch: SpanPatch, raw: string | null | undefined, cur: string
   if (want === undefined) return false;
   if (cur !== undefined && (cur ?? null) === want) return false;
   patch.note = want;
+  return true;
+}
+
+/** v1.39（4A）：地點要不要進 patch（規則同 notePatch） */
+function locationPatch(patch: SpanPatch, raw: string | null | undefined, cur: string | null | undefined): boolean {
+  const want = normalizeLocation(raw);
+  if (want === undefined) return false;
+  if (cur !== undefined && (cur ?? null) === want) return false;
+  patch.location = want;
   return true;
 }
 
@@ -884,7 +932,16 @@ function assertRange(start: number, end: number, now: number): void {
  */
 export function planFill(
   spans: readonly Span[],
-  input: { categoryId: string; start: number; end: number; now: number; link?: BlockLink | null; ack?: boolean; note?: string | null },
+  input: {
+    categoryId: string;
+    start: number;
+    end: number;
+    now: number;
+    link?: BlockLink | null;
+    ack?: boolean;
+    note?: string | null;
+    location?: string | null;
+  },
 ): WritePlan {
   assertRange(input.start, input.end, input.now);
   const plan = planCover(spans, { start: input.start, end: input.end }, null);
@@ -898,6 +955,7 @@ export function planFill(
     ack: input.ack === true,
     link: input.link ?? NO_LINK, // ②
     note: normalizeNote(input.note) ?? null, // ⑦：補記面板的備註（不給＝沒寫）
+    location: normalizeLocation(input.location) ?? null, // v1.39 4A
   });
   return plan;
 }
@@ -925,6 +983,9 @@ export function planEdit(
     /** ⑦：備註（undefined＝不動；null／空白＝清掉）；`curNote` 同 `curLink`（沒給＝當作不同） */
     note?: string | null;
     curNote?: string | null;
+    /** v1.39（4A）：地點（規則同 note） */
+    location?: string | null;
+    curLocation?: string | null;
   },
 ): WritePlan {
   const s = findSpan(spans, input.id);
@@ -959,6 +1020,7 @@ export function planEdit(
     }
   }
   if (notePatch(patch, input.note, input.curNote)) changed = true;
+  if (locationPatch(patch, input.location, input.curLocation)) changed = true;
   if (changed) plan.patches.push(patch);
   return plan;
 }
@@ -1216,11 +1278,12 @@ export interface MergeOutcome {
   preview: MergePreview;
 }
 
-/** planMerge 的 `infoOf` 回的（Span 不帶的欄；repository 從列上給）。`note` 是 ⑦ 加的（沒給＝當作沒寫） */
+/** planMerge 的 `infoOf` 回的（Span 不帶的欄；repository 從列上給）。`note` 是 ⑦ 加的、`location` 是 v1.39 4A 加的 */
 export interface MergeInfo {
   estimateMin: number | null;
   link: BlockLink;
   note?: string | null;
+  location?: string | null;
 }
 
 /** ⑦：併進鄰居（鄰居被吞、s 留下）時 s 的備註——s 有寫就留 s 的；s 沒寫、被吞的那塊有寫 ⇒ 抄過來 */
@@ -1228,6 +1291,13 @@ function absorbNotePatch(keepId: string, absorbId: string, infoOf: ((id: string)
   const mine = infoOf?.(keepId)?.note ?? null;
   const theirs = infoOf?.(absorbId)?.note ?? null;
   return mine === null && theirs !== null ? { id: keepId, note: theirs } : null;
+}
+
+/** v1.39（4A）：併進鄰居時 s 的地點——規則同 absorbNotePatch */
+function absorbLocationPatch(keepId: string, absorbId: string, infoOf: ((id: string) => MergeInfo | undefined) | undefined): SpanPatch | null {
+  const mine = infoOf?.(keepId)?.location ?? null;
+  const theirs = infoOf?.(absorbId)?.location ?? null;
+  return mine === null && theirs !== null ? { id: keepId, location: theirs } : null;
 }
 
 /**
@@ -1272,8 +1342,16 @@ export function planMerge(
     if (P && s.start - P.end! < MIN) {
       // P 整塊落在 [P.start, s.start) 裡 ⇒ planCover 把它收掉（連同中間 < 1 分的碎屑）
       const notePatchP = absorbNotePatch(s.id, P.id, input.infoOf); // ⑦ D-時-164
+      const locPatchP = absorbLocationPatch(s.id, P.id, input.infoOf); // v1.39 4A
       const plan = mergePlans(planCover(spans, { start: P.start, end: s.start }, s.id), {
-        patches: [{ id: s.id, start: P.start, ...(notePatchP ? { note: notePatchP.note } : {}) }],
+        patches: [
+          {
+            id: s.id,
+            start: P.start,
+            ...(notePatchP ? { note: notePatchP.note } : {}),
+            ...(locPatchP ? { location: locPatchP.location } : {}),
+          },
+        ],
         inserts: [],
         deletes: [P.id],
       });
@@ -1309,6 +1387,9 @@ export function planMerge(
         // ⑦ D-時-164：抄當前塊的備註；當前塊沒寫 ⇒ 留運行中那班的
         const sNote = info.note ?? null;
         if (sNote !== null && sNote !== (nInfo?.note ?? null)) patch.note = sNote;
+        // v1.39 4A：地點同備註規則
+        const sLoc = info.location ?? null;
+        if (sLoc !== null && sLoc !== (nInfo?.location ?? null)) patch.location = sLoc;
       }
       const plan = mergePlans(planCover(spans, { start: sEnd, end: N.start }, N.id), { patches: [patch], inserts: [], deletes: [s.id] });
       plan.absorbedInto = [{ from: s.id, to: N.id, off: true }]; // 評審 #4：排除也跟著當前塊走（N 自己的排除照留＝D-時-135「改分類不裁」）
@@ -1318,8 +1399,16 @@ export function planMerge(
       };
     }
     const notePatchN = absorbNotePatch(s.id, N.id, input.infoOf); // ⑦ D-時-164
+    const locPatchN = absorbLocationPatch(s.id, N.id, input.infoOf); // v1.39 4A
     const plan = mergePlans(planCover(spans, { start: sEnd, end: N.end }, s.id), {
-      patches: [{ id: s.id, end: N.end, ...(notePatchN ? { note: notePatchN.note } : {}) }],
+      patches: [
+        {
+          id: s.id,
+          end: N.end,
+          ...(notePatchN ? { note: notePatchN.note } : {}),
+          ...(locPatchN ? { location: locPatchN.location } : {}),
+        },
+      ],
       inserts: [],
       deletes: [N.id],
     });

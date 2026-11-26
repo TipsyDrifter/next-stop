@@ -70,6 +70,7 @@ import { useNodeStore } from "./nodeStore";
 import { useUiStore } from "./uiStore";
 import { useWeekAimStore } from "./weekAimStore";
 import { useIdealStore } from "./idealStore";
+import { useAttachmentStore } from "./attachmentStore";
 // 並行地基（契約 §5.3 T-4／T-5）：三條功能線的同步後重載掛點與同步表名。
 // 重載掛點查 `lines/runtime`、**不 import `lines/mounts`**——後者會把各線的元件樹拉進 store 層、
 // 提早到核心元件之前求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）。
@@ -1074,6 +1075,10 @@ export async function refreshAfterPull(
     (wiped || report.changed_tables.includes("ideal_cards") || report.changed_tables.includes("ideal_reflections"))
   ) {
     await useIdealStore.getState().reload();
+  }
+  // 跨模組相片附件櫃（第八本第四梯 v1.39）：拉到 attachments 或整批換掉 ⇒ 重載輕量計數與 revision
+  if (wiped || report.changed_tables.includes("attachments")) {
+    await useAttachmentStore.getState().refreshAll();
   }
   for (const { id, reload } of lineReloads()) {
     try {

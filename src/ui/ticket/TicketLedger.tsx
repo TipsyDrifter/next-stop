@@ -41,6 +41,9 @@ import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useTagStore } from "../../store/tagStore";
+import { useAttachmentStore } from "../../store/attachmentStore";
+import { attachmentEntityKey } from "../../domain/attachments";
+import { AttachmentCountBadge } from "../common/attachments/AttachmentCountBadge";
 import { todayKey } from "../../lib/date";
 import { formatChord, hotkeyById } from "../shell/hotkeys";
 import { roundelStyle } from "../common/roundel";
@@ -297,6 +300,11 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const hasLockPin = useTicketStore((s) => s.hasLockPin);
   const masked = useTicketStore(isTicketAmountMasked);
   const tagIndex = useTagStore((s) => s.index);
+
+  // v1.39 4A：僅載入輕量相片計數（零 photo_data 記憶體負載）
+  useEffect(() => {
+    void useAttachmentStore.getState().loadCounts("ticket:entry");
+  }, []);
 
   const today = todayKey(dayStartHour);
   const thisMonth = monthOf(today, monthStartDay);
@@ -871,6 +879,8 @@ function LedgerRow({
     [e.id, e.repeat_id],
   );
   const tagKeys = useMergedEntityTagKeys(tagRefs);
+  const attKey = attachmentEntityKey("ticket:entry", e.id);
+  const attCount = useAttachmentStore((s) => s.counts[attKey] ?? 0);
   const amt = rowAmount(e, filterAccountId, accById, mainCode);
   const cur = curByCode[amt.currency];
   const foreign = amt.currency !== mainCode;
@@ -932,6 +942,7 @@ function LedgerRow({
             {instBadge}
           </span>
         )}
+        <AttachmentCountBadge count={attCount} />
         {tailNote && (
           <span className="ns-tk-note" title={tailNote}>
             {tailNote}

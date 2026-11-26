@@ -801,7 +801,7 @@ function seedState(mode: SyncMockMode): SyncStatus {
   if (mode === "skipped_missing") return { ...base, skipped_missing_total: 3 };
   // v1.1.5
   if (mode === "stopped_streak") {
-    return { ...base, phase: "stopped", last_error: "連不上 R2（網路不通或憑證過期）", pending_ops: 8, fail_streak: 3, notif_asked: true };
+    return { ...base, phase: "stopped", last_error: "連不上雲端同步空間（請檢查網路連線或確認憑證是否過期）", pending_ops: 8, fail_streak: 3, notif_asked: true };
   }
   if (mode === "needs_passphrase") return { ...base, needs_passphrase: true, recovery_set: true, key_sealed: true, notif_asked: true };
   if (mode === "recovery_set") return { ...base, recovery_set: true, key_sealed: true, notif_asked: true };
@@ -857,11 +857,11 @@ function seedState(mode: SyncMockMode): SyncStatus {
   if (mode === "paused") return { ...base, enabled: false, phase: "paused", pending_ops: 12 };
   if (mode === "stopped") {
     // v1.1.5：streak 1＝只在狀態列講，**不**出橫幅、不發通知（門檻 3；`stopped_streak` 才踩到）
-    return { ...base, phase: "stopped", last_error: "連不上 R2（網路不通或憑證過期）", pending_ops: 8, fail_streak: 1 };
+    return { ...base, phase: "stopped", last_error: "連不上雲端同步空間（請檢查網路連線或確認憑證是否過期）", pending_ops: 8, fail_streak: 1 };
   }
   // 工程評審 B-1：讀不到鑰匙圈。`configured=false` 但 `joined=true`＋有原因 ⇒ 顯示人話、不給加入表單
   if (mode === "cred_unreadable") {
-    return { ...base, configured: false, phase: "stopped", last_error: "讀取系統憑證庫失敗。", root: null, key_sealed: null };
+    return { ...base, configured: false, phase: "stopped", last_error: "暫時讀不到系統保存的同步憑證，請試著重開私鐵手帳。", root: null, key_sealed: null };
   }
   // 產品評審 S1：複製資料夾＝沒鑰匙圈也沒有錯誤 ⇒ `off`（朱點與「停車中」都不該出現）
   if (mode === "copied_folder") {
@@ -915,7 +915,7 @@ export class MemorySyncRepository implements SyncRepository {
     return { ...this.state };
   }
   async join(input: JoinInput): Promise<JoinReport> {
-    if (!input.endpoint.trim() || !input.bucket.trim()) throw new Error("雲端置物櫃的四個欄位都要填。");
+    if (!input.endpoint.trim() || !input.bucket.trim()) throw new Error("請把雲端連線的四個欄位都填齊。");
     // v1.1.5（契約 §4.6）：用復原碼＝密語留白；mock 只驗長度與字集（真機的校驗碼在 Rust `recovery::normalize`）
     const code = input.recovery_code?.replace(/[\s\-_]/g, "").toUpperCase() ?? "";
     if (code) {
@@ -984,7 +984,7 @@ export class MemorySyncRepository implements SyncRepository {
         rotated: true,
         reencrypted_snapshots: this.snapshots.length,
         deleted_epochs: 1,
-        message: `密語已更改，資料鑰匙也換新了——其他裝置要用新密語重新加入。重加密 ${this.snapshots.length} 顆雲端快照、清掉 1 個舊紀元。`,
+        message: `密語已更改，資料鑰匙也換新了——其他裝置請用新密語重新加入。已順手更新 ${this.snapshots.length} 份雲端備份並清理 1 份舊紀錄。`,
       };
     }
     return { sealed_first_time: first, rotated: false, reencrypted_snapshots: 0, deleted_epochs: 0, message: first ? "密語已封存到雲端" : "密語已更改" };
@@ -1018,8 +1018,8 @@ export class MemorySyncRepository implements SyncRepository {
   async push(): Promise<PushReport> {
     // v1.1.5 `?sync=failing`：模擬 Rust `record_error`——每趟 +1、轉停車中，錯誤照常往上拋（runCycle 走 catch）
     if (this.mode === "failing") {
-      this.state = { ...this.state, phase: "stopped", fail_streak: this.state.fail_streak + 1, last_error: "連不上 R2（網路不通或憑證過期）" };
-      throw new Error("連不上 R2（網路不通或憑證過期）");
+      this.state = { ...this.state, phase: "stopped", fail_streak: this.state.fail_streak + 1, last_error: "連不上雲端同步空間（請檢查網路連線或確認憑證是否過期）" };
+      throw new Error("連不上雲端同步空間（請檢查網路連線或確認憑證是否過期）");
     }
     const n = this.state.pending_ops;
     this.state = { ...this.state, pending_ops: 0, pending_span: null, last_sync_at: new Date().toISOString() };
@@ -1105,7 +1105,7 @@ export class MemorySyncRepository implements SyncRepository {
     return { exported_at: new Date().toISOString(), schema: 0, tables: {}, columns: {} };
   }
   async cloudRestore(_key: string, _choice: RestoreChoice, _label?: string): Promise<never> {
-    throw new Error("（假資料模式）雲端還原要灌回資料＋重啟 App，瀏覽器預覽做不到——請在真機驗收。");
+    throw new Error("（預覽模式）雲端還原需要覆蓋本機資料庫並重新啟動 App，請在實體 App 中操作。");
   }
   async finishRotation(): Promise<RotationReport> {
     if (!this.state.rotation_stage) return { outcome: "none", epoch: null, reencrypted_snapshots: 0, deleted_epochs: 0, message: "", recovery: "none" };

@@ -14,6 +14,7 @@ import { useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { dayWindow } from "../../../lib/date";
 import { CategoryGrid } from "./CategoryGrid";
+import { ChainStrip } from "./ChainStrip";
 import { TodayTickets } from "./TodayTickets";
 import { useNow } from "../useNow";
 
@@ -36,6 +37,7 @@ export function DepartBoard() {
         <h3 className="ns-tt-board-title">發車台</h3>
       </div>
       <TodayTickets />
+      <ChainStrip />
       <CategoryGrid selected={null} onPick={tapCategory} totals={totals} runningId={running?.category_id ?? null} />
     </section>
   );

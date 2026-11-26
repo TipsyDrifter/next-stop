@@ -34,7 +34,9 @@ import {
   canUndoArrive,
   currentRunning,
   insertLinkOf,
+  insertLocationOf,
   insertNoteOf,
+  locationOf,
   noteOf,
   normalizeStatTopicDayStartHour,
   normalizeStatTopicName,
@@ -132,16 +134,16 @@ const STARTER_ID: Record<string, string> = {};
 for (const c of STARTER_CATEGORIES) STARTER_ID[c.key] = c.id;
 
 /** 示範時間塊：距日界線（03:00）的分鐘數；end null＝運行中 */
-const DEMO_TODAY: { key: string; start: number; end: number | null }[] = [
+const DEMO_TODAY: { key: string; start: number; end: number | null; location?: string | null }[] = [
   { key: "sleep", start: 0, end: 280 }, // 03:00–07:40
   { key: "move", start: 310, end: 340 }, // 08:10–08:40
-  { key: "class", start: 340, end: 450 }, // 08:40–10:30
+  { key: "class", start: 340, end: 450, location: "管院 204 教室" }, // 08:40–10:30
   { key: "rest", start: 450, end: 470 }, // 10:30–10:50
-  { key: "class", start: 470, end: 550 }, // 10:50–12:10
+  { key: "class", start: 470, end: 550, location: "管院 204 教室" }, // 10:50–12:10
   { key: "meal", start: 550, end: 600 }, // 12:10–13:00
-  { key: "study", start: 630, end: 680 }, // 13:30–14:20
+  { key: "study", start: 630, end: 680, location: "圖書館三樓" }, // 13:30–14:20
   { key: "rest", start: 680, end: 695 }, // 14:20–14:35
-  { key: "create", start: 695, end: null }, // 14:35–運行中
+  { key: "create", start: 695, end: null, location: "路易莎咖啡" }, // 14:35–運行中
 ];
 const DEMO_YESTERDAY: { key: string; start: number; end: number }[] = [
   { key: "sleep", start: 0, end: 270 }, // 03:00–07:30
@@ -715,7 +717,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     const today = todayKey(3);
     const base = msOf(dayWindow(today, 3).start);
     const ybase = msOf(dayWindow(addDays(today, -1), 3).start);
-    const put = (key: string, start: number, end: number | null): TimeBlockRow => {
+    const put = (key: string, start: number, end: number | null, location: string | null = null): TimeBlockRow => {
       const row: TimeBlockRow = {
         id: uuid(),
         category_id: STARTER_ID[key],
@@ -726,6 +728,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         route_id: null,
         long_run_ack: 0,
         note: null,
+        location,
         account_id: null,
         device_id: null,
         created_at: stamp,
@@ -743,10 +746,10 @@ export class MemoryTimetableRepository implements TimetableRepository {
       if (start >= now) break; // 現在早於這塊的開始 ⇒ 不種這塊之後的
       const end = b.end === null ? null : base + b.end * MIN;
       if (end !== null && end > now) {
-        put(b.key, start, null); // 跨到未來的那塊改成運行中，之後的不種
+        put(b.key, start, null, b.location ?? null); // 跨到未來的那塊改成運行中，之後的不種
         break;
       }
-      put(b.key, start, end);
+      put(b.key, start, end, b.location ?? null);
     }
     const mode = ttMode();
     if (mode === "idle") {
@@ -807,6 +810,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         r.route_id = p.link.routeId;
       }
       if (p.note !== undefined) r.note = p.note; // ⑦
+      if (p.location !== undefined) r.location = p.location; // v1.39 4A
       r.updated_at = nowIso;
     }
     const ids: string[] = [];
@@ -828,6 +832,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         route_id: link.routeId,
         long_run_ack: i.ack ? 1 : 0,
         note: insertNoteOf(i, src), // ⑦ D-時-164（同 sqlite）
+        location: insertLocationOf(i, src), // v1.39 4A（同 sqlite）
         account_id: null,
         device_id: null,
         created_at: prev?.created_at ?? nowIso,
@@ -1073,6 +1078,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
       now,
       estimateMin: opts?.estimateMin ?? null,
       link: opts?.link ?? null,
+      location: opts?.location,
     });
     const ids = await this.applyPlan(plan, isoOf(now));
     const newId = ids[plan.inserts.findIndex((i) => !i.inherit)];
@@ -1108,7 +1114,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null },
+    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null; location?: string | null },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
     await this.ready();
     const now = Date.now();
@@ -1120,6 +1126,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
       link: opts?.link ?? null,
       ack: opts?.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
       note: opts?.note, // ⑦
+      location: opts?.location, // v1.39 4A
     });
     const ids = await this.applyPlan(plan, isoOf(now));
     const newId = ids[plan.inserts.findIndex((i) => !i.inherit)];
@@ -1128,7 +1135,14 @@ export class MemoryTimetableRepository implements TimetableRepository {
 
   async editRunning(
     id: string,
-    input: { categoryId: string; startIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
+    input: {
+      categoryId: string;
+      startIso: string;
+      link?: BlockLink | null;
+      ack?: boolean;
+      note?: string | null;
+      location?: string | null;
+    },
   ): Promise<CoverSummary> {
     await this.ready();
     const now = Date.now();
@@ -1143,6 +1157,8 @@ export class MemoryTimetableRepository implements TimetableRepository {
       ack: input.ack,
       note: input.note, // ⑦
       curNote: cur ? noteOf(cur) : undefined,
+      location: input.location, // v1.39 4A
+      curLocation: cur ? locationOf(cur) : undefined,
     });
     await this.applyPlan(plan, isoOf(now));
     return summarizeCover(plan, id);
@@ -1150,7 +1166,15 @@ export class MemoryTimetableRepository implements TimetableRepository {
 
   async editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
+    input: {
+      categoryId: string;
+      startIso: string;
+      endIso: string;
+      link?: BlockLink | null;
+      ack?: boolean;
+      note?: string | null;
+      location?: string | null;
+    },
   ): Promise<CoverSummary> {
     await this.ready();
     const now = Date.now();
@@ -1166,6 +1190,8 @@ export class MemoryTimetableRepository implements TimetableRepository {
       ack: input.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
       note: input.note, // ⑦：undefined＝不動
       curNote: cur ? noteOf(cur) : undefined,
+      location: input.location, // v1.39 4A
+      curLocation: cur ? locationOf(cur) : undefined,
     });
     await this.applyPlan(plan, isoOf(now));
     return summarizeCover(plan, id);
@@ -1236,11 +1262,11 @@ export class MemoryTimetableRepository implements TimetableRepository {
     return [id, ...ids].map((x) => clone(this.blocks.get(x)!));
   }
 
-  /** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去）。⑦：多帶備註（D-時-164） */
+  /** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去）。⑦：多帶備註（D-時-164）；v1.39 4A：多帶地點 */
   private mergeInfoOf(): (id: string) => MergeInfo | undefined {
     return (x) => {
       const r = this.blocks.get(x);
-      return r ? { estimateMin: r.estimate_min, link: linkOfRow(r), note: noteOf(r) } : undefined;
+      return r ? { estimateMin: r.estimate_min, link: linkOfRow(r), note: noteOf(r), location: locationOf(r) } : undefined;
     };
   }
 
@@ -1631,6 +1657,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         if (w.cols.ended_at !== undefined) r.ended_at = w.cols.ended_at;
         if (w.cols.deleted_at !== undefined) r.deleted_at = w.cols.deleted_at;
         if (w.cols.note !== undefined) r.note = w.cols.note;
+        if (w.cols.location !== undefined) r.location = w.cols.location;
       }
       r.updated_at = nowIso;
     }
@@ -1655,6 +1682,28 @@ export class MemoryTimetableRepository implements TimetableRepository {
       } else by.set(k, { note, category_id: r.category_id, count: 1, last: r.started_at });
     }
     return Array.from(by.values()).sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
+  }
+
+  async listBlockLocations(limit = 50): Promise<string[]> {
+    await this.ready();
+    this.ensureDemo();
+    if (limit <= 0) return [];
+    const by = new Map<string, { loc: string; count: number; last: string }>();
+    for (const r of this.blocks.values()) {
+      const loc = locationOf(r);
+      if (!isAlive(r) || !loc) continue;
+      const cur = by.get(loc);
+      if (cur) {
+        cur.count++;
+        if (r.started_at > cur.last) cur.last = r.started_at;
+      } else {
+        by.set(loc, { loc, count: 1, last: r.started_at });
+      }
+    }
+    return Array.from(by.values())
+      .sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0))
+      .slice(0, limit)
+      .map((x) => x.loc);
   }
 
   async searchBlocks(term: string, limit: number): Promise<TimeBlockRow[]> {

@@ -39,11 +39,11 @@ use serde::{Deserialize, Serialize};
 /// 建 cipher。`KeyInit::new_from_slice` 走 `Result`，比 `Array::from_slice` 少一次 panic 風險
 /// （chacha20poly1305 0.11 的 Key 是 `hybrid-array` 的 `Array`，不再有 `from_slice`）。
 fn cipher_of(key: &[u8; KEY_LEN]) -> Result<XChaCha20Poly1305, String> {
-    XChaCha20Poly1305::new_from_slice(key).map_err(|_| "同步金鑰長度不對。".to_string())
+    XChaCha20Poly1305::new_from_slice(key).map_err(|_| "同步金鑰格式不對，請到設定裡重新加入同步。".to_string())
 }
 
 fn nonce_of(bytes: &[u8]) -> Result<XNonce, String> {
-    XNonce::try_from(bytes).map_err(|_| "同步資料的 nonce 長度不對。".to_string())
+    XNonce::try_from(bytes).map_err(|_| "同步資料格式異常或已損壞，無法解開。".to_string())
 }
 
 /// 密語 → 32B 金鑰。`salt` 必須正好 16B。
@@ -51,25 +51,25 @@ fn nonce_of(bytes: &[u8]) -> Result<XNonce, String> {
 /// 為什麼參數寫死：配對碼的 `v:1` 就代表這組參數，兩台機器不必協商；要調參＝發 `v:2` 配對碼。
 pub fn derive_key(passphrase: &str, salt: &[u8]) -> Result<[u8; KEY_LEN], String> {
     if salt.len() != SALT_LEN {
-        return Err("同步金鑰的鹽長度不對（設定可能損壞，請重設同步後重新配對）。".into());
+        return Err("同步設定有些損壞，請點「重新加入同步」再試一次。".into());
     }
     let pass = passphrase.trim();
     if pass.is_empty() {
-        return Err("密語不能是空的。".into());
+        return Err("請輸入同步密語。".into());
     }
     let params = argon2::Params::new(ARGON2_M_KIB, ARGON2_T, ARGON2_P, Some(KEY_LEN))
-        .map_err(|_| "同步金鑰參數不合法。".to_string())?;
+        .map_err(|_| "無法準備同步加密設定，請稍後再試。".to_string())?;
     let a2 = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     let mut key = [0u8; KEY_LEN];
     a2.hash_password_into(pass.as_bytes(), salt, &mut key)
-        .map_err(|_| "推導同步金鑰失敗。".to_string())?;
+        .map_err(|_| "無法用這句密語產生同步金鑰，請稍後再試。".to_string())?;
     Ok(key)
 }
 
 /// 明文 → zstd → 密文（含前置 nonce）。`aad`＝物件 key 字串。
 pub fn seal(key: &[u8; KEY_LEN], aad: &str, plaintext: &[u8]) -> Result<Vec<u8>, String> {
     let packed = zstd::stream::encode_all(plaintext, ZSTD_LEVEL)
-        .map_err(|_| "壓縮同步資料失敗。".to_string())?;
+        .map_err(|_| "整理待上傳的同步資料失敗，請稍後再試。".to_string())?;
     let cipher = cipher_of(key)?;
     let mut nonce = [0u8; NONCE_LEN];
     fill_random(&mut nonce)?;
@@ -78,7 +78,7 @@ pub fn seal(key: &[u8; KEY_LEN], aad: &str, plaintext: &[u8]) -> Result<Vec<u8>,
             &nonce_of(&nonce)?,
             Payload { msg: &packed, aad: aad.as_bytes() },
         )
-        .map_err(|_| "加密同步資料失敗。".to_string())?;
+        .map_err(|_| "加密同步資料時發生問題，請稍後再試。".to_string())?;
     let mut out = Vec::with_capacity(NONCE_LEN + ct.len());
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&ct);
@@ -90,7 +90,7 @@ pub fn seal(key: &[u8; KEY_LEN], aad: &str, plaintext: &[u8]) -> Result<Vec<u8>,
 /// 任何失敗都回同一句人話：拆封失敗的原因（密語錯／被改過／搬錯 key）對主人是同一件事，
 /// 分得太細反而變成攻擊者的提示。
 pub fn open(key: &[u8; KEY_LEN], aad: &str, blob: &[u8]) -> Result<Vec<u8>, String> {
-    const BAD: &str = "密語不對或同步資料損壞。";
+    const BAD: &str = "密語不對，或雲端同步資料已損壞。";
     if blob.len() <= NONCE_LEN {
         return Err(BAD.into());
     }
@@ -115,7 +115,7 @@ pub fn random_salt() -> Result<[u8; SALT_LEN], String> {
 /// 作業系統亂數（不用 `rand`：`rand` 0.9／0.10 的 API 與 `rand_core` 版本正在換代，
 /// 而我們只需要「填滿一段位元組」這一件事，直接用 `getrandom` 最穩）。
 pub fn fill_random(buf: &mut [u8]) -> Result<(), String> {
-    getrandom::fill(buf).map_err(|_| "取得系統亂數失敗。".to_string())
+    getrandom::fill(buf).map_err(|_| "無法產生安全亂數，請稍後再試。".to_string())
 }
 
 /// base64url（無 padding）── 金鑰／鹽在 credstore 與配對碼裡的攜帶形式
@@ -124,14 +124,14 @@ pub fn b64_encode(bytes: &[u8]) -> String {
 }
 
 pub fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
-    B64.decode(s.trim()).map_err(|_| "同步設定的編碼損壞。".to_string())
+    B64.decode(s.trim()).map_err(|_| "同步資料或設定的格式不完整，無法讀取。".to_string())
 }
 
 /// base64url 的金鑰字串 → 32B 陣列
 pub fn key_from_b64(s: &str) -> Result<[u8; KEY_LEN], String> {
     let v = b64_decode(s)?;
     if v.len() != KEY_LEN {
-        return Err("同步金鑰長度不對（請重設同步後重新配對）。".into());
+        return Err("這台的同步金鑰異常，請到設定裡「重新加入同步」。".into());
     }
     let mut key = [0u8; KEY_LEN];
     key.copy_from_slice(&v);
@@ -176,12 +176,13 @@ pub fn random_data_key() -> Result<[u8; KEY_LEN], String> {
 
 /// 解 `<root>/KEY` 的 JSON（先看鹽與參數，才派生包裝鑰匙）
 pub fn parse_wrapped_key(bytes: &[u8]) -> Result<WrappedKey, String> {
-    let wk: WrappedKey = serde_json::from_slice(bytes).map_err(|_| "雲端上的鑰匙物件格式看不懂。".to_string())?;
+    let wk: WrappedKey = serde_json::from_slice(bytes)
+        .map_err(|_| "雲端上的加密鑰匙格式看不懂，可能不是這套同步資料的檔案。".to_string())?;
     if wk.v > KEY_OBJECT_VERSION {
-        return Err("雲端上的鑰匙物件是較新版本產生的，請先更新這一台。".into());
+        return Err("雲端上的加密設定是由較新版的私鐵手帳建立的，請先更新這台的 App。".into());
     }
     if wk.kdf != "argon2id" || wk.m != ARGON2_M_KIB || wk.t != ARGON2_T || wk.p != ARGON2_P {
-        return Err("雲端上的鑰匙物件用了不認得的派生參數。".into());
+        return Err("雲端上的加密設定不相容，請先更新這台的 App 或確認同步設定。".into());
     }
     Ok(wk)
 }
@@ -195,14 +196,14 @@ pub fn wrap_data_key(
     kdf_salt: &[u8],
 ) -> Result<Vec<u8>, String> {
     if kdf_salt.len() != SALT_LEN {
-        return Err("包裝鑰匙的鹽長度不對。".into());
+        return Err("無法封裝同步鑰匙，請稍後再試。".into());
     }
     let cipher = cipher_of(wrap_key)?;
     let mut nonce = [0u8; NONCE_LEN];
     fill_random(&mut nonce)?;
     let ct = cipher
         .encrypt(&nonce_of(&nonce)?, Payload { msg: data_key, aad: aad.as_bytes() })
-        .map_err(|_| "封裝資料鑰匙失敗。".to_string())?;
+        .map_err(|_| "無法封裝同步鑰匙，請稍後再試。".to_string())?;
     let wk = WrappedKey {
         v: KEY_OBJECT_VERSION,
         kdf: "argon2id".into(),
@@ -213,12 +214,12 @@ pub fn wrap_data_key(
         nonce: b64_encode(&nonce),
         ct: b64_encode(&ct),
     };
-    serde_json::to_vec(&wk).map_err(|_| "產生鑰匙物件失敗。".to_string())
+    serde_json::to_vec(&wk).map_err(|_| "無法整理同步鑰匙資料，請稍後再試。".to_string())
 }
 
 /// 用包裝鑰匙拆 `<root>/KEY` → 資料鑰匙。密語不對／被改過都回同一句人話。
 pub fn unwrap_data_key(wrap_key: &[u8; KEY_LEN], aad: &str, bytes: &[u8]) -> Result<[u8; KEY_LEN], String> {
-    const BAD: &str = "密語不對（與雲端那份資料的密語不同）。";
+    const BAD: &str = "密語不對，和雲端這份資料設定的密語不同。";
     let wk = parse_wrapped_key(bytes)?;
     let nonce = b64_decode(&wk.nonce)?;
     let ct = b64_decode(&wk.ct)?;

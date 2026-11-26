@@ -388,14 +388,17 @@ pub async fn tray_set_status(
         return Ok(());
     };
     tray.set_tooltip(Some(tooltip.as_str()))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("更新系統匣提示文字失敗（{e}）"))?;
     if let Some(imgs) = IMAGES.get() {
         let img = if running { &imgs.running } else { &imgs.idle };
-        tray.set_icon(Some(img.clone())).map_err(|e| e.to_string())?;
+        tray.set_icon(Some(img.clone()))
+            .map_err(|e| format!("更新系統匣圖示失敗（{e}）"))?;
     }
     if let Some(spec) = menu {
-        let m = build_menu(&app, Some(&spec)).map_err(|e| e.to_string())?;
-        tray.set_menu(Some(m)).map_err(|e| e.to_string())?;
+        let m = build_menu(&app, Some(&spec))
+            .map_err(|e| format!("建立系統匣選單失敗（{e}）"))?;
+        tray.set_menu(Some(m))
+            .map_err(|e| format!("更新系統匣選單失敗（{e}）"))?;
     }
     Ok(())
 }

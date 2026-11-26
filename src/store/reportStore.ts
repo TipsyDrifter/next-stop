@@ -444,6 +444,7 @@ export const useReportStore = create<ReportState>((set, get) => ({
         moods: detail.seals.flatMap((s) => (s.mood ? [s.mood] : [])),
         diaries: null,
         reflections: [],
+        photos: [],
       };
     }
 

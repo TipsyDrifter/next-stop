@@ -20,6 +20,7 @@ export const CORE_SYNC_TABLES = [
   "week_aims",
   "ideal_cards",
   "ideal_reflections",
+  "attachments",
 ] as const;
 
 /** 會進 oplog 的表（settings 只有白名單 key） */

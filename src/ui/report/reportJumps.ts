@@ -114,6 +114,24 @@ export async function goTimetableDay(day: string, shell: ReportShellKind): Promi
   });
 }
 
+/** v1.39 4A：從單日生活掠影直達對應時刻表時間塊編輯面板 */
+export async function goTimetableBlock(day: string, blockId: string, shell: ReportShellKind): Promise<void> {
+  if (!isLineOpen("timetable", shell)) return;
+  await runAtomicNav(async () => {
+    try {
+      await gotoTimetable(shell);
+    } catch (e) {
+      console.warn("運行報告：打開時刻表失敗", e);
+      return;
+    }
+    const tt = useTimetableStore.getState();
+    const onAxis = tt.view === "axis" || (shell === "desktop" && tt.view === "split");
+    if (!onAxis) tt.setView(shell === "mobile" ? "axis" : "split");
+    await tt.setDayKey(day);
+    tt.openSheet({ kind: "edit", blockId });
+  });
+}
+
 /** 3A-1：前往當日售票口帳目清單並定位至該日 */
 export async function goTicketDay(day: string, shell: ReportShellKind): Promise<void> {
   if (!isLineOpen("ticket", shell)) return;
@@ -128,6 +146,24 @@ export async function goTicketDay(day: string, shell: ReportShellKind): Promise<
       return;
     }
     await useTicketStore.getState().jumpToDay(day);
+  });
+}
+
+/** v1.39 4A：從單日生活掠影直達對應售票口記帳詳情 */
+export async function goTicketEntry(day: string, entryId: string, shell: ReportShellKind): Promise<void> {
+  if (!isLineOpen("ticket", shell)) return;
+  await runAtomicNav(async () => {
+    const ui = useUiStore.getState();
+    if (shell === "desktop") ui.setPage("ticket");
+    else ui.setMobileTab("ticket");
+    try {
+      await useTicketStore.getState().init(shell);
+    } catch (e) {
+      console.warn("運行報告：打開售票口失敗", e);
+      return;
+    }
+    await useTicketStore.getState().jumpToDay(day);
+    useTicketStore.getState().openEntry(entryId);
   });
 }
 

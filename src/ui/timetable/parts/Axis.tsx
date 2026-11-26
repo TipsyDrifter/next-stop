@@ -30,19 +30,23 @@ import {
   categoryColorCss,
   fmtClock,
   fmtDur,
+  locationOf,
   msOf,
   noteOf,
   type AxisItem,
   type TimeBlockRow,
 } from "../../../domain/timetable";
+import { attachmentEntityKey } from "../../../domain/attachments";
 import { filterTimetableDay } from "../../../domain/timetableFilter";
 import { focusBlockTags } from "../../../domain/timetableTags";
 import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
+import { useAttachmentStore } from "../../../store/attachmentStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useTagStore } from "../../../store/tagStore";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { addDays, dayWindow } from "../../../lib/date";
+import { AttachmentCountBadge } from "../../common/attachments/AttachmentCountBadge";
 import { DateNav } from "../../common/DateNav";
 import { EmptyState } from "../../common/EmptyState";
 import { TagDotHint, TagPills } from "../../common/TagPills";
@@ -60,6 +64,20 @@ export interface AxisProps {
 
 const WEEK_ZH = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const STICK_PX = 40;
+
+function IconPin() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 1.5C5.5 1.5 3.5 3.4 3.5 5.9C3.5 9.1 8 14.2 8 14.2C8 14.2 12.5 9.1 12.5 5.9C12.5 3.4 10.5 1.5 8 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="5.9" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
 
 /** YYYY-MM-DD → 「M 月 D 日（週X）」（本地日期運算，不經 Date.parse） */
 function dayLabel(key: string): string {
@@ -98,8 +116,13 @@ export function Axis({ scroller }: AxisProps) {
   const routes = useNodeStore((s) => s.routes);
   const tagIndex = useTagStore((s) => s.index);
   const tagMaps = useTimetableTagMaps();
+  const attCounts = useAttachmentStore((s) => s.counts);
   const now = useNow(1000);
   const mergeMarks = useMergeMarks();
+
+  useEffect(() => {
+    void useAttachmentStore.getState().loadCounts("timetable:block");
+  }, []);
 
   const isToday = dayKey === todayKey;
   const w = useMemo(() => {
@@ -244,6 +267,8 @@ export function Axis({ scroller }: AxisProps) {
                 const lkInfo = linkInfo[lk.nodeId ?? lk.routeId ?? ""];
                 const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
                 const note = noteOf(row);
+                const loc = locationOf(row);
+                const attCount = attCounts[attachmentEntityKey("timetable:block", it.span.id)] ?? 0;
                 const style = { "--c": categoryColorCss(cat, 8) } as CSSProperties;
                 const cls =
                   "ns-tt-blk ns-tt-ledger-row" +
@@ -275,6 +300,13 @@ export function Axis({ scroller }: AxisProps) {
                         <span className="ns-tt-ledger-time ns-tt-num">
                           {fmtClock(it.from)}–{it.running ? "運行中" : fmtClock(it.to)}
                         </span>
+                        {loc !== null && (
+                          <span className="ns-tt-blk-loc" title={loc}>
+                            <IconPin />
+                            {loc}
+                          </span>
+                        )}
+                        <AttachmentCountBadge count={attCount} />
                         {it.contFromPrev && <span className="ns-tt-chip">續・{fmtClock(it.span.start)} 発</span>}
                         {it.contToNext && (
                           <span className="ns-tt-chip">{it.span.end === null ? "續 ›" : `續・${fmtClock(it.span.end)} 着`}</span>
@@ -346,10 +378,12 @@ export function Axis({ scroller }: AxisProps) {
             const lkInfo = lk ? linkInfo[lk.nodeId ?? lk.routeId ?? ""] : undefined;
             const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
             const note = noteOf(row);
+            const loc = locationOf(row);
+            const attCount = attCounts[attachmentEntityKey("timetable:block", it.span.id)] ?? 0;
             const focusTags = row ? focusBlockTags({ id: it.span.id, categoryId: it.span.categoryId }, categories, tagMaps) : [];
             const rowH = axisRowHeight(dur);
             const narrowTag = it.zero || rowH < 52;
-            // 名稱下那一行有沒有小牌（運行中、續、時刻待確認、誤點、長時間運行、預估、窄塊 #）——沒有就不畫空的那行，備註直接頂上
+            // 名稱下那一行有沒有小牌（運行中、續、時刻待確認、誤點、長時間運行、預估、窄塊 #、地點、相片數）——沒有就不畫空的那行，備註直接頂上
             const hasChip =
               it.running ||
               it.contFromPrev ||
@@ -358,6 +392,8 @@ export function Axis({ scroller }: AxisProps) {
               m.kind === "late" ||
               m.kind === "long" ||
               est !== null ||
+              loc !== null ||
+              attCount > 0 ||
               (narrowTag && focusTags.length > 0);
             const style = { "--c": categoryColorCss(cat, 8), minHeight: rowH } as CSSProperties;
             const cls =
@@ -388,6 +424,13 @@ export function Axis({ scroller }: AxisProps) {
                         <span className="ns-tt-blk-sub">
                           {/* UI 丙-7：呼吸點移到圓徽右上肩（CategoryBadge live），這裡只留字 */}
                           {it.running && <span>運行中</span>}
+                          {loc !== null && (
+                            <span className="ns-tt-blk-loc" title={loc}>
+                              <IconPin />
+                              {loc}
+                            </span>
+                          )}
+                          <AttachmentCountBadge count={attCount} />
                           {it.contFromPrev && <span className="ns-tt-chip">續・{fmtClock(it.span.start)} 発</span>}
                           {/* 跨日界線往後一天延伸（沙盒回報 D2，調度裁定兩天都標「續」）：已結束的寫真實到着時刻；
                               運行中的沒有結束時刻，只標「續 ›」 */}

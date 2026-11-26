@@ -353,10 +353,10 @@ fn build_and_reveal<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .iter()
         .find(|c| c.label == PIN_WINDOW)
         .cloned()
-        .ok_or_else(|| format!("tauri.conf.json 沒有 `{PIN_WINDOW}` 視窗設定"))?;
+        .ok_or_else(|| format!("找不到桌面小窗設定（`{PIN_WINDOW}`），無法開啟"))?;
     let w = tauri::WebviewWindowBuilder::from_config(app, &cfg)
         .and_then(|b| b.build())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("建立桌面小窗失敗（{e}）"))?;
     if let Some(shell) = app.try_state::<PinShell>() {
         shell.hidden_by_minimize.store(false, Ordering::SeqCst);
         // 建窗這段時間使用者又按了關 ⇒ 建好就銷毀
@@ -599,7 +599,7 @@ pub fn pin_status(shell: State<'_, PinShell>) -> PinStatus {
 /// 開／關小窗。開＝建窗（若還沒有）、照存檔定位、顯示，不搶前景；關＝銷毀。狀態一變存檔並廣播 `pin:visibility`。
 #[tauri::command]
 pub async fn pin_set_visible(app: AppHandle, visible: bool) -> Result<PinStatus, String> {
-    set_visible(&app, visible).ok_or_else(|| "桌面小窗尚未初始化".to_string())
+    set_visible(&app, visible).ok_or_else(|| "桌面小窗還在準備中，請稍後再試".to_string())
 }
 
 #[tauri::command]
@@ -609,9 +609,10 @@ pub async fn pin_set_on_top(app: AppHandle, on_top: bool) -> Result<PinStatus, S
         st.on_top = on_top;
         changed
     })
-    .ok_or_else(|| "桌面小窗尚未初始化".to_string())?;
+    .ok_or_else(|| "桌面小窗還在準備中，請稍後再試".to_string())?;
     if let Some(w) = app.get_webview_window(PIN_WINDOW) {
-        w.set_always_on_top(on_top).map_err(|e| e.to_string())?;
+        w.set_always_on_top(on_top)
+            .map_err(|e| format!("無法切換桌面小窗置頂狀態（{e}）"))?;
     }
     emit_visibility(&app, status);
     Ok(status)
@@ -629,10 +630,18 @@ pub async fn pin_fit(app: AppHandle, height: f64) -> Result<(), String> {
     let Some(w) = app.get_webview_window(PIN_WINDOW) else {
         return Ok(());
     };
-    let scale = w.scale_factor().map_err(|e| e.to_string())?;
-    let size = w.outer_size().map_err(|e| e.to_string())?;
-    let inner = w.inner_size().map_err(|e| e.to_string())?;
-    let pos = w.outer_position().map_err(|e| e.to_string())?;
+    let scale = w
+        .scale_factor()
+        .map_err(|e| format!("調整桌面小窗大小失敗（{e}）"))?;
+    let size = w
+        .outer_size()
+        .map_err(|e| format!("調整桌面小窗大小失敗（{e}）"))?;
+    let inner = w
+        .inner_size()
+        .map_err(|e| format!("調整桌面小窗大小失敗（{e}）"))?;
+    let pos = w
+        .outer_position()
+        .map_err(|e| format!("調整桌面小窗位置失敗（{e}）"))?;
     // set_size 設的是內容高；位置算的是含外框的高（Windows 的隱形邊框），差的要補上，底邊才對得齊
     let frame = size.height.saturating_sub(inner.height) as i32;
     let (old_h, new_h) = (size.height as i32, phys(h, scale) + frame);
@@ -648,9 +657,11 @@ pub async fn pin_fit(app: AppHandle, height: f64) -> Result<(), String> {
         None
     };
     *lock(&shell.ignore_moved_until) = Some(Instant::now() + FIT_MOVE_IGNORE);
-    w.set_size(LogicalSize::new(PIN_W, h)).map_err(|e| e.to_string())?;
+    w.set_size(LogicalSize::new(PIN_W, h))
+        .map_err(|e| format!("調整桌面小窗大小失敗（{e}）"))?;
     if let Some(y) = new_y.filter(|&y| y != pos.y) {
-        w.set_position(PhysicalPosition::new(pos.x, y)).map_err(|e| e.to_string())?;
+        w.set_position(PhysicalPosition::new(pos.x, y))
+            .map_err(|e| format!("調整桌面小窗位置失敗（{e}）"))?;
     }
     Ok(())
 }

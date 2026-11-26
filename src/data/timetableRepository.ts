@@ -74,6 +74,8 @@ export interface DepartOptions {
   estimateMin?: number | null;
   /** ②：新一班的連結；不給＝沒連 */
   link?: BlockLink | null;
+  /** v1.39（4A）：地點（選填） */
+  location?: string | null;
 }
 
 export interface TimetableRepository {
@@ -120,17 +122,35 @@ export interface TimetableRepository {
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null },
+    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null; location?: string | null },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }>;
   /** 改一塊已結束的塊的分類與起訖（蓋到的照補記規則處理）；運行中的塊丟 RangeError。②：input.link 不給＝不動連結。
    *  磨光⑤ 收尾：input.ack＝按了「確定記這麼長」⇒ long_run_ack＝1（不給＝照舊：換分類歸 0、其餘不動）。
    *  ⑦：input.note＝備註（不給＝不動；null／空白＝清掉；去前後空白、換行變空白——`normalizeNote`）；跟著同一個 WriteBatch 寫 */
   editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
+    input: {
+      categoryId: string;
+      startIso: string;
+      endIso: string;
+      link?: BlockLink | null;
+      ack?: boolean;
+      note?: string | null;
+      location?: string | null;
+    },
   ): Promise<CoverSummary>;
   /** 磨光⑦（planEditRunning）：改運行中那一班的分類、出發時間、連結（link 不給＝不動）；已到站 ⇒ RangeError。D-1.36-1：ack；⑦：note 同 editBlock */
-  editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null }): Promise<CoverSummary>;
+  editRunning(
+    id: string,
+    input: {
+      categoryId: string;
+      startIso: string;
+      link?: BlockLink | null;
+      ack?: boolean;
+      note?: string | null;
+      location?: string | null;
+    },
+  ): Promise<CoverSummary>;
   /** 單點切開；at 不在 (開始, 結束或現在) 之內回 null */
   split(id: string, atIso: string, categoryId2: string): Promise<TimeBlockRow | null>;
   /** 「其實到幾點」三選一（§4.3 planResolveLongRun） */
@@ -226,6 +246,8 @@ export interface TimetableRepository {
   /* ── ⑦（⑦ 契約 §2–§6；只加不改） ── */
   /** 備註候選：未刪除、備註非空的塊，依（備註, 分類）數塊數、留最近一塊的 started_at；最近的在前 */
   listBlockNotes(): Promise<BlockNoteTally[]>;
+  /** v1.39（4A）：地點記憶候選——依出現頻率遞減、同頻依最近開始時刻遞減，回傳最多 limit 筆不重複地點 */
+  listBlockLocations(limit?: number): Promise<string[]>;
   /** 頁首搜尋（D-時-165）：未刪除、備註含 term（不分大小寫；只比備註）的塊，started_at 新的在前，最多 limit 塊；term 空白 ⇒ [] */
   searchBlocks(term: string, limit: number): Promise<TimeBlockRow[]>;
 

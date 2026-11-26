@@ -220,7 +220,7 @@ fn head_blocks(head: &OplogHead) -> bool {
 }
 
 /// 物件連前兩個版號都解不開時的那句話（`pull_core` 與 `probe_remote_schema` 共用）
-const UNREADABLE_OBJECT: &str = "同步資料的格式看不懂（可能是較新版本產生的）。";
+const UNREADABLE_OBJECT: &str = "讀不懂雲端上的同步資料（可能是較新版的私鐵手帳寫入的，請試著更新 App）。";
 
 /// wipe 前探到較新物件時的 Err（join「改用另一台的」；沿 `snapshot::validate_full_json_with` 的樣板）。
 /// 走既有表單錯誤通道：Err 時二選一畫面不關，主人可以改選「兩邊都保留」。
@@ -485,17 +485,17 @@ pub async fn pool(app: &AppHandle) -> Result<Pool<Sqlite>, String> {
     use tauri_plugin_sql::{DbInstances, DbPool};
     let instances = app
         .try_state::<DbInstances>()
-        .ok_or_else(|| "資料庫還沒載入（sql plugin 尚未連線）。".to_string())?;
+        .ok_or_else(|| "資料庫還在載入中，請稍後再試一次。".to_string())?;
     let lock = instances.0.read().await;
     let pool = lock
         .get(crate::sync::DB_URL)
-        .ok_or_else(|| format!("找不到已連線的資料庫 {}。", crate::sync::DB_URL))?;
+        .ok_or_else(|| "目前讀不到資料庫連線，請重新啟動私鐵手帳後再試。".to_string())?;
     let DbPool::Sqlite(pool) = pool;
     Ok(pool.clone())
 }
 
 pub(crate) fn db_err(e: sqlx::Error) -> String {
-    format!("同步的資料庫操作失敗：{e}")
+    format!("同步讀寫本機資料時發生問題（{e}）")
 }
 
 pub(crate) fn now_iso() -> String {
@@ -721,7 +721,7 @@ pub(crate) async fn merge_notices_push(pool: &Pool<Sqlite>, fresh: &[MergeNotice
         }
     }
 
-    let json = serde_json::to_string(&merged).map_err(|e| format!("同步通知清單序列化失敗：{e}"))?;
+    let json = serde_json::to_string(&merged).map_err(|e| format!("無法儲存同步通知紀錄（{e}）"))?;
     meta_set(&mut *tx, MERGE_NOTICES_KEY, &json).await?;
     tx.commit().await.map_err(db_err)?;
     Ok(())
@@ -1232,7 +1232,7 @@ pub async fn reset_local(app: &AppHandle) -> Result<SyncStatus, String> {
     guard_not_rotating(app)?;
     // 評審 S3：同 configure——pull／push 在飛時重設會留下孤兒 meta
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
         return Err("同步正在進行中，請稍候再試。".into());
@@ -1309,7 +1309,7 @@ pub async fn make_pairing_code(app: &AppHandle) -> Result<String, String> {
         root: Some(creds.root),
         epoch: meta.get("epoch").cloned(),
     };
-    let json = serde_json::to_vec(&code).map_err(|_| "產生配對碼失敗。".to_string())?;
+    let json = serde_json::to_vec(&code).map_err(|_| "沒辦法產生配對碼，請稍後再試。".to_string())?;
     Ok(crypto::b64_encode(&json))
 }
 
@@ -1624,7 +1624,7 @@ pub(crate) async fn snapshot_into_outbox_with(
 
     let mut tx = pool.begin().await.map_err(db_err)?;
     for op in &ops {
-        let payload = serde_json::to_string(&op.cols).map_err(|_| "快照序列化失敗。".to_string())?;
+        let payload = serde_json::to_string(&op.cols).map_err(|_| "無法整理備份資料格式，請稍後再試。".to_string())?;
         sqlx::query(
             "INSERT INTO sync_outbox (hlc, tbl, row_id, op, payload) VALUES (?, ?, ?, 'upsert', ?)",
         )
@@ -1676,7 +1676,7 @@ pub async fn push(app: &AppHandle) -> Result<PushReport, String> {
         busy: false,
     };
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
         return Ok(PushReport { busy: true, ..empty }); // 已經有一趟在飛：回空報告＋busy（UI 說「另一趟進行中」）
@@ -1721,7 +1721,7 @@ async fn push_inner(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<PushReport, 
     let epoch = meta
         .get("epoch")
         .cloned()
-        .ok_or_else(|| "同步設定不完整，請重設後重新啟用。".to_string())?;
+        .ok_or_else(|| "這台的同步設定不完整，請點「重新加入同步」再試一次。".to_string())?;
     let creds = credstore::load(app)?.ok_or_else(|| "找不到同步憑證，請重新加入同步。".to_string())?;
     // 身分以鑰匙圈為準（契約 §3.1）；`sync_meta.device_id` 只是給 TS 閘門用的快取
     let device_id = creds
@@ -1881,7 +1881,7 @@ pub(crate) async fn push_loop(
             max_seq = max_seq.max(row.try_get::<i64, _>("seq").map_err(db_err)?);
             let payload: String = row.try_get("payload").map_err(db_err)?;
             let cols: Map<String, Value> = serde_json::from_str(&payload)
-                .map_err(|_| "待上傳佇列裡有一筆內容損壞，請重設同步後重新啟用。".to_string())?;
+                .map_err(|_| "待同步的資料裡有一筆格式損壞，請到設定裡按「重新加入同步」再試。".to_string())?;
             let kind: String = row.try_get("op").map_err(db_err)?;
             ops.push(Op {
                 hlc: row.try_get("hlc").map_err(db_err)?,
@@ -1920,7 +1920,7 @@ pub(crate) async fn push_loop(
         // 評審 B1 第二層：同一趟裡兩批算出同一個 key ⇒ 第二批會 PUT 覆蓋第一批（對方永遠拿不到）。
         // 根因已由推送戳記修掉，這裡是守門：寧可停下來讓主人看見錯誤，也不要靜默覆蓋。
         if last_key.as_deref() == Some(object_key.as_str()) {
-            return Err("待上傳佇列裡有重複的時間戳，同步先停在這裡（請回報這個訊息）。".into());
+            return Err("待同步的資料時間戳重複，為避免資料遺失已先暫停（請回報這個狀況）。".into());
         }
         let obj = OplogObject {
             version: OPLOG_VERSION,
@@ -1932,7 +1932,7 @@ pub(crate) async fn push_loop(
             seen,
             ops,
         };
-        let plain = serde_json::to_vec(&obj).map_err(|_| "同步資料序列化失敗。".to_string())?;
+        let plain = serde_json::to_vec(&obj).map_err(|_| "無法整理要上傳的同步資料，請稍後再試。".to_string())?;
         let blob = crypto::seal(&key, &object_key, &plain)?;
 
         // PUT 之前先把「這個 key 帶到哪一個 seq 為止」落庫（評審 B2）：PUT 成功而下面的交易失敗時，
@@ -2003,7 +2003,7 @@ pub async fn pull(app: &AppHandle) -> Result<PullReport, String> {
         notices: vec![],
     };
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
         return Ok(PullReport { busy: true, ..empty });
@@ -2043,7 +2043,7 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
     if rotation_marker(app).is_some() {
         return Ok(empty);
     }
-    let incomplete = || "同步設定不完整，請重設後重新加入。".to_string();
+    let incomplete = || "這台的同步設定不完整，請點「重新加入同步」再試一次。".to_string();
     let epoch = meta.get("epoch").cloned().ok_or_else(incomplete)?;
     let me = ensure_device_id(pool).await?;
 
@@ -3332,7 +3332,7 @@ fn restore_marker_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(app
         .path()
         .app_data_dir()
-        .map_err(|_| "找不到 app 資料目錄。".to_string())?
+        .map_err(|_| "找不到私鐵手帳的資料夾，請稍後再試。".to_string())?
         .join("sync")
         .join("epoch-pending"))
 }
@@ -3344,7 +3344,7 @@ fn restore_choice_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(app
         .path()
         .app_data_dir()
-        .map_err(|_| "找不到 app 資料目錄。".to_string())?
+        .map_err(|_| "找不到私鐵手帳的資料夾，請稍後再試。".to_string())?
         .join("sync")
         .join("restore-choice"))
 }
@@ -3380,7 +3380,7 @@ fn restore_marker_doc(choice: RestoreChoice, label: Option<String>, reason: &str
         label: label.filter(|l| !l.trim().is_empty()),
         reason: Some(reason.trim().to_string()).filter(|r| !r.is_empty()),
     };
-    serde_json::to_string(&doc).map_err(|_| "寫入還原標記失敗。".to_string())
+    serde_json::to_string(&doc).map_err(|_| "沒辦法記錄還原狀態，請確認儲存空間後再試。".to_string())
 }
 
 /// v1.1.6（重新開始契約 §3.3）：**直接**寫標記檔（不經 `restore-choice` 選擇檔）。
@@ -3397,10 +3397,10 @@ pub(crate) fn mark_restore_with(
 ) -> Result<(), String> {
     let p = restore_marker_path(app)?;
     if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir).map_err(|_| "建立同步目錄失敗。".to_string())?;
+        std::fs::create_dir_all(dir).map_err(|_| "沒辦法建立同步資料夾，請確認儲存權限。".to_string())?;
     }
     let text = restore_marker_doc(choice, label, reason)?;
-    std::fs::write(&p, text).map_err(|_| "寫入還原標記失敗。".to_string())
+    std::fs::write(&p, text).map_err(|_| "沒辦法記錄還原狀態，請確認儲存空間後再試。".to_string())
 }
 
 /// `sync_restore_choice`（契約 §4.5）：鑰匙圈缺 ⇒ Err（UI 據此不問、直接還原）；`None` ⇒ 清掉選擇檔。
@@ -3418,7 +3418,7 @@ pub fn restore_choice(app: &AppHandle, choice: Option<RestoreChoice>, label: Opt
     match credstore::load(app) {
         Ok(Some(_)) => {}
         Ok(None) => return Err("這台還沒加入同步——還原不會影響其他裝置。".into()),
-        Err(e) => return Err(format!("{e}讀不到這台的同步身分，還原先停在這裡——請重新啟動後再試。")),
+        Err(e) => return Err(format!("{e} 暫時讀不到這台的同步設定，還原先停在這裡——請重新啟動私鐵手帳後再試。")),
     }
     let p = restore_choice_path(app)?;
     match choice {
@@ -3428,7 +3428,7 @@ pub fn restore_choice(app: &AppHandle, choice: Option<RestoreChoice>, label: Opt
         }
         Some(c) => {
             if let Some(dir) = p.parent() {
-                std::fs::create_dir_all(dir).map_err(|_| "建立同步目錄失敗。".to_string())?;
+                std::fs::create_dir_all(dir).map_err(|_| "沒辦法建立同步資料夾，請確認儲存權限。".to_string())?;
             }
             let doc = RestoreMarker {
                 at: now_iso(),
@@ -3436,8 +3436,8 @@ pub fn restore_choice(app: &AppHandle, choice: Option<RestoreChoice>, label: Opt
                 label: label.filter(|l| !l.trim().is_empty()),
                 reason: None,
             };
-            let text = serde_json::to_string(&doc).map_err(|_| "寫入還原選擇失敗。".to_string())?;
-            std::fs::write(&p, text).map_err(|_| "寫入還原選擇失敗。".to_string())
+            let text = serde_json::to_string(&doc).map_err(|_| "沒辦法記下你的還原選擇，請稍後再試。".to_string())?;
+            std::fs::write(&p, text).map_err(|_| "沒辦法記下你的還原選擇，請稍後再試。".to_string())
         }
     }
 }
@@ -3450,7 +3450,7 @@ pub fn restore_choice(app: &AppHandle, choice: Option<RestoreChoice>, label: Opt
 pub fn mark_restore_pending(app: &AppHandle) -> Result<(), String> {
     let p = restore_marker_path(app)?;
     if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir).map_err(|_| "建立同步目錄失敗。".to_string())?;
+        std::fs::create_dir_all(dir).map_err(|_| "沒辦法建立同步資料夾，請確認儲存權限。".to_string())?;
     }
     // 工程評審 S-5：**先讀不刪**。舊碼是「讀→刪選擇檔→寫標記」，標記寫失敗時主人的選擇連同
     // 「有還原這件事」一起消失（＝靜默變成沒有收尾的還原）。改成寫成功之後才刪選擇檔。
@@ -3463,8 +3463,8 @@ pub fn mark_restore_pending(app: &AppHandle) -> Result<(), String> {
         //（正常路徑一定有選擇檔：加入了同步才問，問完才落檔、落檔失敗前端就不還原。）
         .unwrap_or((RestoreChoice::Present, None));
     let doc = RestoreMarker { at: now_iso(), choice, label, reason: None };
-    let text = serde_json::to_string(&doc).map_err(|_| "寫入還原標記失敗。".to_string())?;
-    std::fs::write(&p, text).map_err(|_| "寫入還原標記失敗。".to_string())?;
+    let text = serde_json::to_string(&doc).map_err(|_| "沒辦法記錄還原狀態，請確認儲存空間後再試。".to_string())?;
+    std::fs::write(&p, text).map_err(|_| "沒辦法記錄還原狀態，請確認儲存空間後再試。".to_string())?;
     if let Some(cp) = choice_path.as_ref() {
         let _ = std::fs::remove_file(cp);
     }
@@ -3656,13 +3656,13 @@ pub(crate) async fn export_outbox_orphans(
         candidates.push(
             app.path()
                 .app_data_dir()
-                .map_err(|_| "找不到 app 資料目錄。".to_string())?,
+                .map_err(|_| "找不到私鐵手帳的資料夾，請稍後再試。".to_string())?,
         );
         let name = format!(
             "sync-orphans-{}.json",
             chrono::Local::now().format("%Y%m%d-%H%M%S")
         );
-        let text = serde_json::to_string_pretty(&doc).map_err(|_| "匯出未同步修改失敗。".to_string())?;
+        let text = serde_json::to_string_pretty(&doc).map_err(|_| "沒辦法整理未同步的修改內容，請稍後再試。".to_string())?;
         for dir in &candidates {
             if std::fs::create_dir_all(dir).is_err() {
                 continue;
@@ -3674,7 +3674,7 @@ pub(crate) async fn export_outbox_orphans(
             }
         }
         if orphans_path.is_none() {
-            return Err("寫入未同步修改的檔案失敗。".into());
+            return Err("沒辦法把未同步的修改存成檔案，請確認儲存空間。".into());
         }
     }
 
@@ -3710,7 +3710,7 @@ pub async fn adopt_epoch(app: &AppHandle) -> Result<AdoptReport, String> {
     // 工程評審 B-4：換鑰匙沒做完時切紀元會與步驟 4 打架
     guard_not_rotating(app)?;
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
         return Err("同步正在進行中，請稍候再試。".into());
@@ -3719,7 +3719,7 @@ pub async fn adopt_epoch(app: &AppHandle) -> Result<AdoptReport, String> {
     let device_id = ensure_device_id(&pool).await?;
     let meta = meta_all(&pool).await?;
     let Some(new_epoch) = meta.get("pending_epoch").filter(|s| !s.is_empty()).cloned() else {
-        return Err("沒有待換的紀元。".into());
+        return Err("目前沒有需要切換的雲端資料版本。".into());
     };
     let old_epoch = meta.get("epoch").cloned().unwrap_or_default();
     let is_reset = meta
@@ -3807,7 +3807,7 @@ pub fn read_wizard_env(app: &AppHandle) -> Result<WizardEnv, String> {
         .join("r2.env");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Err(
-            "找不到精靈寫的設定（%LOCALAPPDATA%\\NextStop\\r2.env）——先在專案跑 bash scripts/setup-r2.sh。"
+            "找不到設定精靈建立的檔案（%LOCALAPPDATA%\\NextStop\\r2.env）——請先執行精靈（bash scripts/setup-r2.sh）再匯入。"
                 .into(),
         );
     };
@@ -3835,7 +3835,7 @@ pub fn read_wizard_env(app: &AppHandle) -> Result<WizardEnv, String> {
         map.get(k)
             .filter(|s| !s.is_empty())
             .cloned()
-            .ok_or_else(|| format!("r2.env 缺 {k}——請重跑 bash scripts/setup-r2.sh。"))
+            .ok_or_else(|| format!("精靈設定檔裡缺少「{k}」欄位，請重新執行設定精靈後再匯入。"))
     };
     Ok(WizardEnv {
         endpoint: need("R2_ENDPOINT")?,
@@ -3848,7 +3848,7 @@ pub fn read_wizard_env(app: &AppHandle) -> Result<WizardEnv, String> {
 /// 手機沒有精靈（`scripts/setup-r2.sh` 是桌機的 Git Bash 腳本），配對碼本來就會把四欄帶過來。
 #[cfg(mobile)]
 pub fn read_wizard_env(_app: &AppHandle) -> Result<WizardEnv, String> {
-    Err("手機沒有精靈——請改用桌機的配對碼。".into())
+    Err("手機版沒有本機設定精靈，請改貼桌機產生的配對碼。".into())
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -4070,7 +4070,7 @@ pub(crate) async fn derive_blocking(passphrase: &str, salt: &[u8]) -> Result<[u8
     let salt = salt.to_vec();
     tauri::async_runtime::spawn_blocking(move || crypto::derive_key(&passphrase, &salt))
         .await
-        .map_err(|_| "金鑰派生被中斷了，請再試一次。".to_string())?
+        .map_err(|_| "產生安全密鑰時被中斷了，請再試一次。".to_string())?
 }
 
 /// `<root>/` 底下的數字紀元，**由大到小**
@@ -4154,7 +4154,7 @@ pub(crate) async fn put_epoch_marker(
         reason: reason.to_string(),
         label: label.filter(|l| !l.trim().is_empty()),
     };
-    let plain = serde_json::to_vec(&info).map_err(|_| "產生紀元標記失敗。".to_string())?;
+    let plain = serde_json::to_vec(&info).map_err(|_| "無法建立雲端版本標記，請稍後再試。".to_string())?;
     let blob = crypto::seal(key, &marker, &plain)?;
     client.put(&marker, blob).await
 }
@@ -4415,7 +4415,7 @@ pub(crate) async fn build_full_json_with(
     }
     doc.insert("settings".into(), Value::Object(settings));
 
-    serde_json::to_string_pretty(&Value::Object(doc)).map_err(|_| "匯出資料失敗。".to_string())
+    serde_json::to_string_pretty(&Value::Object(doc)).map_err(|_| "無法整理要匯出的資料，請稍後再試。".to_string())
 }
 
 /// v1.1.4：把整顆庫拍成一顆雲端快照 PUT 上去——**鑰匙、client、root、身分全部由呼叫端給**。
@@ -4477,7 +4477,7 @@ pub(crate) fn write_export_file(app: &AppHandle, text: &str) -> Result<String, S
     candidates.push(
         app.path()
             .app_data_dir()
-            .map_err(|_| "找不到 app 資料目錄。".to_string())?,
+            .map_err(|_| "找不到私鐵手帳的資料夾，請稍後再試。".to_string())?,
     );
     for dir in &candidates {
         if std::fs::create_dir_all(dir).is_err() {
@@ -4488,7 +4488,7 @@ pub(crate) fn write_export_file(app: &AppHandle, text: &str) -> Result<String, S
             return Ok(path.to_string_lossy().to_string());
         }
     }
-    Err("寫入匯出檔失敗。".into())
+    Err("沒辦法把匯出檔寫入儲存空間，請確認權限或剩餘空間。".into())
 }
 
 /// v1.1.4：鑰匙圈＋資料鑰匙＋client＋圍籬一次取齊（`snapshot.rs` 的每支入口都從這裡開始，WP-B 不必碰鑰匙圈）。
@@ -4730,7 +4730,7 @@ fn rotation_marker_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(app
         .path()
         .app_data_dir()
-        .map_err(|_| "找不到 app 資料目錄。".to_string())?
+        .map_err(|_| "找不到私鐵手帳的資料夾，請稍後再試。".to_string())?
         .join("sync")
         .join("rotation-pending"))
 }
@@ -4753,7 +4753,7 @@ pub(crate) fn rotation_marker(app: &AppHandle) -> Option<RotationMarker> {
 /// **不含** `rotate_data_key`／`finish_rotation`（它們就是那條路本身；前者另有「已經有一場」的守門）。
 pub(crate) fn guard_not_rotating(app: &AppHandle) -> Result<(), String> {
     if rotation_marker(app).is_some() {
-        return Err("換鑰匙還沒做完——請先讓它接著做完（打開 App 稍等一下就好）。".into());
+        return Err("這台正在換鑰匙，請先打開 App 稍等幾秒讓它自動完成。".into());
     }
     Ok(())
 }
@@ -4762,14 +4762,14 @@ pub(crate) fn guard_not_rotating(app: &AppHandle) -> Result<(), String> {
 pub(crate) fn write_rotation_marker(app: &AppHandle, marker: &RotationMarker) -> Result<(), String> {
     let p = rotation_marker_path(app)?;
     if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir).map_err(|_| "建立同步目錄失敗。".to_string())?;
+        std::fs::create_dir_all(dir).map_err(|_| "沒辦法建立同步資料夾，請確認儲存權限。".to_string())?;
     }
     let tmp = p.with_extension("tmp");
-    let text = serde_json::to_string(marker).map_err(|_| "寫入換鑰匙標記失敗。".to_string())?;
-    std::fs::write(&tmp, text).map_err(|_| "寫入換鑰匙標記失敗。".to_string())?;
+    let text = serde_json::to_string(marker).map_err(|_| "無法記錄換鑰匙的進度，請確認儲存空間後再試。".to_string())?;
+    std::fs::write(&tmp, text).map_err(|_| "無法記錄換鑰匙的進度，請確認儲存空間後再試。".to_string())?;
     std::fs::rename(&tmp, &p).map_err(|_| {
         let _ = std::fs::remove_file(&tmp);
-        "寫入換鑰匙標記失敗。".to_string()
+        "無法記錄換鑰匙的進度，請確認儲存空間後再試。".to_string()
     })
 }
 
@@ -4815,7 +4815,7 @@ pub const ROTATION_LOCK_STALE_HOURS: i64 = 24;
 
 pub async fn rotate_data_key(app: &AppHandle, current: &str, next: &str) -> Result<RotationReport, String> {
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     // 與 join／還原收尾同一把：輪替期間絕不能有 push／pull 在飛（它們會用 K1 推進正要被刪的紀元）
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
@@ -4834,14 +4834,14 @@ pub async fn rotate_data_key(app: &AppHandle, current: &str, next: &str) -> Resu
     if current.is_empty() {
         // 2026-09-25 主人問「忘了密語怎麼辦」：舊文案指向「重新加入」是錯的（那條路也要密語）。
         // 救援＝先不勾換鑰匙、現密語留白設新密語（鑰匙圈有資料鑰匙），再用新密語回來換鑰匙。
-        return Err("要換鑰匙得先打現在的密語。忘了？先把這格勾掉、現密語留白設一個新密語，再用新密語回來勾「換鑰匙」。".into());
+        return Err("換鑰匙需輸入目前的密語。若忘了，請先取消勾選、直接設一個新密語，完成後再回來勾選換鑰匙。".into());
     }
     if rotation_marker(app).is_some() {
         // 已經有一場沒做完的（boot 會自己續跑）——再開一場會把 K2 蓋掉、續不回去
-        return Err("先處理同步頁上的狀態再換鑰匙。".into());
+        return Err("這台的同步還有未處理的狀況，請先在「同步」頁處理完再換鑰匙。".into());
     }
     if is_restore_pending(app) {
-        return Err("先處理同步頁上的狀態再換鑰匙。".into());
+        return Err("這台的同步還有未處理的狀況，請先在「同步」頁處理完再換鑰匙。".into());
     }
     let pool = pool(app).await?;
     let meta = meta_all(&pool).await?;
@@ -4850,13 +4850,13 @@ pub async fn rotate_data_key(app: &AppHandle, current: &str, next: &str) -> Resu
     }
     let busy_state = |k: &str| meta.get(k).is_some_and(|v| !v.is_empty());
     if busy_state("pending_epoch") || busy_state("locked") || busy_state("join_pending") {
-        return Err("先處理同步頁上的狀態再換鑰匙。".into());
+        return Err("這台的同步還有未處理的狀況，請先在「同步」頁處理完再換鑰匙。".into());
     }
     let e1 = meta
         .get("epoch")
         .filter(|e| !e.is_empty())
         .cloned()
-        .ok_or_else(|| "同步設定不完整，請重設後重新加入。".to_string())?;
+        .ok_or_else(|| "這台的同步設定不完整，請點「重新加入同步」再試一次。".to_string())?;
     // outbox 必須是空的：步驟 4 會 `DELETE FROM sync_outbox`，沒推出去的修改會**永遠消失**
     //（換紀元那條路有孤兒 JSON 兜底，這條沒有——因為它不該發生）
     let pending: i64 = sqlx::query("SELECT COUNT(*) AS n FROM sync_outbox")
@@ -4909,7 +4909,7 @@ pub async fn rotate_data_key(app: &AppHandle, current: &str, next: &str) -> Resu
     )
     .await
     {
-        return Err(format!("換鑰匙前的雲端備份沒拍成：{e}"));
+        return Err(format!("換鑰匙前先在雲端留底失敗，已暫停操作（{e}）"));
     }
 
     // ── 步驟 1：產 K2、存進鑰匙圈的 `data_key_next_b64`、寫標記（`data_key_b64` **仍是 K1**）──
@@ -4954,7 +4954,7 @@ pub async fn finish_rotation(app: &AppHandle) -> Result<RotationReport, String> 
         });
     };
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
         return Err("同步正在進行中，請稍候再試。".into());
@@ -5228,7 +5228,7 @@ async fn run_rotation(
         recovery_outcome = RecoveryRewrap::Invalidated;
     }
     let mut message = format!(
-        "密語已更改，資料鑰匙也換新了——其他裝置要用新密語重新加入。重加密 {reencrypted} 顆雲端快照、清掉 {deleted_epochs} 個舊紀元。"
+        "密語已更改，資料鑰匙也換新了——其他裝置請用新密語重新加入。已順手更新 {reencrypted} 份雲端備份並清理 {deleted_epochs} 份舊紀錄。"
     );
     if recovery_outcome == RecoveryRewrap::Invalidated {
         // 與 TS `RECOVERY_TEXT.invalidatedByRotation` 同一句（契約 §4.5）
@@ -5337,7 +5337,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     // 工程評審 B-4：`save_creds` 寫死 `data_key_next_b64: None`——換鑰匙沒做完時走這條會把 K2 抹掉
     guard_not_rotating(app)?;
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     // 評審 S3：加入／重設期間不能有 push／pull 在飛，否則那趟的交易會把游標寫回剛清掉的 sync_meta
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
@@ -5352,7 +5352,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     let secret_access_key = args.secret_access_key.trim().to_string();
     if endpoint.is_empty() || bucket.is_empty() || access_key_id.is_empty() || secret_access_key.is_empty()
     {
-        return Err("雲端置物櫃的四個欄位都要填。".into());
+        return Err("請把雲端連線的四個欄位都填齊。".into());
     }
     let passphrase = args.passphrase.trim().to_string();
     // v1.1.5（契約 §4.6 ①）：「忘記密語？用復原碼」＝密語的另一種輸入，**二選一**。
@@ -5366,7 +5366,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         }
         None => {
             if passphrase.is_empty() {
-                return Err("密語不能是空的。".into());
+                return Err("請輸入密語。".into());
             }
             None
         }
@@ -5385,7 +5385,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
     {
-        return Err("桶內根前綴只能用英數字與 . _ -（不能有斜線）。".into());
+        return Err("資料夾前綴只能用英數字與 . _ -（不能包含斜線）。".into());
     }
     // 工程評審 B-3 的圍籬：沙盒／開發建置**不准**用正本的根。09-21 桶裡那顆壞掉的 `v1/KEY`
     // 就是少了這一行——沙盒 exe 沿用預設 `v1`，把自己的鑰匙物件寫進主人的根目錄。
@@ -5425,7 +5425,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     //（雲端多一個裝置目錄、seen／游標全部重來、整包資料再推一次）——正是這一輪禁止的事。
     let existing = match credstore::load(app) {
         Ok(v) => v,
-        Err(e) => return Err(format!("{e}讀不到這台的同步身分，先不加入——請重新啟動後再試。")),
+        Err(e) => return Err(format!("{e} 暫時讀不到這台的同步設定，先不加入——請重新啟動私鐵手帳後再試。")),
     };
     // 身分＝鑰匙圈（契約 §3.1）：沒有就現生一個。複製整個資料夾＝鑰匙圈沒跟著＝新的一台。
     //
@@ -5505,7 +5505,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                                 .is_none()
                             {
                                 return Err(
-                                    "雲端上那顆鑰匙與這台的資料對不起來——請到〈密語〉頁重新設一次密語（現密語可留白）。"
+                                    "雲端上的鑰匙與這台的資料對不起來，請到「密語」區重新設定一次密語（目前的密語可以留白）。"
                                         .into(),
                                 );
                             }
@@ -5606,7 +5606,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         // 留給 needs_passphrase 之後主人在〈密語〉頁設新密語（`change_passphrase` 的「第一次封存」路）。
         let Some(salt) = remote_salt.clone() else {
             return Err(
-                "雲端上這份資料的鹽不見了——請先讓任何一台已加入的裝置連一次線（它會自動補回去），再用這台加入。"
+                "雲端上的資料識別紀錄不見了——請先讓任何一台已加入的裝置連網同步一次（系統會自動補回），再用這台加入。"
                     .into(),
             );
         };
@@ -5630,7 +5630,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                 // 一個「補救」把所有裝置鎖死。正解是讓任何已加入的裝置連一次線（它們會把自己的鹽補回去）。
                 let Some(salt) = remote_salt.clone() else {
                     return Err(
-                        "雲端上這份資料的鹽不見了——請先讓任何一台已加入的裝置連一次線（它會自動補回去），再用這台加入。"
+                        "雲端上的資料識別紀錄不見了——請先讓任何一台已加入的裝置連網同步一次（系統會自動補回），再用這台加入。"
                             .into(),
                     );
                 };
@@ -5640,7 +5640,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                 // 舊血統（v1.1.2 的桶）：資料鑰匙＝argon2id(密語, SALT)
                 let Some(salt_b64) = remote_salt.clone() else {
                     return Err(
-                        "雲端上找不到這份資料的鹽——請先讓已加入的裝置連一次線（它會把鹽補上去），再用這台加入。"
+                        "雲端上找不到這份資料的識別紀錄——請先讓已加入的裝置連網同步一次（系統會自動補回），再用這台加入。"
                             .into(),
                     );
                 };
@@ -5738,9 +5738,9 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
             pull: None,
             export_path: None,
             message: if reset_empty {
-                "雲端上是另一台「重新開始」之後的空的一份，這台還有資料——請選一種做法。".into()
+                "另一台裝置剛剛執行了「重新開始」，目前雲端上是空的，但這台還有資料——請選擇要怎麼處理。".into()
             } else {
-                "雲端上已經有一份資料，這台也有資料——請選一種做法。".into()
+                "雲端上已經有一份資料，這台也有資料——請選擇要怎麼處理。".into()
             },
         });
     }
@@ -5750,7 +5750,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     //   v1.1.6 修正席（工程評審 S-1）：reset 空紀元放行——那份「空」就是另一台主人要的結果，改用它＝這台也清空。
     if args.mode == Some(JoinMode::AdoptRemote) && !remote_occupied {
         drop(_busy);
-        return Err("雲端上已經沒有資料可以改用了——請重新按一次「加入同步」重看一次現況。".into());
+        return Err("雲端上已經沒有資料可以改用了——請再按一次「加入同步」重新確認。".into());
     }
 
     // ⑧ 定案：紀元（沿用或新開）與模式
@@ -5787,7 +5787,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         if !won {
             drop(_busy);
             return Err(
-                "就在剛剛，另一台裝置先把這個置物櫃用起來了——請再按一次「加入同步」（這次會接到那一份）。"
+                "就在剛剛，另一台裝置先把這個雲端空間啟用了——請再按一次「加入同步」就能接上那份資料。"
                     .into(),
             );
         }
@@ -6052,8 +6052,7 @@ pub async fn change_passphrase(
     // 「真撤銷」於是變成「真斷線」。三條子路（留白不驗／打新密語判成殘留／舊血統法驗得過）全都會踩到，
     // 所以守門放在最前面、在碰 KEY 之前。出路與 `describeLocked(rotated)` 同一句話。
     let rotated_note = || {
-        "這份資料已在另一台換過鑰匙——這台的鑰匙已經不算數了，改密語會把別台的新鑰匙蓋掉。\
-         請用新密語「重新加入同步」。"
+        "這份資料已在另一台換過鑰匙，請改用新密語「重新加入同步」（在這裡改密語會覆蓋掉別台的新鑰匙）。"
             .to_string()
     };
     if rotation_marker(app).is_some() {
@@ -6153,7 +6152,7 @@ pub async fn change_passphrase(
         reencrypted_snapshots: 0,
         deleted_epochs: 0,
         message: if healed {
-            "密語已更改——雲端上那顆鑰匙與這份資料對不起來（多半是殘留），已重新封存。".into()
+            "密語已更改——原本雲端上的舊鑰匙與這份資料不符，已為你重新加密存好。".into()
         } else if sealed_first_time {
             "密語已封存到雲端。".into()
         } else {
@@ -6199,10 +6198,10 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
                 reason,
             });
         }
-        Err(e) => return Err(format!("{e}還原後的同步收尾先停在這裡——請重新啟動後再試。")),
+        Err(e) => return Err(format!("{e} 還原後的同步收尾暫時無法完成，請重新啟動私鐵手帳後再試。")),
     };
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
         return Err("同步正在進行中，請稍候再試。".into());
@@ -6428,7 +6427,7 @@ pub(crate) async fn start_over_local(
 pub async fn start_over(app: &AppHandle, scope: StartOverScope) -> Result<(), String> {
     // 0. 共同前置
     let Some(st) = app.try_state::<SyncState>() else {
-        return Err("同步模組還沒初始化。".into());
+        return Err("同步功能還在準備中，請稍後再試。".into());
     };
     let Some(_busy) = BusyGuard::acquire(&st.busy) else {
         return Err("同步正在進行中，請稍候再試。".into());
@@ -6437,7 +6436,7 @@ pub async fn start_over(app: &AppHandle, scope: StartOverScope) -> Result<(), St
         return Err(START_OVER_ERR_RESTORE_PENDING.into());
     }
     let pool = pool(app).await?;
-    let creds = credstore::load(app).map_err(|e| format!("{e}讀不到這台的同步身分——請重新啟動後再試。"))?;
+    let creds = credstore::load(app).map_err(|e| format!("{e} 暫時讀不到這台的同步設定——請重新啟動私鐵手帳後再試。"))?;
     let rotating = rotation_marker(app).is_some();
 
     match scope {
@@ -6452,7 +6451,7 @@ pub async fn start_over(app: &AppHandle, scope: StartOverScope) -> Result<(), St
                 guard_sandbox_root(app, &c.root)?;
                 super::snapshot::upload_held(app, &pool, super::snapshot::SnapshotKind::Safety)
                     .await
-                    .map_err(|e| format!("重新開始前的雲端備份沒拍成：{e}（這台一個字都沒動）"))?;
+                    .map_err(|e| format!("重新開始前先在雲端留底失敗，已取消操作，這台資料沒有變動（{e}）"))?;
             } else {
                 guard_not_rotating(app)?;
                 // 手機沒有備份三件套：未加入時唯一的留底＝整份匯出成檔（下載夾不行就 app 目錄）。
@@ -6461,7 +6460,7 @@ pub async fn start_over(app: &AppHandle, scope: StartOverScope) -> Result<(), St
                     export_path = Some(
                         export_full_json(app, &pool)
                             .await
-                            .map_err(|e| format!("重新開始前的匯出沒成功：{e}（這台一個字都沒動）"))?,
+                            .map_err(|e| format!("重新開始前匯出備份失敗，已取消操作，這台資料沒有變動（{e}）"))?,
                     );
                 }
             }
@@ -6501,14 +6500,14 @@ pub async fn start_over(app: &AppHandle, scope: StartOverScope) -> Result<(), St
             // 3. 別台已經換過鑰匙 ⇒ 這台的 K1 開出來的空紀元別台拆不開（會被判成殘留），先擋
             let rotated = rotated_elsewhere(&k.client, &k.root, &k.data_key, k.epoch.as_deref())
                 .await
-                .map_err(|e| format!("重新開始前的雲端檢查沒成功：{e}（這台一個字都沒動）"))?;
+                .map_err(|e| format!("重新開始前無法確認雲端狀態，已取消操作，這台資料沒有變動（{e}）"))?;
             if rotated.is_some() {
                 return Err(START_OVER_ERR_ROTATED.into());
             }
             // 4. 留底（Err ⇒ 零改變）
             super::snapshot::upload_held(app, &pool, super::snapshot::SnapshotKind::Safety)
                 .await
-                .map_err(|e| format!("重新開始前的雲端備份沒拍成：{e}（這台一個字都沒動）"))?;
+                .map_err(|e| format!("重新開始前先在雲端留底失敗，已取消操作，這台資料沒有變動（{e}）"))?;
             // 5. **先寫**還原標記再清（沿 `cloud_restore` S-2：庫清了卻沒有收尾標記＝靜默分歧）
             mark_restore_with(app, RestoreChoice::Past, Some(START_OVER_LABEL.to_string()), "reset")?;
             // 6. 清資料（失敗 ⇒ 收回標記）。紀元、joined、enabled、salt、root、device_id 都不動

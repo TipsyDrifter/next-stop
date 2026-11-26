@@ -45,6 +45,8 @@ import { NoticeSettings } from "./NoticeSettings";
 import { GoalsTab } from "./GoalsTab";
 import { TopicsTab } from "./TopicsTab";
 import { RoutinesTab } from "./RoutinesTab";
+import { ChainsTab } from "./ChainsTab";
+import { useTimetableChainStore } from "../../../store/timetableChainStore";
 import { TT_TAG_CATEGORY, catDefaults, type TimetableTagMaps } from "../../../domain/timetableTags";
 import { EntityTagField } from "../../common/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
 import { useShell } from "../../mobile/useShell";
@@ -66,13 +68,14 @@ const CAT_DRAG = {
   catInGroup: "分類要放進某一組",
 } as const;
 
-type MgrTab = "cats" | "notice" | "goals" | "topics" | "routines";
+type MgrTab = "cats" | "notice" | "goals" | "topics" | "routines" | "chains";
 const TABS: readonly TabItem<MgrTab>[] = [
   { key: "cats", label: "分類" },
   { key: "notice", label: "通知" },
   { key: "goals", label: "目標" },
   { key: "topics", label: "專題" },
   { key: "routines", label: "作息" }, // ⑦ B 席：作息範本編輯器（RoutinesTab）
+  { key: "chains", label: "行為鏈" }, // v1.39 4B：計時模板行為鏈（ChainsTab）
 ];
 
 /** sheet → 開在哪一籤（舊的 focus／focusId 照收，見 timetableStore 的 sheet 型別註解） */
@@ -612,9 +615,21 @@ export function CategoryManagerPanel(_props: PanelProps) {
   const focusId = sheet?.kind === "categories" && !routineFocus ? sheet.focusId : undefined;
   const routineFocusId = sheet?.kind === "categories" && routineFocus ? sheet.focusId : undefined;
   const want = tabOf(sheet);
-  const [tab, setTab] = useState<MgrTab>(want);
-  // 開著時 sheet 換了籤（又被叫一次、帶不同的 tab）⇒ 跟著換；使用者自己點籤不受影響（want 沒變就不動）
-  useEffect(() => setTab(want), [want]);
+  const pendingChainsTab = useTimetableChainStore((s) => s.pendingOpenManager);
+  const [tab, setTab] = useState<MgrTab>(() => (pendingChainsTab ? "chains" : want));
+  const prevWant = useRef(want);
+  // 開著時 sheet 換了籤（又被叫一次、帶不同的 tab）⇒ 跟著換；從行為鏈入口點開 ⇒ 切至行為鏈籤；使用者自己點籤不受影響
+  useEffect(() => {
+    if (pendingChainsTab) {
+      useTimetableChainStore.getState().consumePendingOpenManager();
+      setTab("chains");
+      return;
+    }
+    if (prevWant.current !== want) {
+      prevWant.current = want;
+      setTab(want);
+    }
+  }, [want, pendingChainsTab]);
 
   const tabsId = useId();
   const panelId = (k: MgrTab): string => `${tabsId}-panel-${k}`;
@@ -635,7 +650,7 @@ export function CategoryManagerPanel(_props: PanelProps) {
   return (
     <div className="ns-tt-panel ns-tt-panel-mgr">
       <div ref={tabsRef} className="ns-tt-mgr-tabs">
-        <Tabs items={TABS} value={tab} onChange={setTab} size="md" aria-label="分類與設定分頁" getPanelId={panelId} />
+        <Tabs items={TABS} value={tab} onChange={setTab} size="md" scroll aria-label="分類與設定分頁" getPanelId={panelId} />
       </div>
       {/* Tabs 不給籤鈕 id，分頁內容用 aria-label（籤名）命名（同設定頁） */}
       <div role="tabpanel" id={panelId(tab)} aria-label={current.label} className="ns-tt-mgr-tabpanel">
@@ -658,6 +673,7 @@ export function CategoryManagerPanel(_props: PanelProps) {
             }}
           />
         )}
+        {tab === "chains" && <ChainsTab />}
       </div>
     </div>
   );

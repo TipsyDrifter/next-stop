@@ -48,6 +48,7 @@ import { nodeRepo } from "../data";
 import { todayKey } from "../lib/date";
 import { blockSyncLabel, categorySyncLabel, goalSyncLabel, planSyncLabel, routineSyncLabel, type SyncLabelLookup } from "./timetableSyncLabel";
 import { useTimetablePlanStore } from "../store/timetablePlanStore";
+import { useTimetableChainStore } from "../store/timetableChainStore";
 import { slotsOfNode } from "../domain/timetableRoutine";
 import type { SyncRowLabel } from "./types";
 import { TIMETABLE_TAG_ENTITIES, gotoTimetable } from "./timetableTagEntities";
@@ -58,10 +59,11 @@ import { timetableReportJump } from "./timetableReport";
 export const TIMETABLE_MOUNT: LineMount = {
   desktopView: TimetableView,
   mobileView: MobileTimetable,
-  // ⑦：作息範本與預定另一個 store（只認 time_routines／time_plans；wiped 時清快取）
+  // ⑦：作息範本與預定另一個 store（只認 time_routines／time_plans；wiped 時清快取）；v1.39 4B：同步重載行為鏈
   reload: async (ctx) => {
     await useTimetableStore.getState().reload(ctx);
     await useTimetablePlanStore.getState().reload(ctx);
+    await useTimetableChainStore.getState().reload(ctx);
   },
   // 桌機全域代理：系統匣顯示運行中（回 null、零 DOM）
   desktopOverlay: TimetableDesktopAgent,

@@ -69,7 +69,7 @@ export function WorkLogList({ nodeId }: { nodeId: string }) {
     <div>
       <input
         type="text"
-        aria-label="新增工作日誌"
+        aria-label="新增乘務記錄"
         placeholder="寫一行剛才做了什麼，Enter 記下"
         value={draft}
         disabled={busy}
@@ -89,7 +89,7 @@ export function WorkLogList({ nodeId }: { nodeId: string }) {
       {logs === undefined ? (
         <p className="empty">讀取中…</p>
       ) : sorted.length === 0 ? (
-        <p className="empty">還沒有工作日誌——做完一段就記一行。</p>
+        <p className="empty">還沒有乘務記錄——做完一段就記一行。</p>
       ) : (
         <ul className="log">
           {sorted.map((l) => {

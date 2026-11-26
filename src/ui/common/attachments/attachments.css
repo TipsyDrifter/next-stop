@@ -1,0 +1,427 @@
+/* ─────────────────────────────────────────────────────
+ * attachments.css — 跨模組輕量相片附件櫃與燈箱（v1.39 4A-1）
+ * 嚴守《視覺規範》：全站語意層 CSS Tokens（零 #hex／rgb），5 階圓角（卡 --radius-card、控件 --radius-ctl）。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══════════ 輕量計數小徽章（清單列用；絕不載圖） ═══════════ */
+.ns-att-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 4%, transparent);
+  color: var(--color-ink-soft);
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  vertical-align: middle;
+}
+.ns-att-badge svg {
+  flex: none;
+  opacity: .78;
+}
+
+/* ═══════════ 表單／側板相片附件區（PhotoAttachmentField） ═══════════ */
+.ns-att-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  outline: none;
+}
+
+.ns-att-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ns-att-thumb {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  flex: none;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-paper-used);
+  overflow: hidden;
+  box-shadow: var(--glass-hi);
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.ns-att-thumb:hover {
+  border-color: var(--accent);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+  transform: translateY(-1px);
+}
+
+.ns-att-thumb-hit {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.ns-att-thumb-hit:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.ns-att-thumb-hit img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ns-att-thumb-cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 1px 4px;
+  background: color-mix(in srgb, var(--color-book) 68%, transparent);
+  color: var(--color-book-ink);
+  font-size: var(--fs-micro);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.ns-att-thumb-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-paper-high) 90%, transparent);
+  color: var(--color-ink);
+  font-size: var(--fs-xs);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.ns-att-thumb:hover .ns-att-thumb-del,
+.ns-att-thumb:focus-within .ns-att-thumb-del {
+  opacity: 1;
+}
+.ns-att-thumb-del:hover {
+  color: var(--danger);
+  background: var(--color-paper-high);
+}
+.ns-att-thumb-del:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-att-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font: inherit;
+  font-size: var(--fs-xs);
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.ns-att-add.is-tile {
+  flex-direction: column;
+  width: 62px;
+  height: 62px;
+  padding: 4px;
+  gap: 2px;
+  border-radius: var(--radius-card);
+  font-size: var(--fs-micro);
+}
+.ns-att-add:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+.ns-att-add:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.ns-att-add:disabled {
+  opacity: var(--disabled);
+  cursor: not-allowed;
+}
+
+.ns-att-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+  letter-spacing: .04em;
+}
+.ns-att-meta-row .cnt {
+  font-family: var(--font-latin);
+  font-variant-numeric: tabular-nums;
+}
+
+.ns-att-filein {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ═══════════ 相片燈箱（PhotoLightbox） ═══════════ */
+.ns-att-lb-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--color-book) 62%, transparent);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  box-sizing: border-box;
+}
+
+.ns-att-lb-card {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  outline: none;
+}
+
+.ns-att-lb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px dashed var(--color-line);
+}
+
+.ns-att-lb-hmeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.ns-att-lb-idx {
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-soft);
+}
+
+.ns-att-lb-src {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: var(--color-paper-used);
+  color: var(--color-ink);
+  font-size: var(--fs-xs);
+  letter-spacing: .04em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-att-lb-hacts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.ns-att-lb-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  max-height: 62vh;
+  padding: 16px 44px;
+  background: color-mix(in srgb, var(--color-ink) 4%, transparent);
+  overflow: hidden;
+}
+
+.ns-att-lb-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(62vh - 32px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--shadow-card);
+}
+
+.ns-att-lb-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: var(--color-paper-high);
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.ns-att-lb-nav.is-prev { left: 8px; }
+.ns-att-lb-nav.is-next { right: 8px; }
+.ns-att-lb-nav:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+.ns-att-lb-nav:disabled {
+  opacity: var(--disabled);
+  cursor: not-allowed;
+}
+.ns-att-lb-nav:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ns-att-lb-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  border-top: 1px dashed var(--color-line);
+}
+
+.ns-att-lb-caprow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ns-att-lb-capin {
+  flex: 1;
+  min-width: 0;
+  height: var(--ctl-input);
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 1px solid var(--color-dash);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.ns-att-lb-capin:focus {
+  border-bottom-color: var(--accent);
+}
+.ns-att-lb-capin::placeholder {
+  color: var(--color-ink-faint);
+}
+
+.ns-att-lb-captxt {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ns-att-lb-bot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ns-att-lb-dims {
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════ 手機適配 ═══════════ */
+[data-shell="mobile"] .ns-att-thumb {
+  width: 72px;
+  height: 72px;
+}
+[data-shell="mobile"] .ns-att-add.is-tile {
+  width: 72px;
+  height: 72px;
+}
+[data-shell="mobile"] .ns-att-thumb-del {
+  opacity: .92;
+  width: 24px;
+  height: 24px;
+}
+[data-shell="mobile"] .ns-att-add {
+  min-height: 40px;
+}
+[data-shell="mobile"] .ns-att-lb-veil {
+  padding: 12px;
+}
+[data-shell="mobile"] .ns-att-lb-stage {
+  padding: 12px 10px;
+  max-height: 55vh;
+}
+[data-shell="mobile"] .ns-att-lb-stage img {
+  max-height: calc(55vh - 24px);
+}
+[data-shell="mobile"] .ns-att-lb-nav {
+  width: 38px;
+  height: 38px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-att-thumb,
+  .ns-att-thumb-del,
+  .ns-att-add,
+  .ns-att-lb-nav {
+    transition: none;
+  }
+  .ns-att-thumb:hover {
+    transform: none;
+  }
+}

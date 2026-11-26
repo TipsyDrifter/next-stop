@@ -100,7 +100,7 @@ mod backend {
 
     fn entry(app: &AppHandle) -> Result<keyring::Entry, String> {
         keyring::Entry::new(&service_of(app), ENTRY)
-            .map_err(|_| "打不開系統憑證庫（Windows 認證管理員）。".to_string())
+            .map_err(|_| "打不開系統保存密碼的地方（Windows 認證管理員），暫時讀不到同步憑證。".to_string())
     }
 
     pub fn load(app: &AppHandle) -> Result<Option<SyncCredentials>, String> {
@@ -109,23 +109,23 @@ mod backend {
             // 不含值，帶出來才好診斷（不會洩漏憑證）。
             Ok(json) => serde_json::from_str(&json)
                 .map(Some)
-                .map_err(|e| format!("系統憑證庫裡的同步設定讀不懂（{e}），請在設定裡「重設」後重新啟用。")),
+                .map_err(|e| format!("讀不懂這台的同步憑證（{e}），請先在設定裡按「重新加入同步」重新設定。")),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err("讀取系統憑證庫失敗。".into()),
+            Err(_) => Err("暫時讀不到系統保存的同步憑證，請試著重開私鐵手帳。".into()),
         }
     }
 
     pub fn save(app: &AppHandle, creds: &SyncCredentials) -> Result<(), String> {
-        let json = serde_json::to_string(creds).map_err(|_| "同步設定序列化失敗。".to_string())?;
+        let json = serde_json::to_string(creds).map_err(|_| "無法整理同步憑證格式。".to_string())?;
         entry(app)?
             .set_password(&json)
-            .map_err(|_| "寫入系統憑證庫失敗。".to_string())
+            .map_err(|_| "沒辦法把同步憑證存進系統，請確認權限或重開私鐵手帳後再試。".to_string())
     }
 
     pub fn clear(app: &AppHandle) -> Result<(), String> {
         match entry(app)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err("清除系統憑證庫失敗。".into()),
+            Err(_) => Err("無法清除系統裡保存的同步憑證，請稍後再試。".into()),
         }
     }
 }
@@ -144,9 +144,9 @@ mod backend {
         let dir = app
             .path()
             .app_data_dir()
-            .map_err(|_| "找不到 app 私有目錄。".to_string())?
+            .map_err(|_| "找不到私鐵手帳的資料夾，無法讀取同步設定。".to_string())?
             .join("sync");
-        fs::create_dir_all(&dir).map_err(|_| "建立同步設定目錄失敗。".to_string())?;
+        fs::create_dir_all(&dir).map_err(|_| "無法建立同步設定資料夾。".to_string())?;
         Ok(dir.join("credstore.json"))
     }
 
@@ -155,10 +155,10 @@ mod backend {
         if !p.exists() {
             return Ok(None);
         }
-        let json = fs::read_to_string(&p).map_err(|_| "讀取同步設定失敗。".to_string())?;
+        let json = fs::read_to_string(&p).map_err(|_| "暫時讀不到同步設定，請試著重開私鐵手帳。".to_string())?;
         serde_json::from_str(&json)
             .map(Some)
-            .map_err(|e| format!("同步設定讀不懂（{e}），請在「同步」裡重設後重新加入。"))
+            .map_err(|e| format!("這台的同步設定無法讀取（{e}），請在同步設定裡按「重新加入同步」重新設定。"))
     }
 
     /// 工程評審 S-11：**先寫 `.tmp` 再 rename**（同 `backup.rs` 換檔的手法）。
@@ -167,8 +167,8 @@ mod backend {
     pub fn save(app: &AppHandle, creds: &SyncCredentials) -> Result<(), String> {
         let p = path_of(app)?;
         let tmp = p.with_extension("json.tmp");
-        let json = serde_json::to_string(creds).map_err(|_| "同步設定序列化失敗。".to_string())?;
-        fs::write(&tmp, json).map_err(|_| "寫入同步設定失敗。".to_string())?;
+        let json = serde_json::to_string(creds).map_err(|_| "無法整理同步憑證格式。".to_string())?;
+        fs::write(&tmp, json).map_err(|_| "無法儲存同步設定，請確認裝置儲存空間後再試。".to_string())?;
         // app 私有目錄本來就只有自己讀得到；再收一次權限當保險（其他 app 的 uid 不同）。
         // 在 rename **之前**收，正式檔才不會有一瞬間是寬權限的。
         #[cfg(unix)]
@@ -178,14 +178,14 @@ mod backend {
         }
         fs::rename(&tmp, &p).map_err(|_| {
             let _ = fs::remove_file(&tmp);
-            "寫入同步設定失敗。".to_string()
+            "無法儲存同步設定，請確認裝置儲存空間後再試。".to_string()
         })
     }
 
     pub fn clear(app: &AppHandle) -> Result<(), String> {
         let p = path_of(app)?;
         if p.exists() {
-            fs::remove_file(&p).map_err(|_| "清除同步設定失敗。".to_string())?;
+            fs::remove_file(&p).map_err(|_| "無法清除同步設定，請稍後再試。".to_string())?;
         }
         Ok(())
     }

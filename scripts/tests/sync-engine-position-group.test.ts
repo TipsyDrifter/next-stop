@@ -136,7 +136,7 @@ const TICKET_IMPLS: { name: string; make: () => Promise<{ repo: AnyRepo; db: Tes
   {
     name: "sqlite",
     make: async () => {
-      const db = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql"]);
+      const db = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql", "0027_ticket_v138.sql"]);
       setDb(db);
       const { SqliteTicketRepository } = await import("../../src/data/sqliteTicketRepository.ts");
       return { repo: new SqliteTicketRepository(), db };
@@ -215,8 +215,8 @@ describe("#101 售票口：相鄰互換寫整組", () => {
   }
 
   test("兩台各排同一群組 ⇒ 整組 LWW，收斂成 hlc 較大那台的完整版本（sqlite 兩個庫）", async () => {
-    const devA = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql"]);
-    const devB = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql"]);
+    const devA = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql", "0027_ticket_v138.sql"]);
+    const devB = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql", "0027_ticket_v138.sql"]);
     const { SqliteTicketRepository } = await import("../../src/data/sqliteTicketRepository.ts");
     const repo = new SqliteTicketRepository();
 
@@ -291,7 +291,7 @@ const TIME_IMPLS: { name: string; make: () => Promise<{ repo: AnyRepo; db: TestD
   {
     name: "sqlite",
     make: async () => {
-      const db = makeDb(["0006_timetable_blocks.sql", "0011_timetable_goals.sql"]);
+      const db = makeDb(["0006_timetable_blocks.sql", "0011_timetable_goals.sql", "0015_timetable_plans.sql", "0028_attachments_and_chains.sql"]);
       setDb(db);
       const { SqliteTimetableRepository } = await import("../../src/data/sqliteTimetableRepository.ts");
       return { repo: new SqliteTimetableRepository({ tagRepo: null }), db };
@@ -346,8 +346,8 @@ describe("#101 時刻表分類：reorderCategories 寫整組並對帳", () => {
   }
 
   test("兩台各排同一層 ⇒ 整組 LWW 收斂成 hlc 較大那台的完整版本（sqlite 兩個庫）", async () => {
-    const devA = makeDb(["0006_timetable_blocks.sql", "0011_timetable_goals.sql"]);
-    const devB = makeDb(["0006_timetable_blocks.sql", "0011_timetable_goals.sql"]);
+    const devA = makeDb(["0006_timetable_blocks.sql", "0011_timetable_goals.sql", "0015_timetable_plans.sql", "0028_attachments_and_chains.sql"]);
+    const devB = makeDb(["0006_timetable_blocks.sql", "0011_timetable_goals.sql", "0015_timetable_plans.sql", "0028_attachments_and_chains.sql"]);
     const { SqliteTimetableRepository } = await import("../../src/data/sqliteTimetableRepository.ts");
     const repo = new SqliteTimetableRepository({ tagRepo: null });
 

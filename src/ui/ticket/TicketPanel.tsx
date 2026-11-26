@@ -48,6 +48,8 @@ import { ClockInput, clockDraftsOkIn } from "../common/ClockInput";
 import { DatePicker } from "../common/DatePicker";
 import { RecallInput } from "../common/RecallInput";
 import { EntityTagField } from "../common/EntityTagField";
+import { PhotoAttachmentField } from "../common/attachments/PhotoAttachmentField";
+import type { AttachmentDraft } from "../../domain/attachments";
 import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { rowContextMenu } from "../common/contextMenu";
 import {
@@ -307,8 +309,9 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   const feeRef = useRef<HTMLInputElement>(null);
   const store = useTicketStore.getState;
   const today = todayKey(dayStartHour);
-  /* 售票口④：品項記憶帶上次分類（「照上次 · 復原」）、「存成常用…」小浮層；v1.38 分期刪除三段選單 */
+  /* 售票口④：品項記憶帶上次分類（「照上次 · 復原」）、「存成常用…」小浮層；v1.38 分期刪除三段選單；v1.39 新票暫存票根相片 */
   const [autoCat, setAutoCat] = useState<{ id: string; prev: string | null } | null>(null);
+  const [photoDrafts, setPhotoDrafts] = useState<AttachmentDraft[]>([]);
   const [savePop, setSavePop] = useState(false);
   const [delMenuAt, setDelMenuAt] = useState<HTMLElement | null>(null);
   const saveBtnRef = useRef<HTMLButtonElement>(null);
@@ -590,8 +593,11 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
      不擋的話打的字已還原成舊時刻，會默默存進去）。 */
   const save = async (again: boolean) => {
     if (!clockDraftsOkIn(ticketRef.current)) return;
-    const ok = await store().saveDraft({ again });
-    if (ok) setAutoCat(null);
+    const ok = await store().saveDraft({ again, attachments: photoDrafts });
+    if (ok) {
+      setAutoCat(null);
+      setPhotoDrafts([]);
+    }
     if (ok && again) amtRef.current?.focus();
   };
   const onTicketKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -1023,7 +1029,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                     {route.name}
                   </>
                 ) : (
-                  "不掛"
+                  "不選"
                 )}
               </button>
               {pop === "route" && (
@@ -1047,6 +1053,27 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               <EntityTagField value={draft?.tags ?? []} onChange={(tags) => store().setDraft({ tags })} resetKey="new" suggestInline />
             ) : (
               row && <EntityTagField entityType={TK_TAG_ENTRY} entityId={row.id} suggestInline />
+            )}
+          </FieldLine>
+          {/* v1.39 4A：票根・相片附件櫃（新票暫存草稿，存檔時批次寫入；舊票按需載入與即時寫入） */}
+          <FieldLine label="票根・相片" top className="is-att">
+            {isNew ? (
+              <PhotoAttachmentField
+                mode="draft"
+                drafts={photoDrafts}
+                onChangeDrafts={setPhotoDrafts}
+                addLabel="貼上票根／相片"
+                sourceLabel="新記帳・票根"
+              />
+            ) : (
+              row && (
+                <PhotoAttachmentField
+                  entityType="ticket:entry"
+                  entityId={row.id}
+                  addLabel="貼上票根／相片"
+                  sourceLabel={vm.item.trim() || (vm.categoryId ? (useTicketStore.getState().catById[vm.categoryId]?.name ?? "票根") : "售票口票根")}
+                />
+              )
             )}
           </FieldLine>
           {/* v1.38 3B：新支出刷卡分期設定 */}

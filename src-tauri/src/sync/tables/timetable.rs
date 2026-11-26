@@ -28,6 +28,7 @@ const TIME_BLOCKS_COLS: &[(&str, bool)] = &[
     ("route_id", false),
     ("long_run_ack", true),
     ("note", false),
+    ("location", false),
     ("created_at", false),
     ("updated_at", false),
     ("deleted_at", false),
@@ -68,6 +69,17 @@ const TIME_STAT_TOPICS_COLS: &[(&str, bool)] = &[
     ("name", false),
     ("scope", false),
     ("day_start_hour", true),
+    ("position", true),
+    ("archived_at", false),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// time_chains 的「主人資料」欄（第八本第四梯 v1.39：行為鏈計時模板）。
+const TIME_CHAINS_COLS: &[(&str, bool)] = &[
+    ("name", false),
+    ("steps", false),
     ("position", true),
     ("archived_at", false),
     ("created_at", false),
@@ -226,6 +238,25 @@ pub const TABLES: &[SyncTableSpec] = &[
             conflict_anchor: ConflictAnchor::None,
             alive_filter: Some("deleted_at IS NULL"),
             since: Some("v133_stats_and_prefs"),
+        }),
+    },
+    SyncTableSpec {
+        name: "time_chains",
+        pk: "id",
+        columns: TIME_CHAINS_COLS,
+        required: &["name"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "position, created_at",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "position",
+            fk_checked: false,
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("attachments_and_chains"),
         }),
     },
 ];

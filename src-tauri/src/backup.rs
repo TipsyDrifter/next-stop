@@ -246,7 +246,7 @@ fn sqlx_msg(action: &str, path: &Path, e: &sqlx::Error) -> String {
     if low.contains("unable to open database file") {
         format!("{action}失敗：打不開 {p}——路徑不存在、沒有權限，或這個檔還留在雲端沒下載下來（OneDrive／pCloud 的佔位檔）。")
     } else if low.contains("not a database") || low.contains("file is encrypted") {
-        format!("{action}失敗：{p} 不是 SQLite 資料庫檔（或已經毀損）。")
+        format!("{action}失敗：{p} 不是私鐵手帳的資料庫檔（或檔案已損毀）。")
     } else if low.contains("database is locked") || low.contains("busy") {
         format!("{action}失敗：資料庫被鎖住了（另一個私鐵手帳還開著？）。")
     } else if low.contains("readonly") || low.contains("read-only") {
@@ -596,7 +596,7 @@ fn copy_with_retry(src: &Path, dest: &Path) -> Result<(), String> {
         }
     }
     let _ = fs::remove_file(&tmp);
-    Err(io_msg("鏡射到第二備份位置", dest, &last.unwrap()))
+    Err(io_msg("複製到第二備份位置", dest, &last.unwrap()))
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -622,7 +622,7 @@ async fn validate(path: &Path) -> Result<FileInfo, String> {
                 path.display()
             )
         } else {
-            format!("{} 不是 SQLite 備份檔（檔頭對不上）。", path.display())
+            format!("{} 不是私鐵手帳的備份檔（檔案格式不符，檔頭對不上）。", path.display())
         });
     }
 
@@ -670,7 +670,7 @@ async fn validate(path: &Path) -> Result<FileInfo, String> {
     for need in ["settings", "nodes"] {
         if !tables.iter().any(|t| t == need) {
             return Err(format!(
-                "{} 裡沒有 `{need}` 表——這不是私鐵手帳的備份檔。",
+                "{} 缺少必要資料（{need}）——這不是私鐵手帳的備份檔。",
                 path.display()
             ));
         }
@@ -704,7 +704,7 @@ fn read_head(path: &Path, n: usize) -> io::Result<Vec<u8>> {
 pub async fn backup_startup_report(app: AppHandle) -> BackupReport {
     if app.try_state::<StartupState>().is_none() {
         return BackupReport::Error {
-            message: "啟動備份的狀態不見了（backup plugin 沒掛上？）。".into(),
+            message: "讀不到啟動時的自動備份紀錄，請重新啟動私鐵手帳再試。".into(),
         };
     }
     ensure_wal(&app).await;
@@ -774,10 +774,10 @@ async fn apply_policy_inner(
             let handle = tauri::async_runtime::spawn(async move {
                 tauri::async_runtime::spawn_blocking(move || mirror(&primary, &target, keep))
                     .await
-                    .unwrap_or_else(|e| SecondaryReport::err(format!("鏡射時發生非預期錯誤（{e}）。")))
+                    .unwrap_or_else(|e| SecondaryReport::err(format!("備份到第二位置時發生問題（{e}）。")))
             });
             Some(handle.await.unwrap_or_else(|e| {
-                SecondaryReport::err(format!("鏡射時發生非預期錯誤（{e}）。"))
+                SecondaryReport::err(format!("備份到第二位置時發生問題（{e}）。"))
             }))
         }
     };
@@ -951,7 +951,7 @@ pub async fn backup_restore(app: AppHandle, path: String) -> Result<(), String> 
         // 這一步已經在 pool 關掉之後：失敗要清掉 .tmp（不留垃圾），訊息也要說「請重新啟動」
         if let Err(e) = remove_sidecar(&side) {
             let _ = fs::remove_file(&tmp);
-            return Err(format!("{} {POST_CLOSE_HINT}", io_msg("清除 WAL 附屬檔", &side, &e)));
+            return Err(format!("{} {POST_CLOSE_HINT}", io_msg("清理資料庫暫存檔", &side, &e)));
         }
     }
 
@@ -1150,11 +1150,11 @@ pub async fn reset_database_keep_settings(app: AppHandle) -> Result<(), String> 
 
     let instances = app
         .try_state::<DbInstances>()
-        .ok_or_else(|| "資料庫還沒載入（sql plugin 尚未連線）。".to_string())?;
+        .ok_or_else(|| "資料庫還在載入中，請稍候再試一次。".to_string())?;
     let lock = instances.0.read().await;
     let pool = lock
         .get(DB_URL)
-        .ok_or_else(|| format!("找不到已連線的資料庫 {DB_URL}。"))?;
+        .ok_or_else(|| "目前讀不到資料庫連線，請重新啟動私鐵手帳後再試。".to_string())?;
     let DbPool::Sqlite(pool) = pool;
 
     for sql in reset_statements() {

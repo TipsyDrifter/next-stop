@@ -178,7 +178,7 @@ impl McpConfig {
 
 pub fn new_token() -> Result<String, String> {
     let mut buf = [0u8; 32];
-    getrandom::fill(&mut buf).map_err(|_| "取得系統亂數失敗。".to_string())?;
+    getrandom::fill(&mut buf).map_err(|_| "無法產生安全金鑰（系統亂數服務異常），請稍後再試。".to_string())?;
     Ok(B64.encode(buf))
 }
 
@@ -193,7 +193,7 @@ pub fn load_or_init(path: &Path, identifier: &str) -> Result<McpConfig, String> 
     let raw = match fs::read_to_string(path) {
         Ok(s) => Some(s),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("讀不到外部助理設定（{}）：{e}", path.display())),
+        Err(e) => return Err(format!("打不開外部助理設定檔（{}），請確認權限或稍後再試：{e}", path.display())),
     };
     let Some(raw) = raw else {
         let cfg = McpConfig::fresh(identifier)?;
@@ -235,15 +235,16 @@ pub fn load_or_init(path: &Path, identifier: &str) -> Result<McpConfig, String> 
 /// 先寫 `.tmp` 再 rename（Windows 的 rename 會蓋掉舊檔）
 pub fn save(path: &Path, cfg: &McpConfig) -> Result<(), String> {
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| format!("建立設定資料夾失敗：{e}"))?;
+        fs::create_dir_all(dir)
+            .map_err(|e| format!("無法建立外部助理設定資料夾，請確認寫入權限（{e}）"))?;
     }
     let json =
-        serde_json::to_string_pretty(cfg).map_err(|e| format!("外部助理設定序列化失敗：{e}"))?;
+        serde_json::to_string_pretty(cfg).map_err(|e| format!("無法整理外部助理設定格式（{e}）"))?;
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
-    fs::write(&tmp, json).map_err(|e| format!("寫入外部助理設定失敗：{e}"))?;
-    fs::rename(&tmp, path).map_err(|e| format!("寫入外部助理設定失敗：{e}"))
+    fs::write(&tmp, json).map_err(|e| format!("無法儲存外部助理設定（{e}）"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("無法儲存外部助理設定（{e}）"))
 }
 
 #[cfg(test)]

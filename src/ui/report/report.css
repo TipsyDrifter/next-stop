@@ -1303,3 +1303,111 @@ button.ns-rp-hist-dhead:hover .ns-rp-hist-go { opacity: .9; color: var(--accent)
   background: transparent;
 }
 [data-shell="mobile"] .ns-rp-spread-right { background: transparent; }
+
+/* ── v1.39 4A：單日跨頁時間塊地點與「當日生活掠影」相片條 ── */
+.ns-rp-spread-loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-loc svg {
+  flex: none;
+  color: var(--color-ink-faint);
+}
+
+.ns-rp-spread-photos {
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-dash);
+}
+.ns-rp-photo-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 10px;
+}
+.ns-rp-photo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-paper-high);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.ns-rp-photo-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.ns-rp-photo-card:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.ns-rp-photo-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-ctl);
+  background: var(--color-paper-soft);
+}
+.ns-rp-photo-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ns-rp-photo-kind {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  padding: 1px 6px;
+  border-radius: var(--radius-badge);
+  background: color-mix(in srgb, var(--color-paper-high) 88%, transparent);
+  border: 1px solid var(--color-line);
+  font-size: var(--fs-micro);
+  color: var(--color-ink-soft);
+  line-height: 1.4;
+}
+.ns-rp-photo-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 0 2px 2px;
+}
+.ns-rp-photo-meta .src {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ns-rp-photo-meta .sub {
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ns-rp-photo-meta .sub.is-num {
+  font-family: var(--font-latin);
+}
+
+[data-shell="mobile"] .ns-rp-photo-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}

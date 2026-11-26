@@ -57,6 +57,27 @@ export const tagRepo = {
 const FAKE_TAG_STORE = `${MINI_STORE}
 export const useTagStore = mk({ index: null, async loadIndex() {} });
 `;
+const FAKE_ATTACHMENT_REPO = `
+export const attachmentRepo = {
+  async listCountsByType() { return new Map(); },
+  async listAllCounts() { return new Map(); },
+  async listByEntity() { return []; },
+  async listByEntities() { return []; },
+  async addAttachment() { return null; },
+  async updateCaption() {},
+  async deleteAttachment() {},
+};
+`;
+const FAKE_ATTACHMENT_STORE = `${MINI_STORE}
+export const useAttachmentStore = mk({
+  counts: {},
+  revision: 0,
+  async loadCounts() {},
+  async refreshAll() {},
+  getCount() { return 0; },
+  bumpCount() {},
+});
+`;
 
 const dataUrl = (src: string) => "data:text/javascript," + encodeURIComponent(src);
 
@@ -74,6 +95,8 @@ registerHooks({
         if (specifier === "./nodeStore") return { url: dataUrl(FAKE_NODE), shortCircuit: true };
         if (specifier === "../data/tagRepo") return { url: dataUrl(FAKE_TAG_REPO), shortCircuit: true };
         if (specifier === "./tagStore") return { url: dataUrl(FAKE_TAG_STORE), shortCircuit: true };
+        if (specifier === "../data/attachmentRepo") return { url: dataUrl(FAKE_ATTACHMENT_REPO), shortCircuit: true };
+        if (specifier === "./attachmentStore") return { url: dataUrl(FAKE_ATTACHMENT_STORE), shortCircuit: true };
       }
       if (specifier.startsWith(".") && !/\.[a-z]+$/i.test(specifier)) return nextResolve(specifier + ".ts", context);
     }

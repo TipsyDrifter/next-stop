@@ -36,6 +36,7 @@ export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> 
   time_routines: { noun: "作息範本", unit: "套" }, // ⑦
   time_plans: { noun: "一段預定", unit: "段" }, // ⑦：作息落地的段、車票第二段起
   time_stat_topics: { noun: "統計專題", unit: "個" }, // v1.33 G1 / 功能 2
+  time_chains: { noun: "行為鏈", unit: "條" }, // v1.39 第四梯 4B
   tk_currencies: { noun: "幣別", unit: "個" },
   tk_accounts: { noun: "帳戶", unit: "個" },
   tk_categories: { noun: "帳目分類", unit: "個" },
@@ -49,6 +50,7 @@ export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> 
   week_aims: { noun: "方針", unit: "句" }, // 戊 D-主-263
   ideal_cards: { noun: "風景卡", unit: "幀" }, // 第六本第四梯 v1.30 D-主-560
   ideal_reflections: { noun: "車窗問答", unit: "則" }, // 第六本第四梯 v1.30 D-主-562
+  attachments: { noun: "相片附件", unit: "張" }, // 第八本第四梯 v1.39 D-1.36-5
 };
 
 const UNKNOWN_NOUN = { noun: "一筆資料", unit: "筆" } as const;

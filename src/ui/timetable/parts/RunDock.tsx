@@ -19,15 +19,18 @@
  * 放掉後焦點落 body，TimetableView 在面板關掉時把焦點還給根節點。
  */
 import { MIN, fmtClock, fmtDur, fmtHMS, msOf } from "../../../domain/timetable";
+import { formatChainDuration, resolveStepTitle } from "../../../domain/timetableChain";
 import { focusBlockTags } from "../../../domain/timetableTags";
 import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
 import { linkLabelOf, linkOfRow, taskEstimateOf } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
+import { useTimetableChainStore } from "../../../store/timetableChainStore";
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
 import { TagPills } from "../../common/TagPills";
 import { CategoryBadge } from "../CategoryBadge";
 import { useTimetableTagMaps } from "./TimetableTagChips";
 import { useNow } from "../useNow";
+import "../timetable-chains.css";
 
 export interface RunDockProps {
   variant: "mobile" | "desktop";
@@ -54,6 +57,9 @@ export function RunDock({ variant }: RunDockProps) {
   const requestDepart = useTimetableStore((s) => s.requestDepart);
   const requestArrive = useTimetableStore((s) => s.requestArrive);
   const openSheet = useTimetableStore((s) => s.openSheet);
+  const activeChain = useTimetableChainStore((s) => s.active);
+  const advanceChainStep = useTimetableChainStore((s) => s.advanceChainStep);
+  const exitChain = useTimetableChainStore((s) => s.exitChain);
   const tagMaps = useTimetableTagMaps();
   const now = useNow(1000);
   const desk = variant === "desktop";
@@ -103,8 +109,20 @@ export function RunDock({ variant }: RunDockProps) {
       <span className="ns-tt-dock-st">預計 {fmtDur(taskEst * MIN)}</span>
     ) : null;
 
+  const chainOn =
+    activeChain !== null &&
+    (activeChain.runningBlockId === null || activeChain.runningBlockId === running.id) &&
+    activeChain.steps.length > 0 &&
+    activeChain.stepIndex >= 0 &&
+    activeChain.stepIndex < activeChain.steps.length;
+  const curStep = chainOn ? activeChain.steps[activeChain.stepIndex] : null;
+  const nextStep = chainOn && activeChain.stepIndex + 1 < activeChain.steps.length ? activeChain.steps[activeChain.stepIndex + 1] : null;
+  const isFinalStep = chainOn && nextStep === null;
+  const curStepTitle = curStep ? resolveStepTitle(curStep, catById[curStep.categoryId]?.name) : "";
+  const nextStepTitle = nextStep ? resolveStepTitle(nextStep, catById[nextStep.categoryId]?.name) : "";
+
   return (
-    <div className={"ns-tt-dock is-" + variant + (pending ? " is-long" : "")}>
+    <div className={"ns-tt-dock is-" + variant + (pending ? " is-long" : "") + (chainOn ? " has-chain" : "")}>
       <button
         type="button"
         className="ns-tt-dock-edit"
@@ -144,6 +162,65 @@ export function RunDock({ variant }: RunDockProps) {
       <button type="button" className="ns-btn btn-seal" onClick={requestArrive}>
         到着{desk && <Kbd id="timetable.arrive" />}
       </button>
+      {chainOn && activeChain && (
+        <div className="ns-tt-dock-chain" role="region" aria-label={`行為鏈進行中：${activeChain.chainName}`}>
+          <div className="ns-tt-dock-chain-info">
+            <div className="ns-tt-dock-chain-head">
+              <span className="ns-tt-dock-chain-name" title={activeChain.chainName}>
+                {activeChain.chainName}
+              </span>
+              <span className="ns-tt-dock-chain-badge">
+                {activeChain.stepIndex + 1}/{activeChain.steps.length}
+              </span>
+              <span className="ns-tt-dock-chain-step" title={curStepTitle}>
+                {curStepTitle}
+              </span>
+            </div>
+            {activeChain.steps.length <= 8 && (
+              <div className="ns-tt-dock-chain-track" aria-hidden="true">
+                {activeChain.steps.map((_, idx) => (
+                  <span key={idx} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    {idx > 0 && <span className={"ns-tt-dock-chain-seg" + (idx <= activeChain.stepIndex ? " is-done" : "")} />}
+                    <span
+                      className={
+                        "ns-tt-dock-chain-node" +
+                        (idx < activeChain.stepIndex ? " is-done" : idx === activeChain.stepIndex ? " is-cur" : "")
+                      }
+                    />
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="ns-tt-dock-chain-nextlbl">
+              {nextStep
+                ? `下一站：${nextStepTitle} · ${formatChainDuration(nextStep.estimateMin)}`
+                : "本班為最後一站"}
+            </div>
+          </div>
+          <div className="ns-tt-dock-chain-acts">
+            <button
+              type="button"
+              className="ns-btn btn-text ns-tt-dock-chain-exit"
+              title="只脫離行為鏈追蹤，保留目前計時繼續跑"
+              onClick={(e) => blurThen(e, exitChain)}
+            >
+              脫離
+            </button>
+            <button
+              type="button"
+              className={"ns-btn btn-ghost ns-tt-dock-chain-next" + (isFinalStep ? " is-final" : "")}
+              title={
+                isFinalStep
+                  ? `完成行為鏈「${activeChain.chainName}」並結束本班計時`
+                  : `結束目前步驟並切換發車：${nextStepTitle}`
+              }
+              onClick={(e) => blurThen(e, () => void advanceChainStep())}
+            >
+              {isFinalStep ? "終點到着 ✓" : "下一站 ›"}
+            </button>
+          </div>
+        </div>
+      )}
       {pending && (
         <button
           type="button"

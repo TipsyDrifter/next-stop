@@ -316,6 +316,8 @@ export interface ReportDayBlockItem {
   taskName: string | null;
   routeId: string | null;
   note: string;
+  /** v1.39 4A：時間塊地點（選填） */
+  location?: string | null;
 }
 
 export interface ReportDayTimeDetail {
@@ -393,6 +395,24 @@ export interface ReportWorkLogItem extends ReportWorkLogFact {
   clock: string;
 }
 
+/** v1.39 4A：單日跨頁「當日生活掠影」相片項（按需載入，只出現於單日跨頁） */
+export interface ReportDayPhotoItem {
+  attachmentId: string;
+  entityType: "ticket:entry" | "timetable:block";
+  entityId: string;
+  photoData: string;
+  caption: string;
+  /** 來源簡標（例如「時刻表 · 學習」或「售票口 · 午餐」） */
+  sourceLabel: string;
+  /** 時間塊地點（若有） */
+  location?: string | null;
+  /** 時刻簡標（例如「13:30–14:20」或「12:15」） */
+  timeLabel?: string | null;
+  width?: number | null;
+  height?: number | null;
+  byteSize?: number | null;
+}
+
 export interface ReportDaySpreadData {
   day: string;
   isToday: boolean;
@@ -408,6 +428,8 @@ export interface ReportDaySpreadData {
   diaries: readonly ReportSpreadDiaryEntry[] | null;
   /** 當日「車窓の問い」問答手札（無回答時為空陣列） */
   reflections: readonly ReportSpreadReflection[];
+  /** v1.39 4A：當日生活掠影（售票口票根＋時刻表活動相片，按需載入；無相片為空陣列） */
+  photos: readonly ReportDayPhotoItem[];
 }
 
 export interface SingleDaySpreadFacts {
@@ -418,6 +440,8 @@ export interface SingleDaySpreadFacts {
   seals: readonly ReportSealItemFact[];
   /** 當日乘務記錄手記原始列（未傳預設空陣列） */
   workLogs?: readonly ReportWorkLogFact[];
+  /** v1.39 4A：當日生活掠影相片清單（未傳預設空陣列） */
+  photos?: readonly ReportDayPhotoItem[];
   time: ReportTimeFacts | null;
   money: { expenses: readonly ReportExpenseFact[]; decimals: number } | null;
   /** 旅客筆記通車時傳入當日日記列；未通車傳 null */
@@ -1376,6 +1400,7 @@ export function buildSingleDaySpread(input: SingleDaySpreadFacts, now: number): 
     moods,
     diaries,
     reflections,
+    photos: input.photos ? input.photos.slice() : [],
   };
 }
 

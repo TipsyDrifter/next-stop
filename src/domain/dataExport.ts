@@ -34,7 +34,7 @@ export type ExportTables = Record<string, ExportRow[]>;
 const TAG_TABLES = ["tags", "taggings"] as const;
 const TASK_TABLES = ["nodes", "work_logs", "occurrences", "node_time_overrides", "week_aims", "stamps", "ideal_cards", "ideal_reflections"] as const;
 const NOTE_TABLES = ["notes"] as const;
-const TIMETABLE_TABLES = ["time_categories", "time_blocks", "time_goals", "time_routines", "time_plans", "time_stat_topics"] as const;
+const TIMETABLE_TABLES = ["time_categories", "time_blocks", "time_goals", "time_routines", "time_plans", "time_stat_topics", "time_chains"] as const;
 const TICKET_TABLES = [
   "tk_currencies",
   "tk_accounts",
@@ -47,8 +47,8 @@ const TICKET_TABLES = [
   "tk_templates",
 ] as const;
 
-/** 有意不匯出的同步表（裝置本地設定，不是主人的資料） */
-export const EXPORT_SKIPPED_TABLES: readonly string[] = ["settings"];
+/** 有意不匯出的同步表（裝置本地設定；相片附件內含壓縮圖片資料，由完整備份與雲端快照保護、不膨脹純文字匯出） */
+export const EXPORT_SKIPPED_TABLES: readonly string[] = ["settings", "attachments"];
 
 export interface ExportScopeInfo {
   id: ExportScope;

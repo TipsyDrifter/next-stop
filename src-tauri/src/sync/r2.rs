@@ -56,7 +56,7 @@ impl R2Client {
             // 只准 https：憑證與密文都不該裸奔
             .with_allow_http(false)
             .build()
-            .map_err(|e| friendly(&e, "連線設定不正確"))?;
+            .map_err(|e| friendly(&e, "雲端連線設定不正確"))?;
         Ok(Self { cfg, store })
     }
 
@@ -68,7 +68,7 @@ impl R2Client {
         match stream.next().await {
             None => Ok(()),
             Some(Ok(_)) => Ok(()),
-            Some(Err(e)) => Err(friendly(&e, "連不上雲端置物櫃")),
+            Some(Err(e)) => Err(friendly(&e, "連不上雲端同步空間")),
         }
     }
 
@@ -132,13 +132,13 @@ impl R2Client {
         if after.is_empty() {
             let mut stream = self.store.list(Some(&p));
             while let Some(item) = stream.next().await {
-                keys.push(item.map_err(|e| friendly(&e, "列出同步資料失敗"))?.location.to_string());
+                keys.push(item.map_err(|e| friendly(&e, "無法讀取雲端同步清單"))?.location.to_string());
             }
         } else {
             let offset = ObjPath::from(after);
             let mut stream = self.store.list_with_offset(Some(&p), &offset);
             while let Some(item) = stream.next().await {
-                keys.push(item.map_err(|e| friendly(&e, "列出同步資料失敗"))?.location.to_string());
+                keys.push(item.map_err(|e| friendly(&e, "無法讀取雲端同步清單"))?.location.to_string());
             }
         }
         keys.sort();
@@ -162,7 +162,7 @@ impl R2Client {
             .store
             .list_with_delimiter(Some(&p))
             .await
-            .map_err(|e| friendly(&e, "列出同步資料失敗"))?;
+            .map_err(|e| friendly(&e, "無法讀取雲端同步清單"))?;
         let mut v: Vec<String> = res.common_prefixes.iter().map(|x| x.to_string()).collect();
         v.sort();
         Ok(v)
@@ -176,7 +176,7 @@ impl R2Client {
         let mut out: Vec<(String, u64)> = Vec::new();
         let mut stream = self.store.list(Some(&p));
         while let Some(item) = stream.next().await {
-            let meta = item.map_err(|e| friendly(&e, "列出同步資料失敗"))?;
+            let meta = item.map_err(|e| friendly(&e, "無法讀取雲端同步清單"))?;
             out.push((meta.location.to_string(), meta.size as u64));
         }
         out.sort();
@@ -205,7 +205,7 @@ impl R2Client {
         self.store
             .delete(&ObjPath::from(key))
             .await
-            .map_err(|e| friendly(&e, "刪除同步資料失敗"))
+            .map_err(|e| friendly(&e, "刪除雲端同步資料失敗"))
     }
 
     pub fn bucket(&self) -> &str {
@@ -223,16 +223,16 @@ fn friendly(e: &object_store::Error, what: &str) -> String {
         E::NotFound { .. } => format!("{what}：雲端找不到這份資料（可能已被清掉）。"),
         E::NotModified { .. } => format!("{what}：雲端資料沒有變化。"),
         E::PermissionDenied { .. } | E::Unauthenticated { .. } => {
-            format!("{what}：雲端拒絕了這組金鑰（請確認 Access Key／Secret 與 bucket 權限）。")
+            format!("{what}：雲端拒絕了這組憑證，請確認 Access Key、Secret 與儲存空間權限是否正確。")
         }
         _ => {
             let raw = e.to_string();
             let hint = if raw.contains("401") || raw.contains("403") || raw.contains("SignatureDoesNotMatch") {
-                "雲端拒絕了這組金鑰（請確認 Access Key／Secret 與 bucket 權限）。"
+                "雲端拒絕了這組憑證，請確認 Access Key、Secret 與儲存空間權限是否正確。"
             } else if raw.contains("404") || raw.contains("NoSuchBucket") {
-                "找不到這個 bucket（請確認 bucket 名稱）。"
+                "找不到這個儲存空間，請確認 bucket 名稱是否填對。"
             } else if raw.contains("dns") || raw.contains("Dns") || raw.contains("resolve") {
-                "連不上雲端位址（請確認 endpoint 與網路）。"
+                "連不上這個雲端網址，請確認 endpoint 格式與網路連線。"
             } else {
                 "請確認網路與雲端設定後再試一次。"
             };
